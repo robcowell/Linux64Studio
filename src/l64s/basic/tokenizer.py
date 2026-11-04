@@ -281,8 +281,9 @@ def link_lines(lines: list[BasicLine], start: int = 0x0801, warnings: list[Basic
 
 # ---------------------------------------------------------------------- detokenizing
 
-def detokenize(prg: bytes, has_load_address: bool = True) -> str:
-    """Turn a tokenized BASIC program back into source text."""
+def detokenize(prg: bytes, has_load_address: bool = True, style: str = "standard") -> str:
+    """Turn a tokenized BASIC program back into source text, writing control codes in strings and
+    REMs in `style` (codestyles.STYLES)."""
     if has_load_address:
         if len(prg) < 2:
             raise BasicError("File is too short to be a program")
@@ -301,7 +302,7 @@ def detokenize(prg: bytes, has_load_address: bool = True) -> str:
         end = mem.find(b"\0", off + 4)
         if end == -1:
             raise BasicError(f"Line {number} has no end marker; this doesn't look like a BASIC program")
-        out_lines.append(f"{number} {list_line(mem[off + 4:end])}")
+        out_lines.append(f"{number} {list_line(mem[off + 4:end], style)}")
         nxt = link - start
         off = nxt if start <= link and nxt > off else end + 1
         guard += 1
@@ -310,8 +311,9 @@ def detokenize(prg: bytes, has_load_address: bool = True) -> str:
     return "\n".join(out_lines) + ("\n" if out_lines else "")
 
 
-def list_line(data: bytes) -> str:
+def list_line(data: bytes, style: str = "standard") -> str:
     """LIST one crunched line."""
+    from .codestyles import code_text
     parts = []
     in_quote = False
     in_rem = False
@@ -329,7 +331,8 @@ def list_line(data: bytes) -> str:
         if not in_quote and not in_rem and b == PI:
             parts.append("π")
             continue
-        parts.append(petscii_to_text(b, in_quote or in_rem))
+        parts.append(code_text(b, style) if style != "standard" and (in_quote or in_rem)
+                     else petscii_to_text(b, in_quote or in_rem))
     # Collapse runs of the same control code: {down}{down}{down} -> {3 down}
     out = []
     for p in parts:
@@ -337,4 +340,6 @@ def list_line(data: bytes) -> str:
             out[-1][1] += 1
         else:
             out.append([p, 1])
+    if style != "standard":                 # {down*3}, as CBM prg Studio writes runs
+        return "".join(p if n == 1 else "{" + p[1:-1] + f"*{n}}}" for p, n in out)
     return "".join(p if n == 1 else f"{{{n} {p[1:-1]}}}" for p, n in out)

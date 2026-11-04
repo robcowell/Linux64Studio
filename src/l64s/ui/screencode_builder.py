@@ -140,9 +140,11 @@ class ScreenPreview(Gtk.DrawingArea):
 class ScreenCodeBuilder(EditorPage):
     kind = "screencodes"
 
-    def __init__(self, kickass: bool = False, insert_cb=None):
+    def __init__(self, kickass: bool = False, insert_cb=None, style: str = "standard"):
         super().__init__(None)
         self.kickass = kickass
+        from ..basic.codestyles import STYLES
+        self.style = style if style in STYLES else "standard"
         self.insert_cb = insert_cb
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True, position=560,
                           shrink_start_child=False, shrink_end_child=False)
@@ -159,6 +161,20 @@ class ScreenCodeBuilder(EditorPage):
         self.text.get_buffer().set_text(EXAMPLE)
         self.text.get_buffer().connect("changed", lambda *_: self._update())
         left.append(self.text)
+        # CBM prg Studio's Raw and Actual strings: the text above, and as it comes out (runs counted)
+        actual = Gtk.Box(spacing=8)
+        self.actual = Gtk.Label(xalign=0, hexpand=True, wrap=True, selectable=True, css_classes=["monospace"])
+        actual.append(Gtk.Label(label="Actual", css_classes=["dim-label"]))
+        actual.append(self.actual)
+        from ..basic.codestyles import STYLES
+        self._style_keys = list(STYLES)
+        self.style_box = Gtk.DropDown.new_from_strings([v.split(" (")[0] for v in STYLES.values()])
+        self.style_box.set_selected(self._style_keys.index(self.style))
+        self.style_box.set_tooltip_text("How control codes are written: Linux64Studio's {clear} {cbm-a}, BasText's "
+                                        "{clear} {cm a}, or Tok64's (as VICE's petcat) {clr} {CBM-A}")
+        self.style_box.connect("notify::selected", lambda *_: self._style_changed())
+        actual.append(self.style_box)
+        left.append(actual)
 
         # three ways to add codes, as CBM prg Studio's tabs: the keyboard, a key map, and a list
         stack = Gtk.Stack()
@@ -183,7 +199,7 @@ class ScreenCodeBuilder(EditorPage):
             da = Gtk.DrawingArea(content_width=22, content_height=18)
             da.set_draw_func(lambda _w, cr, w, h, col=c: (set_rgb(cr, col), cr.paint()))
             b.set_child(da)
-            b.connect("clicked", lambda _b, col=c: self.insert(notation(COLOUR_TO_CODE[col])))
+            b.connect("clicked", lambda _b, col=c: self.insert(self.code(COLOUR_TO_CODE[col])))
             colours.append(b)
         keymap.append(colours)
 
@@ -191,14 +207,14 @@ class ScreenCodeBuilder(EditorPage):
         keys = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=13, min_children_per_line=5)
         for label, name in CONTROLS + [(f"F{n}", f"f{n}") for n in range(1, 9)]:
             b = Gtk.Button(label=label, tooltip_text="{" + name + "}")
-            b.connect("clicked", lambda _b, n=name: self.insert("{" + n + "}"))
+            b.connect("clicked", lambda _b, n=name: self.insert(self.code(text_to_petscii("{" + n + "}")[0])))
             keys.append(b)
         keymap.append(keys)
 
         keymap.append(Gtk.Label(label="<b>Graphics</b>  Commodore key (top) and SHIFT (bottom)", use_markup=True,
                                 xalign=0))
         self.glyphs = GlyphPalette()
-        self.glyphs.connect("picked", lambda _g, code: self.insert(notation(code)))
+        self.glyphs.connect("picked", lambda _g, code: self.insert(self.code(code)))
         keymap.append(self.glyphs)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=4, margin_end=8, margin_top=8,
@@ -275,18 +291,26 @@ class ScreenCodeBuilder(EditorPage):
             box.append(Gtk.Label(label=f"${code:02X}  {code}", width_chars=8, xalign=1, css_classes=["monospace"]))
             row.set_child(box)
             lb.append(row)
-        lb.connect("row-activated", lambda _l, row: self.insert(notation(row.code)))
+        lb.connect("row-activated", lambda _l, row: self.insert(self.code(row.code)))
         return Gtk.ScrolledWindow(child=lb, min_content_height=240, vexpand=True)
 
     def _typed(self, _kb, code: int):
         from ..basic.keyboard import TOGGLE_CASE
-        from ..basic.petscii import petscii_to_text
         if code == TOGGLE_CASE:              # SHIFT + C=: switch to the other character set
             lower = self.preview.screen.lowercase if self.preview.screen else self.lower.get_active()
             self.insert("{upper case}" if lower else "{lower case}")
         else:
-            self.insert(petscii_to_text(code, True))
+            self.insert(self.code(code))
         self.keyboard.grab_focus()
+
+    def code(self, petscii: int) -> str:
+        """One code, written in the chosen style."""
+        from ..basic.codestyles import code_text
+        return code_text(petscii, self.style)
+
+    def _style_changed(self):
+        self.style = self._style_keys[self.style_box.get_selected()]
+        self._update()
 
     # ---------------------------------------------------------------- editing
     def insert(self, text: str):
@@ -306,6 +330,8 @@ class ScreenCodeBuilder(EditorPage):
         self.label.set_visible(fmt != "basic")
         try:
             petscii = text_to_petscii(self.get_text())
+            from ..basic.codestyles import string_text
+            self.actual.set_text(string_text(petscii, self.style))
             screen = simulate_print(petscii, self.start_colour.colour, self.lower.get_active())
             self.preview.screen = screen
             self.glyphs.lowercase = screen.lowercase
@@ -315,7 +341,7 @@ class ScreenCodeBuilder(EditorPage):
             label = self.label.get_text().strip()
             if fmt == "basic":
                 n = int(self.line_no.get_value())
-                out = to_basic(petscii, n or None)
+                out = to_basic(petscii, n or None, self.style)
             elif fmt == "petscii":
                 out = to_petscii_bytes(petscii, label, self.kickass, self.zero.get_active())
             else:

@@ -39,7 +39,8 @@ can be followed on Linux.
   `.bin` already matches the source, so unrelated files are never overwritten.
 * **BASIC V2**: `.bas` files with highlighting, a tokenizer that crunches exactly like the
   C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, renumbering that updates
-  GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
+  GOTO/GOSUB/THEN targets, and listing any `.prg` back to source, with control codes in
+  Linux64Studio's, CBM prg Studio's BasText or Tok64 (petcat) style (all three are read). A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. **pBASIC** (`.pbas`) is
   BASIC with `@labels` instead of line numbers, numbered when it's built, with Create Label and
   Remove Line Numbers to convert a program. See [docs/basic.md](docs/basic.md).

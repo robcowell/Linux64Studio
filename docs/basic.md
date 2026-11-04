@@ -35,7 +35,30 @@ Put these in braces inside strings. Case doesn't matter.
 | Commodore-key graphics | `{cbm-a}` … `{cbm-z}`, `{cbm-+}` `{cbm--}` `{cbm-@}` `{cbm-*}` `{cbm-£}` |
 | SHIFT graphics | upper-case letters, or `{shift-a}` …; also `{shift-+}` `{shift--}` `{shift-@}` `{shift-*}` `{shift-£}` `{shift-^}` |
 | any byte | `{$93}` or `{147}` |
-| repeats | `{3 down}` or `{down*3}` |
+| repeats | `{3 down}` or `{down*3}` (`{a*3}` for a character) |
+
+### Code styles: BasText and Tok64
+
+CBM prg Studio writes control codes in one of two styles, BasText or Tok64. Linux64Studio reads
+both, and its own, whichever is chosen. **Preferences → pBASIC → Control codes in BASIC** chooses
+how they're written when a `.prg` is listed (and `l64bas --list --codes standard|bastext|tok64`)
+and in the Screen Code Builder, which also has its own choice.
+
+| | Linux64Studio | BasText | Tok64 (VICE's petcat) |
+|---|---|---|---|
+| clear, colours, reverse | `{clear}` `{yellow}` `{reverse on}` | `{clear}` `{yellow}` `{reverse on}` | `{clr}` `{yel}` `{rvon}` |
+| Commodore, SHIFT, CTRL keys | `{cbm-a}` `{shift-£}` `{$01}` | `{cm a}` `{sh pound}` `{ct a}` | `{CBM-A}` `{SHIFT-POUND}` `{CTRL-A}` |
+| £, ←, π | `£` `_` `{pi}` | `{pound}` `{arrow left}` `{pi}` | `\` `_` `~` |
+| other codes | `{$82}` | `{130}` | `{$82}` |
+| repeats | `{3 down}` | `{down*3}`, `{a*3}` | `{down*3}`, `{a*3}` |
+
+The Tok64 names are exactly the ones VICE's petcat writes (checked against petcat for all 256
+codes, except a quote, written `{$22}` so it doesn't end the string). CBM prg Studio's BasText
+table isn't published: these are the names its program uses (`white`, `reverse on`, `light
+blue`, `cm k`, `sh pound`, `ct a`, `pound`, `arrow left`, `sh space`, `sh return`,
+`lowercase`, `escape`, three-digit numbers for the rest), so BasText written by CBM prg Studio
+may differ in places; it's read either way. Runs are written as CBM prg Studio's Screen Code
+Builder writes them, `{down*3}`.
 
 ## How lines are tokenized
 
@@ -140,6 +163,9 @@ changes, cursor moves, reverse video, and the graphics on the Commodore and SHIF
     RETURN, DEL, INST, case switch, F1–F8) and the **graphics**, drawn from the C64's character
     ROM (hover for the key, e.g. `CBM-A`).
   * **Key Codes**: every named code with the keys that type it and its value; double-click one.
+* The **Actual** line shows the text as it comes out, with runs counted (`{down*4}`), in the
+  chosen code style: Linux64Studio's, BasText or Tok64 (see Code styles above). The keys type in
+  that style, and the BASIC output uses it.
 
   Everything is written in the BASIC notation above.
 * **On the C64** shows what `PRINT`ing it does on a real screen: colours, cursor moves, reverse,

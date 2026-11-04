@@ -88,6 +88,12 @@ _REPEAT_BACK = re.compile(r"^(.+?)\s*\*\s*(\d+)$")
 
 def parse_control(body: str) -> list[int]:
     """The bytes for the text between { and }."""
+    raw = _REPEAT_BACK.match(body.strip())
+    if raw and len(raw.group(1)) == 1 and not raw.group(1).isdigit():     # {a*3}: a character, repeated
+        count = int(raw.group(2))
+        if not 1 <= count <= 255:
+            raise ControlCodeError(f"Repeat count in {{{body}}} is out of range")
+        return [char_to_petscii(raw.group(1), True)] * count
     text = " ".join(body.strip().lower().split())
     count = 1
     m = _REPEAT_BACK.match(text) or None
@@ -127,13 +133,13 @@ def char_to_petscii(ch: str, in_string: bool) -> int:
         return o - 32
     if "A" <= ch <= "Z":
         return o + 0x80 if in_string else o
-    if ch == "£":
+    if ch in "£\\":                     # petcat writes £ as a backslash
         return 0x5C
     if ch in "↑^":
         return 0x5E
     if ch in "←_":
         return 0x5F
-    if ch == "π":
+    if ch in "π~":                       # and π as a tilde
         return 0xFF
     if 0x20 <= o <= 0x40 or ch in "[]":
         return o
@@ -156,3 +162,34 @@ def petscii_to_text(code: int, in_string: bool) -> str:
         return chr(code)
     name = CODE_TO_NAME.get(code)
     return f"{{{name}}}" if name else f"{{${code:02x}}}"
+
+
+def _key_names():
+    """More names, so text in either of the other styles reads back (codestyles.py): Tok64's /
+    petcat's {CTRL-A} {CBM-POUND} {esc}, and BasText's {ct a} {cm +} {sh pound} {pound}. The
+    C=, SHIFT and CTRL ones come from the KERNAL's keyboard tables (keyboard.py), so {ct 3} and
+    {cm 1} are exactly what those keys type."""
+    from .keyboard import LABELS, decode
+    spoken = {"£": "pound", "*": "asterisk"}
+    for code, label in enumerate(LABELS):
+        if len(label) != 1 and label != "£":
+            continue
+        key = label.lower()
+        for mod, kw in (("ct", {"ctrl": True}), ("cm", {"cbm": True}), ("sh", {"shift": True})):
+            v = decode(code, **kw)
+            if v is None or v < 0:
+                continue
+            names = {f"{mod} {key}", f"{mod} {spoken.get(label, key)}"}
+            long = {"ct": "ctrl", "cm": "cbm", "sh": "shift"}[mod]
+            names |= {f"{long}-{key}", f"{long}-{spoken.get(label, key)}"}
+            for n in names:
+                NAME_TO_CODE.setdefault(n, v)
+    for name, code in (("esc", 0x1B), ("escape", 0x1B), ("space", 0x20), ("quote", 0x22), ("pound", 0x5C), ("arrow left", 0x5F),
+                       ("arrow up", 0x5E), ("sh space", 0xA0), ("sh return", 0x8D), ("lowercase", 0x0E),
+                       ("uppercase", 0x8E), ("switch off", 0x08), ("switch on", 0x09), ("ct @", 0x00),
+                       ("ctrl-@", 0x00), ("ct [", 0x1B), ("ct ]", 0x1D), ("ct ^", 0x1E), ("dark gray", 0x97),
+                       ("sh asterisk", 0xC0)):
+        NAME_TO_CODE.setdefault(name, code)
+
+
+_key_names()

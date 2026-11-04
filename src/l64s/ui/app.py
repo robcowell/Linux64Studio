@@ -208,6 +208,13 @@ class Application(Adw.Application):
         for w in (pb_start, pb_step, pb_prefix, pb_preview):
             pb.add(w)
         page.add(pb)
+        from ..basic.codestyles import STYLES
+        style_keys = list(STYLES)
+        codes = Adw.ComboRow(title="Control codes in BASIC", subtitle="How listings and the Screen Code Builder "
+                                                                       "write them (all three are read)",
+                             model=Gtk.StringList.new(list(STYLES.values())),
+                             selected=style_keys.index(s.basic_code_style) if s.basic_code_style in STYLES else 0)
+        pb.add(codes)
 
         def closed(*_):
             s.emulator = emu_path.get_text().strip() or "x64sc"
@@ -227,6 +234,7 @@ class Application(Adw.Application):
             prefix = pb_prefix.get_text().strip()
             s.pbasic_prefix = prefix if prefix and not prefix.isalnum() and " " not in prefix else "@"
             s.pbasic_preview = pb_preview.get_active()
+            s.basic_code_style = style_keys[codes.get_selected()]
             s.dark_mode = ["system", "light", "dark"][scheme.get_selected()]
             s.save()
             self._apply_colour_scheme()

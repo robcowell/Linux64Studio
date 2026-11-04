@@ -3,6 +3,7 @@
   l64bas game.bas                      # tokenize -> game.prg
   l64bas game.bas -o out.prg
   l64bas --list game.prg               # detokenize to stdout (or -o game.bas)
+  l64bas --list --codes tok64 game.prg # control codes as Tok64/petcat ({clr}) or bastext ({cm a})
   l64bas --renumber game.bas [--start 10 --step 10]   # rewrite game.bas in place
   l64bas game.pbas [--start 10 --step 10 --prefix @]  # pBASIC (no line numbers) -> game.prg
   l64bas --preview game.pbas           # the numbered BASIC it makes, to stdout (or -o game.bas)
@@ -32,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--step", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--prefix", default="@", help="pBASIC's label prefix")
+    ap.add_argument("--codes", choices=["standard", "bastext", "tok64"], default="standard",
+                    help="how --list writes control codes")
     ap.add_argument("--preview", action="store_true", help="print the numbered BASIC a .pbas file makes")
     ap.add_argument("--load-address", type=lambda s: int(s, 0), default=0x0801)
     ap.add_argument("--d64", metavar="IMAGE", help="also write a disk image (.d64, .d71 or .d81) with the program")
@@ -41,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     conv = None                       # a .pbas file's numbering, to give errors its own lines
     try:
         if a.list:
-            text = detokenize(src.read_bytes())
+            text = detokenize(src.read_bytes(), style=a.codes)
             if a.output:
                 Path(a.output).write_text(text)
             else:

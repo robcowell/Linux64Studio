@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .petscii import CODE_TO_NAME, ControlCodeError, char_to_petscii, parse_control
+from .petscii import ControlCodeError, char_to_petscii, parse_control
 
 COLS, ROWS = 40, 25
 
@@ -166,37 +166,11 @@ def simulate_print(petscii: bytes, colour: int = 14, lowercase: bool = False, sc
 
 # ---------------------------------------------------------------------- outputs
 
-def to_basic(petscii: bytes, line_number: int | None = None) -> str:
-    """A PRINT string in BASIC listing notation ({names} for codes that can't be typed)."""
-    parts = []
-    for p in petscii:
-        if p == 0x22:
-            parts.append("{$22}")           # a quote would end the string
-        elif 0x41 <= p <= 0x5A:
-            parts.append(chr(p + 32))       # unshifted letters are written lower case
-        elif 0xC1 <= p <= 0xDA:
-            parts.append(chr(p - 0x80))     # shifted letters are written upper case
-        elif 0x20 <= p <= 0x40 or p in (0x5B, 0x5D):
-            parts.append(chr(p))
-        elif p == 0x5C:
-            parts.append("£")
-        elif p == 0x5E:
-            parts.append("^")
-        elif p == 0x5F:
-            parts.append("_")
-        elif p in CODE_TO_NAME:
-            parts.append(f"{{{CODE_TO_NAME[p]}}}")
-        else:
-            parts.append(f"{{${p:02x}}}")
-    # collapse repeats: {down}{down}{down} -> {3 down}
-    out: list[list] = []
-    for p in parts:
-        if out and p.startswith("{") and out[-1][0] == p:
-            out[-1][1] += 1
-        else:
-            out.append([p, 1])
-    body = "".join(p if n == 1 else f"{{{n} {p[1:-1]}}}" for p, n in out)
-    stmt = f'print "{body}";'
+def to_basic(petscii: bytes, line_number: int | None = None, style: str = "standard") -> str:
+    """A PRINT string in BASIC listing notation ({names} for codes that can't be typed), with
+    control codes in `style` (codestyles.STYLES) and runs counted ({3 down}, {down*3})."""
+    from .codestyles import string_text
+    stmt = f'print "{string_text(petscii, style)}";'
     return f"{line_number} {stmt}" if line_number is not None else stmt
 
 

@@ -925,7 +925,8 @@ class MainWindow(Adw.ApplicationWindow):
                 self.tab_view.set_selected_page(self.tab_view.get_page(ed))
                 return ed
         kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
-        return self._add_page(ScreenCodeBuilder(kickass, self._insert_into_last_source))
+        return self._add_page(ScreenCodeBuilder(kickass, self._insert_into_last_source,
+                                                self.settings.basic_code_style))
 
     def open_screen_calculator(self):
         tool = next((ed for ed in self.editors() if isinstance(ed, ScreenCalculator)), None)
@@ -1281,7 +1282,7 @@ class MainWindow(Adw.ApplicationWindow):
     def list_program_bytes(self, data: bytes, dest: Path, label: str):
         from ..basic.tokenizer import BasicError, detokenize
         try:
-            text = detokenize(data)
+            text = detokenize(data, style=self.settings.basic_code_style)
         except BasicError as e:
             self.toast(f"Couldn't list {label}: {e}")
             return None
