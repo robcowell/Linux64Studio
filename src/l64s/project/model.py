@@ -1,0 +1,165 @@
+"""Linux64Studio projects.
+
+A project is a folder of sources plus a settings file. Three formats can be opened:
+
+* `.l64proj`  native JSON project
+* `.cbmprj`   CBM prg Studio project (Vol 1 of the book), opened in place
+* `.code-workspace`  VS Code + Kick Assembler workspace (Vol 2 of the book)
+
+Opening a .cbmprj or .code-workspace never rewrites it. Linux64Studio settings for it are
+saved alongside as `<name>.l64proj`, which takes precedence the next time it's opened.
+"""
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+from .cbmprj import load_cbmprj
+
+TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
+TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
+
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
+GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm"}
+
+
+@dataclass
+class Project:
+    path: Path                         # the file the project was opened from
+    name: str
+    toolchain: str = TOOLCHAIN_CBM
+    build_list: list[str] = field(default_factory=list)  # cbm: files assembled together, in order
+    main_file: str = ""               # kickass: the file passed to the assembler
+    executable: str = ""              # output .prg name
+    output_dir: str = "."             # relative to the project directory
+    lib_dirs: list[str] = field(default_factory=list)   # kickass -libdir
+    padding_byte: int = 0
+    vice_args: list[str] = field(default_factory=list)
+    imported_from: str = ""           # original .cbmprj / .code-workspace, if any
+
+    @property
+    def directory(self) -> Path:
+        return self.path.parent
+
+    def build_paths(self) -> list[Path]:
+        return [self.directory / n for n in self.build_list]
+
+    def output_path(self) -> Path:
+        exe = self.executable or (self.name + ".prg")
+        return (self.directory / self.output_dir / exe).resolve()
+
+    def settings_path(self) -> Path:
+        return self.path if self.path.suffix == ".l64proj" else self.path.with_suffix(".l64proj")
+
+    def all_files(self) -> list[Path]:
+        """Every source and graphics file in the project folder (and library dirs)."""
+        roots = [self.directory] + [(self.directory / d).resolve() for d in self.lib_dirs]
+        seen, out = set(), []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for p in sorted(root.rglob("*")):
+                if p.is_file() and p.suffix.lower() in SOURCE_EXTS | GFX_EXTS and p not in seen:
+                    if any(part.startswith(".") or part in ("Output", "build") for part in p.relative_to(root).parts[:-1]):
+                        continue
+                    seen.add(p)
+                    out.append(p)
+        return out
+
+    def save(self) -> Path:
+        data = asdict(self)
+        data.pop("path")
+        dest = self.settings_path()
+        dest.write_text(json.dumps(data, indent=2) + "\n")
+        return dest
+
+
+def load_project(path: str | Path) -> Project:
+    path = Path(path).resolve()
+    sfx = path.suffix.lower()
+    if sfx != ".l64proj" and path.with_suffix(".l64proj").exists():
+        return load_project(path.with_suffix(".l64proj"))
+    if sfx == ".l64proj":
+        data = json.loads(path.read_text())
+        data.pop("path", None)
+        known = {f for f in Project.__dataclass_fields__}
+        return Project(path=path, **{k: v for k, v in data.items() if k in known})
+    if sfx == ".cbmprj":
+        c = load_cbmprj(path)
+        return Project(path=path, name=path.stem, toolchain=TOOLCHAIN_CBM, build_list=c.build_list,
+                       executable=c.executable, padding_byte=c.padding_byte, imported_from=path.name)
+    if sfx == ".code-workspace":
+        return _load_vscode_workspace(path)
+    if sfx in (".asm", ".s"):
+        return Project(path=path, name=path.stem, build_list=[path.name], executable=path.stem + ".prg")
+    raise ValueError(f"Don't know how to open {path.name}")
+
+
+def _load_vscode_workspace(path: Path) -> Project:
+    # VS Code allows comments and trailing commas in workspace files.
+    text = re.sub(r"^\s*//.*$", "", path.read_text(), flags=re.M)
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    data = json.loads(text)
+    settings = data.get("settings", {})
+    folders = [f.get("path", ".") for f in data.get("folders", [])]
+    lib_dirs = [f.replace("//", "/") for f in folders if f not in (".", "./")]
+    main = settings.get("kickassembler.startup", "")
+    out_dir = settings.get("kickassembler.outputDirectory", "./Output").replace("//", "/")
+    return Project(
+        path=path, name=path.stem, toolchain=TOOLCHAIN_KICKASS, main_file=main,
+        executable=Path(main).with_suffix(".prg").name if main else path.stem + ".prg",
+        output_dir=out_dir, lib_dirs=lib_dirs, imported_from=path.name,
+    )
+
+
+def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM) -> Project:
+    """Create a new project with a starter gameMain.asm that builds and runs."""
+    directory.mkdir(parents=True, exist_ok=True)
+    main = directory / "gameMain.asm"
+    if not main.exists():
+        main.write_text(STARTER_CBM if toolchain == TOOLCHAIN_CBM else STARTER_KICKASS)
+    proj = Project(path=directory / f"{name}.l64proj", name=name, toolchain=toolchain,
+                   build_list=["gameMain.asm"], main_file="gameMain.asm", executable=f"{name}.prg")
+    proj.save()
+    return proj
+
+
+STARTER_CBM = """\
+;===============================================================================
+; BASIC Loader
+
+*=$0801 ; 10 SYS (2064)
+
+        byte $0E, $08, $0A, $00, $9E, $20, $28, $32
+        byte $30, $36, $34, $29, $00, $00, $00
+
+;===============================================================================
+; Initialize
+
+EXTCOL  = $D020
+BGCOL0  = $D021
+
+        lda #0
+        sta EXTCOL
+        sta BGCOL0
+
+gMLoop
+        inc EXTCOL
+        jmp gMLoop
+"""
+
+STARTER_KICKASS = """\
+*= $0801 "Basic Loader"
+    BasicUpstart(main)
+
+*= $0810 "Code"
+main:
+    lda #0
+    sta $d020
+    sta $d021
+loop:
+    inc $d020
+    jmp loop
+"""

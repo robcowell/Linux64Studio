@@ -1,0 +1,49 @@
+"""User preferences, stored in ~/.config/linux64studio/settings.json."""
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+
+def config_dir() -> Path:
+    base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "linux64studio"
+
+
+@dataclass
+class Settings:
+    emulator: str = "x64sc"
+    emulator_args: list[str] = field(default_factory=list)
+    kickass_jar: str = ""
+    java: str = "java"
+    font: str = "Monospace 11"
+    tab_width: int = 8
+    insert_spaces: bool = True
+    dark_mode: str = "system"     # system | light | dark
+    save_before_build: bool = True
+    recent_projects: list[str] = field(default_factory=list)
+    window_width: int = 1280
+    window_height: int = 820
+
+    @classmethod
+    def load(cls) -> "Settings":
+        p = config_dir() / "settings.json"
+        try:
+            data = json.loads(p.read_text())
+        except (OSError, ValueError):
+            return cls()
+        known = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+    def save(self) -> None:
+        d = config_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "settings.json").write_text(json.dumps(asdict(self), indent=2) + "\n")
+
+    def add_recent(self, path: str) -> None:
+        if path in self.recent_projects:
+            self.recent_projects.remove(path)
+        self.recent_projects.insert(0, path)
+        del self.recent_projects[10:]

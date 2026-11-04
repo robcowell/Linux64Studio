@@ -1,0 +1,113 @@
+# The CBM prg Studio assembler dialect, as implemented by Linux64Studio
+
+This is what the built-in assembler accepts. Rules marked **verified** were confirmed by
+assembling all twelve *Retro Game Dev C64 Edition* Vol 1 chapter projects (chapters 6–17) and
+getting output byte-for-byte identical to the `.prg` files shipped with the book
+(`tests/test_book.py`). The other rules follow CBM prg Studio's documented behaviour.
+
+## Lines
+
+```
+label   mnemonic operand   ; comment
+```
+
+* A **label** starts in column 1. A trailing `:` is optional. Any word in column 1 that isn't
+  a mnemonic, directive or macro name is a label, so `incbin` and `Operator` can also start
+  in column 1. **verified**
+* `NAME = expr` defines a constant (`NAME EQU expr` works too). **verified**
+* **Labels are case-insensitive** (`PlayerXLow` and `playerXLow` are the same). **verified**
+* **Macro names are case-sensitive**, and they don't clash with labels: the book has a macro
+  `GAMEBULLETS_COLLIDED` and a label `gameBullets_Collided`. **verified**
+* `@name` labels are local. In a macro they're unique to each expansion **(verified)**.
+  Outside macros they belong to the most recent ordinary label.
+* Comments: `;`, `//` and `/* ... */`.
+
+## Origin
+
+`*=$0801` or `* = $1F20`. You can have several. Gaps are filled with the project's padding
+byte (0). **verified**
+
+## Numbers and expressions
+
+| Form | Meaning |
+|---|---|
+| `$FF`, `%1010`, `255` | hex, binary, decimal |
+| `'a'` | **screen code** of the character (`'a'` = 1, `'@'` = 0, space = 32) **verified** |
+| `*` | current address |
+| `<expr`, `>expr` | low / high byte |
+| `+ - * / % << >> & \| ^` | arithmetic and bitwise, usual precedence |
+| `= == <> != < > <= >=` | comparisons (1 or 0), for `if` |
+| `#` inside an expression | ignored: the book's `lda #1<<#/1` means `1 << /1` **verified** |
+
+### `Operator Calc` / `Operator HiLo`
+
+This sets how tightly `<` and `>` bind, from that line onwards:
+
+* `Operator HiLo` (default): `<SCREENRAM+40` is `(<SCREENRAM)+40`
+* `Operator Calc`: `<SCREENRAM+40` is `<(SCREENRAM+40)`. The book uses this for its row
+  tables. **verified**
+
+## Addressing
+
+All the standard 6502 modes: `#imm`, `zp`, `zp,x`, `zp,y`, `abs`, `abs,x`, `abs,y`, `(zp,x)`,
+`(zp),y`, `(abs)` (JMP only), accumulator (`asl` or `asl a`), and relative branches.
+
+Zero page is used whenever the value fits in a byte, **including forward references**: the
+assembler takes extra passes until label addresses stop changing. The book relies on this,
+because `gameMemory.asm` (where the zero-page constants are defined) is the last file in the
+build order. **verified**
+
+Undocumented 6510 opcodes (`lax`, `sax`, `dcp`, …) are available with `l64asm --illegal`.
+
+## Directives
+
+| Directive | Notes |
+|---|---|
+| `byte`/`byt`/`db`/`dfb` a, b, … | bytes. A quoted string of 2+ characters gives screen codes **verified** |
+| `word`/`wor`/`dw` a, … | 16-bit words, low byte first |
+| `text 'string'` | screen codes. Numbers may be mixed in **verified** (`--text petscii` switches) |
+| `dcb count, value` | `count` copies of `value` **verified** |
+| `incbin file[, skip[, length]]` | quotes optional, path relative to the source file **verified** |
+| `incasm "file"` | include source, nested up to 16 deep |
+| `defm NAME` … `endm` | macro, parameters `/1`…`/9` **verified** |
+| `if expr` / `ifdef` / `ifndef` / `else` / `endif` | conditional assembly |
+| `align n`, `org addr` | pad to a multiple of n / same as `*=` |
+| `Operator Calc` / `Operator HiLo` | see above **verified** |
+
+### Macros
+
+```
+defm    LIBMATH_ADD8BIT_AVA     ; /1 = address, /2 = value, /3 = address
+        clc
+        lda /1
+        adc #/2
+        sta /3
+        endm
+
+        LIBMATH_ADD8BIT_AVA score, 10, score
+```
+
+* Arguments are split on commas outside quotes and brackets, then substituted as text.
+* `/n` is only a parameter when it isn't preceded by a letter, digit, `)` or `$`, so
+  `lda #/1/2` divides parameter 1 by 2.
+* Macros can be defined after they're used (in a later file of the build order). **verified**
+
+## Projects
+
+A CBM prg Studio project (`.cbmprj`) is built by assembling every file in its `<BuildList>`,
+in order, as one program. All labels and macros are shared between files. **verified** In
+CBM prg Studio, Ctrl+F5 (*Build → Project → And Run*) does this, and F5 builds only the current
+file. Linux64Studio uses the same keys.
+
+## Graphics files
+
+| File | Format | Notes |
+|---|---|---|
+| `.spt` sprites | XML, one `<data>` per row as a 24-bit integer | `sprites.bin` = 64 bytes per sprite **verified** |
+| `.cst` characters | XML, `<charcode>` + 8 `<data>` bytes | characters that aren't listed are the **C64 ROM** ones **verified**; colours are hex `CL` (C = colour, L = luminance) **verified** |
+| `.sdd` screens | XML, `<RowData>` of 7-digit hex cells | char = bits 20–27, colour = bits 12–19 |
+
+## Not implemented (yet)
+
+* CBM prg Studio's BASIC editor and tokenizer, cartridge (`.crt`) and disk image (`.d64`) output
+* `GenerateTo`/`Watch` are accepted and ignored with a warning
