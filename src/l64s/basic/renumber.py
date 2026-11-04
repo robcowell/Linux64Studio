@@ -101,7 +101,13 @@ def renumber(text: str, start: int = 10, step: int = 10) -> tuple[str, list[Basi
     mapping = {old: start + i * step for i, (old, _b, _s) in enumerate(entries)}
     warnings: list[BasicError] = []
     out = []
+    # fold lines (#region, #endregion) aren't numbered: keep each before the line that followed it
+    import re
+    folds = [(n, line) for n, line in enumerate(text.splitlines(), start=1)
+             if re.match(r"^\s*#(end)?region\b", line, re.I)]
     for old, body, src_line in entries:
+        while folds and folds[0][0] < src_line:
+            out.append(folds.pop(0)[1])
         refs = find_line_refs(body)
         pieces, pos = [], 0
         for r in refs:
@@ -115,4 +121,5 @@ def renumber(text: str, start: int = 10, step: int = 10) -> tuple[str, list[Basi
             pos = r.end
         pieces.append(body[pos:])
         out.append(f"{mapping[old]} {''.join(pieces)}")
+    out += [line for _n, line in folds]
     return "\n".join(out) + "\n", warnings

@@ -163,6 +163,7 @@ def crunch(text: str, line_no: int = 0) -> bytes:
 
 # The ROM skips every space between the line number and the text (CHRGET skips spaces).
 _LINE_RE = re.compile(r"^\s*(\d+)\s*(.*)$")
+_REGION = re.compile(r"^\s*#(end)?region\b", re.I)
 
 
 def parse_source(text: str) -> tuple[list[tuple[int, str, int]], list[BasicError]]:
@@ -172,7 +173,7 @@ def parse_source(text: str) -> tuple[list[tuple[int, str, int]], list[BasicError
     errors: list[BasicError] = []
     for n, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\r\n")
-        if not line.strip():
+        if not line.strip() or _REGION.match(line):     # a fold in the editor, not part of the program
             continue
         m = _LINE_RE.match(line)
         if not m:

@@ -18,11 +18,16 @@
     <style id="param" name="Macro parameter" map-to="def:special-constant"/>
     <style id="register" name="Register" map-to="def:type"/>
     <style id="macro-call" name="Macro call" map-to="def:builtin"/>
+    <style id="region" name="Fold region" map-to="def:preprocessor"/>
   </styles>
 
   <default-regex-options case-sensitive="false"/>
 
   <definitions>
+    <!-- #region / #endregion: folds in the editor (regions.py), not code -->
+    <context id="region-line" style-ref="region" end-at-line-end="true">
+      <start>^\s*#(end)?region\b</start>
+    </context>
     <context id="line-comment" style-ref="comment" end-at-line-end="true">
       <start>;|//</start>
       <include><context ref="def:in-comment"/></include>
@@ -110,6 +115,7 @@
 
     <context id="cbmasm" class="no-spell-check">
       <include>
+        <context ref="region-line"/>
         <context ref="todo-line"/>
         <context ref="line-comment"/>
         <context ref="block-comment"/>

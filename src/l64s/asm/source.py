@@ -26,6 +26,7 @@ DIRECTIVES = {
     "debug", "export", "breakpoint", "debugstartaddress", "checksum", "repeat", "endrepeat", "todo",
 }
 _TODO_RE = re.compile(r"\s*todo(\s|:|$)", re.I)
+_REGION_RE = re.compile(r"\s*#(end)?region\b", re.I)    # the editor's folds (regions.py)
 
 LABEL_RE = re.compile(r"[@A-Za-z_][A-Za-z0-9_.@]*\$?")   # a trailing $ makes a label project-wide
 
@@ -304,8 +305,8 @@ class SourceLoader:
         in_block = False
         for n, raw in enumerate(text.splitlines(), start=1):
             loc = SourceLoc(str(path), n)
-            if not in_block and _TODO_RE.match(raw):
-                out.append(Line("", loc, raw=raw))      # TODO: a task for the Tasks list; not code
+            if not in_block and (_TODO_RE.match(raw) or _REGION_RE.match(raw)):
+                out.append(Line("", loc, raw=raw))      # a task for the Tasks list, or a fold: not code
                 continue
             code, in_block = strip_comment(raw.rstrip("\r\n"), in_block)
             label, rest = split_label(code, self.kw)

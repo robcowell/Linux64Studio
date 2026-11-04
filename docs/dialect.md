@@ -74,6 +74,21 @@ under the label they follow); labels are any case. Kick Assembler: `name:`, `.co
 case-sensitive. Every label in the 12 Vol 1 chapters, and every label in Kick Assembler's debug
 dump of a Kick Assembler game, is found at the line that defines it (`tests/test_symindex.py`).
 
+### Folding regions
+
+As in CBM prg Studio, a block between a `#region` line and an `#endregion` line (with a name after
+`#region` if you like) can be folded away: click the ▾ in the gutter beside `#region` (▸ then
+shows it's folded, and the line is shaded), or press **Ctrl+P** to fold every region and
+**Ctrl+Shift+P** to unfold them. Right-click → **Fold Selection** puts the selected lines in a new
+region. Regions nest. Going to a line that's folded away (an error, a breakpoint the debugger
+stops at, Go to Definition) unfolds it. Folding only hides the lines: the file, and what's built,
+are the same.
+
+The assembler (and the BASIC tokenizer) skip `#region` and `#endregion` lines. Kick Assembler
+doesn't, so in a Kick Assembler source write them as comments, `// #region` and `// #endregion`,
+which fold just the same (Fold Selection does this in a Kick Assembler project). `; #region`, and
+in BASIC `rem #region`, work too.
+
 ### Tasks (TODO)
 
 The **Tasks** tab under the editor lists the TODOs in every file of the project, open or not, as
@@ -148,6 +163,7 @@ Undocumented 6510 opcodes (`lax`, `sax`, `dcp`, …) are available with `l64asm 
 | `generateto file.prg[,disk.d64[,diskname][,append]]` | the program's file name, and a disk image it's written to. `.p00` writes a PC64 file; `null` writes nothing |
 | `checksum` | accepted and ignored |
 | `todo text` | a task for the Tasks panel (see below); the line isn't code |
+| `#region name` … `#endregion` | a block the editor can fold (see below); the lines aren't code |
 | `Operator Calc` / `Operator HiLo` | see above **verified** |
 
 ### Macros

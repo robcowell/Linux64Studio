@@ -23,6 +23,7 @@ from .tokenizer import KEYWORDS, MAX_LINE_NUMBER, BasicError, BasicErrors, parse
 _NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 _NUMBERED_RE = re.compile(r"^(\s*)(\d+)\s?(.*)$")
 _NAMESPACE_RE = re.compile(r"^\s*namespace\s+(\S+)\s*$", re.I)
+_REGION = re.compile(r"^\s*#(end)?region\b", re.I)
 
 
 @dataclass
@@ -110,7 +111,7 @@ def to_basic(text: str, options: PBasicOptions | None = None) -> PBasicResult:
     ns = ""
     for n, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip()
-        if not line.strip():
+        if not line.strip() or _REGION.match(line):     # an editor fold, not code
             continue
         m = _NAMESPACE_RE.match(line)
         if m:

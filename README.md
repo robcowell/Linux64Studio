@@ -18,6 +18,7 @@ can be followed on Linux.
   works for both assembler dialects, include lines and BASIC line numbers
   ([details](docs/dialect.md#auto-complete-and-go-to-definition-in-the-editor)).
   A **Tasks** panel lists every TODO, FIXME and HACK in the project ([tasks](docs/dialect.md#tasks-todo)).
+  `#region` … `#endregion` blocks fold away, as in CBM prg Studio ([folding](docs/dialect.md#folding-regions)).
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's

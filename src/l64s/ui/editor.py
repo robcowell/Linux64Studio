@@ -143,6 +143,11 @@ class SourceEditor(EditorPage):
         numbering = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         numbering.connect("key-pressed", self._basic_return)
         self.view.add_controller(numbering)
+        from .folding import Folding
+        self.folding = Folding(self.view, self.buffer)
+        fold_keys = Gtk.EventControllerKey()
+        fold_keys.connect("key-pressed", self._fold_key)
+        self.view.add_controller(fold_keys)
 
     # ---------------------------------------------------------------- appearance
     def _apply_font(self, font: str):
@@ -219,6 +224,8 @@ class SourceEditor(EditorPage):
 
     # ---------------------------------------------------------------- navigation
     def goto_line(self, line: int, select: bool = True):
+        if hasattr(self, "folding"):
+            self.folding.reveal(max(0, line - 1))     # unfold what hides it
         ok, it = self.buffer.get_iter_at_line(max(0, line - 1))
         if not ok:
             return
@@ -301,7 +308,43 @@ class SourceEditor(EditorPage):
 
     def _on_line_mark_activated(self, _view, it, button, _state, n_presses):
         if button == 1 and n_presses == 1:
-            self.toggle_breakpoint(it.get_line() + 1)
+            if not self.folding.toggle(it.get_line()):      # a #region line: fold it; else a breakpoint
+                self.toggle_breakpoint(it.get_line() + 1)
+
+    # ---------------------------------------------------------------- folding
+    def _fold_key(self, _c, keyval, _code, state):
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+        if ctrl and keyval in (Gdk.KEY_p, Gdk.KEY_P):
+            (self.folding.unfold_all if state & Gdk.ModifierType.SHIFT_MASK else self.folding.fold_all)()
+            return True
+        return False
+
+    def fold_selection(self):
+        """Put the selected lines (or the cursor's) in a new region (CBM prg Studio's Selection → Fold).
+        Kick Assembler sources get the markers as comments."""
+        from ..regions import wrap
+        buf = self.buffer
+        if buf.get_has_selection():
+            a, b = buf.get_selection_bounds()
+            first, last = a.get_line(), b.get_line()
+            if b.starts_line() and last > first:
+                last -= 1                           # a selection ending at a line's start doesn't take it
+        else:
+            first = last = buf.get_iter_at_mark(buf.get_insert()).get_line()
+        win = self.get_root()
+        project = getattr(win, "project", None)
+        kick = bool(project) and project.toolchain == "kickass" and not self.is_basic
+        lines = self.get_text().split("\n")
+        new = wrap(lines, first, last, comment="//" if kick else "")
+        ok, start = buf.get_iter_at_line(first)
+        end = buf.get_end_iter() if last + 1 >= len(lines) else buf.get_iter_at_line(last + 1)[1]
+        old_end_newline = last + 1 < len(lines)
+        block = "\n".join(new[first:last + 3]) + ("\n" if old_end_newline else "")
+        buf.begin_user_action()
+        buf.delete(start, end)
+        buf.insert(start, block)
+        buf.end_user_action()
+        self.goto_line(first + 1, select=False)
 
     # ---------------------------------------------------------------- base conversion
     def _setup_convert_menu(self):
@@ -310,6 +353,12 @@ class SourceEditor(EditorPage):
         act = Gio.SimpleAction.new("convert", GLib.VariantType.new("s"))
         act.connect("activate", lambda _a, v: self.convert_number(v.get_string()))
         group.add_action(act)
+        for name, fn in (("fold-selection", lambda: self.fold_selection()),
+                         ("fold-all", lambda: self.folding.fold_all()),
+                         ("unfold-all", lambda: self.folding.unfold_all())):
+            a = Gio.SimpleAction.new(name, None)
+            a.connect("activate", lambda _a, _v, f=fn: f())
+            group.add_action(a)
         self.view.insert_action_group("editor", group)
         sub = Gio.Menu()
         for base, label in (("hex", "Hexadecimal ($)"), ("dec", "Decimal"), ("bin", "Binary (%)")):
@@ -319,6 +368,11 @@ class SourceEditor(EditorPage):
         menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
         menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
+        folds = Gio.Menu()
+        folds.append("Fold Selection (#region)", "editor.fold-selection")
+        folds.append("Fold All Regions (Ctrl+P)", "editor.fold-all")
+        folds.append("Unfold All Regions (Ctrl+Shift+P)", "editor.unfold-all")
+        menu.append_section(None, folds)
         if self.is_pbasic:
             sec = Gio.Menu()
             sec.append("Create Label…", "win.pbasic-create-label")
