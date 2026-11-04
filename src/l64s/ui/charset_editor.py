@@ -106,6 +106,7 @@ class CharsetEditor(EditorPage):
         self.undo: list[tuple[int, list[int]]] = []
         self.clipboard: list[int] | None = None
         self._pad_window = None
+        self._anim_window = None
         self._build()
         self._select(0)
 
@@ -126,6 +127,8 @@ class CharsetEditor(EditorPage):
             ("go-down-symbolic", "Shift down", lambda *_: self._modify(lambda c: c[-1:] + c[:-1])),
             ("view-grid-symbolic", "Scratch Pad… (design graphics made of several characters)",
              lambda *_: self.open_scratch_pad()),
+            ("media-playback-start-symbolic", "Animation… (play a run of characters as an animation)",
+             lambda *_: self.open_animation()),
         ]:
             b = Gtk.Button(icon_name=icon, tooltip_text=tip)
             b.connect("clicked", cb)
@@ -251,6 +254,9 @@ class CharsetEditor(EditorPage):
         g.invalidate()
         self.canvas.queue_draw()
         self.preview.queue_draw()
+        for w in (getattr(self, "_pad_window", None), getattr(self, "_anim_window", None)):
+            if w is not None:
+                w.refresh()
 
     def _select(self, i):
         self.index = i
@@ -313,6 +319,16 @@ class CharsetEditor(EditorPage):
         self.preview.queue_draw()
         if self._pad_window is not None:
             self._pad_window.refresh()
+        if self._anim_window is not None:
+            self._anim_window.refresh()
+
+    def open_animation(self):
+        from .char_animation import CharAnimationWindow
+        if self._anim_window is None:
+            self._anim_window = CharAnimationWindow(self.get_root(), self)
+            self._anim_window.connect("close-request", lambda *_: (setattr(self, "_anim_window", None), False)[1])
+        self._anim_window.present()
+        return self._anim_window
 
     def open_scratch_pad(self):
         from .char_scratchpad import CharScratchPadWindow

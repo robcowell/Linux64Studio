@@ -148,6 +148,21 @@ with its top left where you click, in the current colour (in a CharPad map, each
 own), as one undo step. If a block is selected in the scratch pad, only that part is stamped;
 empty cells of the pad leave the screen as it is.
 
+## Character animation
+
+The **Animation…** button in the character editor's toolbar (the play icon) opens CBM prg Studio's
+animation preview: it plays a run of characters as an animation.
+
+* Give the first and last characters: type them, press **Selected** to use the editor's
+  character, or drop a character from the editor's set onto the box. The last can be before the
+  first, to play backwards.
+* **Frame size**: a frame can be a block of characters (2×2, say) that follow one another in the
+  set row by row, so each frame steps that many characters, as games often lay animations out.
+* **Loop** goes first to last and starts again; **ping-pong** goes there and back.
+* **Speed** is in C64 frames (a fiftieth of a second, PAL), with the frames a second shown; **Size**
+  zooms the preview. It shows which frame and characters are on screen, and edits to the
+  characters straight away.
+
 ## Digitiser
 
 The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)
