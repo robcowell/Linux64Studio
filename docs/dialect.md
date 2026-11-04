@@ -111,5 +111,5 @@ file. Linux64Studio uses the same keys.
 
 ## Not implemented (yet)
 
-* Cartridge (`.crt`) output and CBM prg Studio's label-based "pBASIC"
+* CBM prg Studio's label-based "pBASIC"
 * `GenerateTo`/`Watch` are accepted and ignored with a warning

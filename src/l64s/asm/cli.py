@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--raw", action="store_true", help="write a raw binary without the 2-byte load address")
     ap.add_argument("--d64", metavar="IMAGE", help="also write a disk image (.d64, .d71 or .d81) with the program")
     ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
+    ap.add_argument("--crt", metavar="TYPE", help="also write a cartridge (normal8, normal16, ultimax, magicdesk, "
+                                                  "ocean, easyflash) next to the .prg")
     ap.add_argument("--illegal", action="store_true", help="allow undocumented 6510 opcodes")
     ap.add_argument("--case-sensitive", action="store_true", help="treat labels as case-sensitive")
     ap.add_argument("--text", choices=["screen", "petscii"], default="screen", help="TEXT directive encoding")
@@ -58,8 +60,18 @@ def main(argv: list[str] | None = None) -> int:
     if not a.quiet and result.start is not None:
         print(f"{out}: ${result.start:04X}-${result.end - 1:04X} ({result.end - result.start} bytes, "
               f"{result.passes} passes)")
-    if a.d64:
-        return _write_d64(a.d64, a.disk_name, out, a.quiet)
+    if a.d64 and _write_d64(a.d64, a.disk_name, out, a.quiet):
+        return 1
+    if a.crt:
+        from ..cart.crt import CartError, cartridge_from_files
+        try:
+            cart = cartridge_from_files(a.crt, out, out.stem, [])
+        except CartError as e:
+            print(f"l64asm: {e}", file=sys.stderr)
+            return 1
+        cart.save(out.with_suffix(".crt"))
+        if not a.quiet:
+            print(f"{out.with_suffix('.crt')}: {cart.type_name}, {cart.mode}")
     return 0
 
 

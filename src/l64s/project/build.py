@@ -23,7 +23,36 @@ class BuildResult:
     srcmap: dict[int, tuple[str, int]] = field(default_factory=dict)
     asm_result: Result | None = None
     disk: Path | None = None          # the .d64 written, if the project makes one
+    cart: Path | None = None          # the .crt written, if the project makes one
 
+    def run_target(self, project) -> Path | None:
+        """What to run: the cartridge, the disk image or the program, as the project says."""
+        if self.cart and project.run_cart:
+            return self.cart
+        if self.disk and project.run_from_disk:
+            return self.disk
+        return self.prg
+
+
+def write_cartridge(project: Project, prg: Path) -> tuple[Path | None, list[Diagnostic], str]:
+    """Write the project's .crt: bank 0 from the built program, further banks from data files."""
+    from ..cart.crt import CartError, cartridge_from_files
+    dest = project.cart_path()
+    if dest is None:
+        return None, [], ""
+    extras = [(project.directory / b).resolve() for b in project.cart_banks]
+    for p in extras:
+        if not p.is_file():
+            return None, [Diagnostic("error", f"Cartridge: bank file {p.name} not found", None)], ""
+    try:
+        cart = cartridge_from_files(project.cart_type, prg, project.cart_name or project.name, extras)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        cart.save(dest)
+    except (CartError, OSError) as e:
+        return None, [Diagnostic("error", f"Cartridge: {e}", None)], ""
+    banks = len({c.bank for c in cart.chips})
+    return dest, [], (f"Wrote {dest} ({cart.type_name}, {cart.mode}, {banks} bank(s), "
+                      f"{cart.size // 1024}K)")
 
 def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Diagnostic], str]:
     """Write the project's .d64: the built program first, then any extra files."""
@@ -54,16 +83,20 @@ def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Dia
 
 
 def _with_disk(project: Project, res: BuildResult, only_file) -> BuildResult:
-    """Add the disk image to a successful whole-project build."""
-    if not res.ok or only_file or not project.disk_image or not res.prg:
+    """Add the disk image and cartridge to a successful whole-project build."""
+    if not res.ok or only_file or not res.prg:
         return res
-    disk, diags, msg = write_disk_image(project, res.prg)
-    res.diagnostics += diags
-    if diags:
-        res.ok = False
-        res.log += "\n" + "\n".join(str(d) for d in diags)
-    else:
-        res.disk = disk
+    for wanted, writer, attr in ((project.disk_image, write_disk_image, "disk"),
+                                 (project.cart_type, write_cartridge, "cart")):
+        if not wanted:
+            continue
+        out, diags, msg = writer(project, res.prg)
+        res.diagnostics += diags
+        if diags:
+            res.ok = False
+            res.log += "\n" + "\n".join(str(d) for d in diags)
+            return res
+        setattr(res, attr, out)
         res.log += "\n" + msg
     return res
 

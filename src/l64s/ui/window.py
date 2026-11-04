@@ -14,6 +14,7 @@ from ..emu import vice  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
                              new_project)
+from .cart_view import CartView  # noqa: E402
 from .charpad_editor import CharPadEditor  # noqa: E402
 from .charset_editor import CharsetEditor  # noqa: E402
 from .debugger import DebuggerPanel, DebugSession  # noqa: E402
@@ -272,7 +273,7 @@ class MainWindow(Adw.ApplicationWindow):
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
                   ("Binary", lambda f: f.suffix.lower() == ".bin"),
-                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81"))]
+                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81", ".crt"))]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
             if not members:
@@ -352,6 +353,9 @@ class MainWindow(Adw.ApplicationWindow):
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".prg":
                 return self.list_prg(path)
+            elif sfx == ".crt":
+                ed = CartView(path)
+                ed.connect("run-cart", lambda e: self._launch(e.path))
             elif sfx in (".d64", ".d71", ".d81"):
                 ed = DiskEditor(path)
                 ed.connect("run-disk", self._run_disk_editor)
@@ -392,7 +396,8 @@ class MainWindow(Adw.ApplicationWindow):
         page.set_tooltip(str(ed.path) if ed.path else ed.title)
         icon = {"source": "text-x-generic-symbolic", "sprites": "image-x-generic-symbolic",
                 "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic",
-                "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic"}.get(ed.kind)
+                "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
+                "cart": "media-flash-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -526,7 +531,7 @@ class MainWindow(Adw.ApplicationWindow):
         pick = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
         loc.add_suffix(pick)
         tool = Adw.ComboRow(title="Type", model=Gtk.StringList.new(
-            ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2"]))
+            ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2", "Cartridge, 8K (assembler)"]))
         grp.add(name)
         grp.add(loc)
         grp.add(tool)
@@ -555,7 +560,7 @@ class MainWindow(Adw.ApplicationWindow):
             directory = Path(loc.get_subtitle()) / n
             sel = tool.get_selected()
             tc = TOOLCHAIN_KICKASS if sel == 1 else TOOLCHAIN_CBM
-            proj = new_project(directory, n, tc, basic=sel == 2)
+            proj = new_project(directory, n, tc, basic=sel == 2, cartridge=sel == 3)
             win.close()
             self.open_project(proj.path)
         btn.connect("clicked", create)
@@ -680,8 +685,7 @@ class MainWindow(Adw.ApplicationWindow):
         if debug:
             self._start_debug(res)
         else:
-            target = res.disk if (res.disk and self.project and self.project.run_from_disk) else res.prg
-            self._launch(target, res.labels)
+            self._launch(res.run_target(self.project) if self.project else res.prg, res.labels)
 
     def _launch(self, target: Path, labels: Path | None = None):
         try:
@@ -763,7 +767,7 @@ class MainWindow(Adw.ApplicationWindow):
                 name = res.asm_result.names.get(key, key)
                 if "__m" not in key and not name.startswith("@") and value not in symbols:
                     symbols[value] = name
-        start = res.disk if (res.disk and self.project and self.project.run_from_disk) else res.prg
+        start = res.run_target(self.project) if self.project else res.prg
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
                                self.settings.emulator_args)
         self.debug = session
@@ -1035,6 +1039,67 @@ class MainWindow(Adw.ApplicationWindow):
             fd.open(self, None, done)
         rebuild_extras()
 
+        # ---------- cartridge page
+        from ..cart.crt import CART_TYPES
+        cpage = Adw.PreferencesPage(title="Cartridge", icon_name="media-flash-symbolic")
+        win.add(cpage)
+        cg = Adw.PreferencesGroup(title="Cartridge image (.crt)",
+                                  description="Written after every project build. The program is bank 0: assemble "
+                                              "it at $8000 (with a CBM80 header) or, for Ultimax and EasyFlash, "
+                                              "at $E000 with a reset vector at $FFFC.")
+        cpage.add(cg)
+        ckeys = list(CART_TYPES)
+        c_on = Adw.SwitchRow(title="Write a cartridge", active=bool(p.cart_type))
+        c_type = Adw.ComboRow(title="Type", model=Gtk.StringList.new([CART_TYPES[k].label for k in ckeys]),
+                              selected=ckeys.index(p.cart_type) if p.cart_type in ckeys else 0)
+        c_file = Adw.EntryRow(title="Cartridge file", text=p.cart_file or f"{stem}.crt")
+        c_name = Adw.EntryRow(title="Name in the cartridge header", text=p.cart_name or p.name)
+        c_run = Adw.SwitchRow(title="Run with the cartridge plugged in",
+                              subtitle="Ctrl+F5 and debugging start VICE with the .crt attached",
+                              active=p.run_cart)
+        for w in (c_on, c_type, c_file, c_name, c_run):
+            cg.add(w)
+        bg2 = Adw.PreferencesGroup(title="Banks 1, 2, …",
+                                   description="For Magic Desk, Ocean and EasyFlash: data files split into banks "
+                                               "after bank 0 (8K each, 16K for EasyFlash). A .prg's load address "
+                                               "is dropped.")
+        cpage.add(bg2)
+        banks = list(p.cart_banks)
+        brows: list = []
+
+        def rebuild_banks():
+            for r in brows:
+                bg2.remove(r)
+            brows.clear()
+            for i, b in enumerate(banks):
+                r = Adw.ActionRow(title=b)
+                rm = Gtk.Button(icon_name="list-remove-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"])
+                rm.connect("clicked", lambda _b, k=i: (banks.pop(k), rebuild_banks()))
+                r.add_suffix(rm)
+                bg2.add(r)
+                brows.append(r)
+            add = Adw.ActionRow(title="Add a bank file…", activatable=True)
+            add.connect("activated", choose_bank)
+            bg2.add(add)
+            brows.append(add)
+
+        def choose_bank(*_):
+            fd = Gtk.FileDialog(title="Add a bank file")
+            fd.set_initial_folder(Gio.File.new_for_path(str(p.directory)))
+
+            def done(d, res):
+                try:
+                    src = Path(d.open_finish(res).get_path())
+                except GLib.Error:
+                    return
+                try:
+                    banks.append(str(src.relative_to(p.directory)))
+                except ValueError:
+                    banks.append(str(src))
+                rebuild_banks()
+            fd.open(self, None, done)
+        rebuild_banks()
+
         def closed(*_):
             p.executable = exe.get_text().strip() or p.executable
             p.toolchain = TOOLCHAIN_CBM if tool.get_selected() == 0 else TOOLCHAIN_KICKASS
@@ -1046,6 +1111,11 @@ class MainWindow(Adw.ApplicationWindow):
             p.disk_file_name = d_file.get_text().strip()[:16]
             p.run_from_disk = d_run.get_active()
             p.disk_extra_files = extras
+            p.cart_type = ckeys[c_type.get_selected()] if c_on.get_active() else ""
+            p.cart_file = c_file.get_text().strip()
+            p.cart_name = c_name.get_text().strip()[:32]
+            p.cart_banks = banks
+            p.run_cart = c_run.get_active()
             try:
                 p.save()
             except OSError as e:

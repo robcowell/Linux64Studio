@@ -26,7 +26,7 @@ TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
 GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
-            ".d64", ".d71", ".d81"}
+            ".d64", ".d71", ".d81", ".crt"}
 
 
 @dataclass
@@ -52,6 +52,12 @@ class Project:
     # More files for the disk: [{"file": relative path, "name": name on disk, "type": prg/seq/usr}]
     disk_extra_files: list[dict] = field(default_factory=list)
     run_from_disk: bool = False      # autostart the .d64 instead of the .prg
+    # Cartridge output: "" = off, else a type from l64s.cart.crt.CART_TYPES (normal8, ocean, ...)
+    cart_type: str = ""
+    cart_file: str = ""              # default: <executable>.crt
+    cart_name: str = ""              # name in the .crt header; default: project name
+    cart_banks: list[str] = field(default_factory=list)  # data files for banks 1, 2, ... (banked carts)
+    run_cart: bool = False           # run and debug with the cartridge plugged in
 
     @property
     def directory(self) -> Path:
@@ -63,6 +69,12 @@ class Project:
     def output_path(self) -> Path:
         exe = self.executable or (self.name + ".prg")
         return (self.directory / self.output_dir / exe).resolve()
+
+    def cart_path(self) -> Path | None:
+        if not self.cart_type:
+            return None
+        name = self.cart_file or Path(self.executable or self.name + ".prg").with_suffix(".crt").name
+        return (self.directory / name).resolve()
 
     def disk_image_path(self) -> Path | None:
         return (self.directory / self.disk_image).resolve() if self.disk_image else None
@@ -127,7 +139,8 @@ def load_project(path: str | Path) -> Project:
     if sfx == ".cbmprj":
         c = load_cbmprj(path)
         return Project(path=path, name=path.stem, toolchain=TOOLCHAIN_CBM, build_list=c.build_list,
-                       executable=c.executable, padding_byte=c.padding_byte, imported_from=path.name)
+                       executable=c.executable, padding_byte=c.padding_byte, imported_from=path.name,
+                       cart_type=c.cart_type, cart_name=c.cart_name)
     if sfx == ".code-workspace":
         return _load_vscode_workspace(path)
     if sfx in (".asm", ".s", ".bas"):
@@ -152,10 +165,14 @@ def _load_vscode_workspace(path: Path) -> Project:
     )
 
 
-def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basic: bool = False) -> Project:
+def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basic: bool = False,
+                cartridge: bool = False) -> Project:
     """Create a new project with a starter program that builds and runs."""
     directory.mkdir(parents=True, exist_ok=True)
-    if basic:
+    if cartridge:
+        main_name, starter = "cartMain.asm", STARTER_CART
+        toolchain = TOOLCHAIN_CBM
+    elif basic:
         main_name, starter = "main.bas", STARTER_BASIC
         toolchain = TOOLCHAIN_CBM
     else:
@@ -166,6 +183,8 @@ def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basi
         main.write_text(starter)
     proj = Project(path=directory / f"{name}.l64proj", name=name, toolchain=toolchain,
                    build_list=[main_name], main_file=main_name, executable=f"{name}.prg")
+    if cartridge:
+        proj.cart_type, proj.cart_name, proj.run_cart = "normal8", name, True
     proj.save()
     return proj
 
@@ -192,6 +211,46 @@ BGCOL0  = $D021
 gMLoop
         inc EXTCOL
         jmp gMLoop
+"""
+
+STARTER_CART = """\
+;===============================================================================
+; An 8K cartridge. The C64 finds the "CBM80" signature at $8004 when it's
+; switched on and jumps to the address at $8000 instead of starting BASIC.
+
+*=$8000
+        word cartCold           ; cold start (power on / reset)
+        word cartWarm           ; warm start (RUN/STOP + RESTORE)
+        byte $C3, $C2, $CD, $38, $30    ; "CBM80"
+
+EXTCOL  = $D020
+BGCOL0  = $D021
+
+cartCold
+        sei
+        ldx #$FF
+        txs
+        cld
+        jsr $FDA3               ; IOINIT: set up the CIAs
+        jsr $FD50               ; RAMTAS: clear and test RAM
+        jsr $FD15               ; RESTOR: KERNAL vectors
+        jsr $FF5B               ; CINT: screen editor and VIC-II
+        cli
+
+        ldx #0                  ; text gives screen codes, so write them
+cMsg    lda cartText,x          ; straight into screen memory
+        beq cartWarm
+        sta $0400,x
+        inx
+        bne cMsg
+
+cartWarm
+        inc EXTCOL
+        jmp cartWarm
+
+cartText
+        text 'hello from a cartridge!'
+        byte 0
 """
 
 STARTER_BASIC = """\

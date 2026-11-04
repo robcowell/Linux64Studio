@@ -38,7 +38,10 @@ def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_po
     drive = {".d71": "1571", ".d81": "1581"}.get(Path(prg).suffix.lower())
     if drive and not any(a.startswith("-drive8type") for a in args):
         args += ["-drive8type", drive]
-    args += ["-autostartprgmode", "1", str(prg)]
+    if Path(prg).suffix.lower() == ".crt":
+        args += ["-cartcrt", str(prg)]  # cartridges are plugged in, not loaded
+    else:
+        args += ["-autostartprgmode", "1", str(prg)]
     return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)
 
