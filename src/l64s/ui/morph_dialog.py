@@ -79,7 +79,7 @@ class MorphDialog(Adw.Window):
             ctl.append(w)
         right.append(ctl)
         self.strip = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=16,
-                                 min_children_per_line=4, column_spacing=4, row_spacing=4)
+                                 min_children_per_line=4, column_spacing=4, row_spacing=4, valign=Gtk.Align.START)
         right.append(Gtk.ScrolledWindow(child=self.strip, vexpand=True, min_content_height=80,
                                         hscrollbar_policy=Gtk.PolicyType.NEVER))
 
@@ -123,7 +123,8 @@ class MorphDialog(Adw.Window):
         while (c := self.strip.get_first_child()) is not None:
             self.strip.remove(c)
         for i, f in enumerate(self.frames):
-            b = Gtk.Button(css_classes=["flat"], tooltip_text=f"Frame {i + 1}")
+            b = Gtk.Button(css_classes=["flat"], tooltip_text=f"Frame {i + 1}", valign=Gtk.Align.START,
+                           halign=Gtk.Align.START)
             da = Gtk.DrawingArea(content_width=48, content_height=42)
             da.set_draw_func(lambda _d, cr, w, h, f=f: self._render(f, cr, w, h))
             b.set_child(da)

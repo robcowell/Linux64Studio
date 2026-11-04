@@ -15,7 +15,8 @@ can be followed on Linux.
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's
   `.spt`, `.cst` and `.sdd` files, SpritePad `.spd` and CharPad `.ctm` projects (Vol 2), and
   export `.bin` for `incbin` / `.import binary` or `byte` source. The sprite editor's
-  **Morph** makes the frames that turn one sprite into another ([docs/graphics.md](docs/graphics.md)).
+  **Morph** makes the frames that turn one sprite into another, and the **Explosion
+  Generator** makes explosion animations ([docs/graphics.md](docs/graphics.md)).
 * **Linked exports**: saving a graphics file can rewrite its `.bin` exports, so you don't have
   to export by hand after every change. A link is switched on automatically only when the
   `.bin` already matches the source, so unrelated files are never overwritten.

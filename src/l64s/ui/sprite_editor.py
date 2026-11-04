@@ -65,6 +65,8 @@ class SpriteEditor(EditorPage):
             (None, None, None),
             ("media-playlist-shuffle-symbolic", "Morph… (frames that turn this sprite into another)",
              lambda *_: self.open_morph()),
+            ("weather-storm-symbolic", "Explosion Generator… (frames of an explosion)",
+             lambda *_: self.open_explosion()),
         ]:
             if icon is None:
                 bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -355,6 +357,18 @@ class SpriteEditor(EditorPage):
         dlg = MorphDialog(self.get_root(), self.data, self.index, self._insert_frames)
         dlg.present()
         return dlg
+
+    def open_explosion(self):
+        from .explosion_dialog import ExplosionDialog
+        folder = self.project.directory if self.project else (self.path.parent if self.path else None)
+        dlg = ExplosionDialog(self.get_root(), self.data, self.index, self._insert_explosion, folder)
+        dlg.present()
+        return dlg
+
+    def _insert_explosion(self, frames, at: int, multicolours):
+        if multicolours:
+            self.data.mcolour1, self.data.mcolour2 = multicolours
+        self._insert_frames(frames, at)
 
     def _insert_frames(self, frames, at: int):
         for k, f in enumerate(frames):
