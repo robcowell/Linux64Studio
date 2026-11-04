@@ -16,7 +16,7 @@ from .opcodes import OPCODES, ILLEGAL_OPCODES
 # Directives recognised at the start of a statement (case-insensitive).
 DIRECTIVES = {
     "byte", "byt", "db", "dfb",
-    "word", "wor", "dw",
+    "word", "wor", "dw", "fltp",
     "text", "dcb", "incbin", "incasm", "operator", "align", "org",
     "defm", "endm", "if", "ifdef", "ifndef", "else", "endif", "equ",
     "generateto", "watch",

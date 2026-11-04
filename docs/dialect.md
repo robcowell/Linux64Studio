@@ -75,6 +75,7 @@ Undocumented 6510 opcodes (`lax`, `sax`, `dcp`, …) are available with `l64asm 
 |---|---|
 | `byte`/`byt`/`db`/`dfb` a, b, … | bytes. A quoted string of 2+ characters gives screen codes **verified** |
 | `word`/`wor`/`dw` a, … | 16-bit words, low byte first |
+| `fltp` 3.14159265, … | Commodore BASIC's 5-byte floating point numbers (as in BASIC variables). Use `.` as the decimal point; a label or expression gives a whole number. Each value is the nearest 5-byte number, which matches the C64's own for most values. The ROM's number reader can be one step off in the last bit (`12345.678`) |
 | `text 'string'` | screen codes. Numbers may be mixed in **verified** (`--text petscii` switches) |
 | `dcb count, value` | `count` copies of `value` **verified** |
 | `incbin file[, skip[, length]]` | quotes optional, path relative to the source file **verified** |

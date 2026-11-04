@@ -96,3 +96,35 @@ used outside the file as equates (`EXTCOL = $D020`, or `.const` for Kick Assembl
 code and data. It reassembles to exactly the same bytes, whatever you've marked or named. The
 KERNAL ROM, traced from its vectors and jump table, comes out as `CHROUT  jmp (IBSOUT)` and so on,
 and rebuilds byte for byte (`tests/test_disassembler.py`).
+
+# Data Generator
+
+**Menu → Data Generator** makes a table of values from a function of x, as in CBM prg Studio. It's
+useful for sine waves, movement paths, curves and look-up tables. Type the function (`y =`), and
+choose where x starts and ends (both are included) and its step (a whole number). The graph
+shows the values with the origin at the top left and y growing downwards, like screen
+coordinates, as CBM prg Studio's preview does. The source underneath updates as you type.
+
+The function can use `x`, `+ - * / ^` (power), brackets, `pi`, `sin cos tan atn` (in radians),
+`exp log sqr abs int sgn min max`. Names are case-insensitive, so the BASIC way of writing it,
+`INT(100+99*SIN(X/20))`, works. The list button has some examples. It must use x.
+
+* **Bytes** or **Words**: the values are rounded to the nearest whole number. A value that
+  doesn't fit (bytes -128 to 255, words -32768 to 65535) is an error that says at which x. Turn
+  on **Clamp y to a range** to limit the values instead.
+* **Floats**: `fltp` lines (Commodore BASIC's 5-byte numbers; see the
+  [dialect](dialect.md)). In a Kick Assembler project, which has no `fltp`, it writes the
+  5 bytes of each value as `.byte` lines, with the values in a comment.
+* **As deltas**: each value minus the one before it (the first value is as it is), for
+  movement by steps.
+* **Include x values**: x, y pairs.
+* **Values per line**, an optional **Label**, and **Add comment**, which describes the function and
+  range above the data.
+
+**Copy** puts the data on the clipboard, and **Insert into Editor** puts it at the cursor of the
+last source file you used.
+
+`tests/test_datagen.py` checks the function parser (it accepts arithmetic only), the tables, the
+range errors, clamping, deltas, pairs and the output in both syntaxes, and assembles the result.
+The 5-byte floats are checked against values the C64 stores itself: an opt-in VICE test
+(`L64S_VICE_TESTS=1`) runs a BASIC program that sets variables and reads them back from memory.

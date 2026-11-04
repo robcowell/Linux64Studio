@@ -22,6 +22,7 @@ from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
+from .datagen_view import DataGenerator  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_manager import MemoryManager  # noqa: E402
 from .snapshot_manager import SnapshotManager  # noqa: E402
@@ -95,6 +96,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Screen Calculator", "win.screen-calculator")
         sec2.append("Code Snippets", "win.snippets")
         sec2.append("SYS() Call Generator", "win.sys-call")
+        sec2.append("Data Generator", "win.data-generator")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Snapshots", "win.snapshots")
@@ -229,6 +231,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("screen-calculator", lambda *_: self.open_screen_calculator())
         add("snippets", lambda *_: self.open_snippets())
         add("sys-call", lambda *_: self.open_sys_call())
+        add("data-generator", lambda *_: self.open_data_generator())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
@@ -446,7 +449,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -900,6 +903,14 @@ class MainWindow(Adw.ApplicationWindow):
         kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
         return self._add_page(SysCallGenerator(kickass, self._insert_into_last_source, self._last_source_editor,
                                                lambda: self._memory_of_last_build()[1]))
+
+    def open_data_generator(self):
+        tool = next((ed for ed in self.editors() if isinstance(ed, DataGenerator)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            return tool
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        return self._add_page(DataGenerator(kickass, self._insert_into_last_source))
 
     def _last_source_editor(self):
         ed = self._last_source

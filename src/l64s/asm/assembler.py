@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..cbmfloat import FloatError, to_cbm
 from .charset import char_to_petscii, char_to_screencode
 from .errors import AsmError, Diagnostic, SourceLoc
 from .expr import Evaluator, Undefined
@@ -179,6 +180,8 @@ class Assembler:
             return Statement(ln, label, "data", args=split_top_level(args), width=2)
         if w == "text":
             return Statement(ln, label, "text", args=split_top_level(args))
+        if w == "fltp":
+            return Statement(ln, label, "fltp", args=split_top_level(args))
         if w == "dcb":
             a = split_top_level(args)
             if len(a) != 2:
@@ -377,6 +380,20 @@ class Assembler:
                             out.extend(conv(c) for c in a[1:-1])
                         else:
                             out.append(self._value(evaluate, a, final) & 0xFF)
+                    emit(out, s)
+                elif k == "fltp":
+                    out = []
+                    for a in s.args:
+                        try:
+                            v = float(a.strip())
+                        except ValueError:
+                            if not a.strip():
+                                raise AsmError("FLTP needs a number, such as fltp 3.14159265") from None
+                            v = self._value(evaluate, a, final)
+                        try:
+                            out.extend(to_cbm(v))
+                        except FloatError as e:
+                            raise AsmError(str(e)) from None
                     emit(out, s)
                 elif k == "dcb":
                     count = evaluate(s.args[0])
