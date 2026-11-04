@@ -78,3 +78,28 @@ won't match CBM prg Studio's frame for frame.
 `tests/test_explode.py` checks that every type grows and dies away, multicolour, that the
 seed gives the same frames, that the parameters have an effect, the random presets and
 mutations, and the DATA lines.
+
+## Digitiser
+
+The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)
+gives the sprite coordinates of points on the screen, as CBM prg Studio's Digitiser does. Use it
+to plan where sprites go: start positions, paths, and where things are on a level.
+
+Move the mouse over the screen to see the coordinates, and click to add them to **Points**. While
+the digitiser is on, clicking doesn't draw. **Clear** empties the list, and **Copy All** copies
+it. The coordinates are worked out like this:
+
+* **Offsets X, Y** are added to the pixel's position on the screen. The usual 24 and 50 give
+  sprite coordinates, where a sprite at that X, Y has its top-left corner on the pixel. Points in
+  the border work too.
+* **MSB** takes 256 off X, for the part that goes in the sprite's X register when its bit in
+  $D010 is set. A note says when X goes over 255.
+* **Format** is any text with `{x}` and `{y}` in it. `{$x}` and `{$y}` give hex, and `{$X}` and
+  `{$Y}` upper case hex. `\n` starts a new line. The list button has some ready-made formats,
+  such as `byte {x}, {y}`.
+
+Tick **Use sprite as the pointer** to see a sprite from one of the project's sprite files under
+the mouse instead of the crosshair, with its top-left corner on the pointer. Choose the sprite
+set, the sprite number, and whether it's expanded. The offsets and the format are kept for next
+time. `tests/test_digitiser.py` checks the coordinates and formats; they agree with the Screen
+Calculator's sprite coordinates.

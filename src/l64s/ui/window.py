@@ -399,7 +399,9 @@ class MainWindow(Adw.ApplicationWindow):
                 charsets = [f for f in (self.project.all_files() if self.project else [])
                             if f.suffix.lower() in (".cst",) or f.name.lower().startswith("char") and f.suffix == ".bin"]
                 charsets.sort(key=lambda f: (f.parent != path.parent, f.suffix != ".cst"))
-                ed = ScreenEditor(path, charsets)
+                sprite_files = [f for f in (self.project.all_files() if self.project else [])
+                                if f.suffix.lower() in (".spt", ".spd")]
+                ed = ScreenEditor(path, charsets, sprite_files=sprite_files, settings=self.settings)
             elif sfx == ".prg":
                 return self._open_prg(path)
             elif sfx == ".sid":

@@ -21,6 +21,9 @@ class Settings:
     vsid: str = "vsid"            # VICE's SID player
     sid_midi_channels: list[int] = field(default_factory=lambda: [1, 2, 3])   # per SID voice, 1-16 (0 = off)
     sid_midi_device: str = ""     # the MIDI input the SID Designer last used
+    digitiser_x_offset: int = 24  # the screen designer's digitiser
+    digitiser_y_offset: int = 50
+    digitiser_format: str = "{x}, {y}"
     java: str = "java"
     font: str = "Monospace 11"
     tab_width: int = 8

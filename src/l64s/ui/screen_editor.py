@@ -6,7 +6,10 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Gdk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+from .. import digitiser  # noqa: E402
 
 from ..gfx.charset import Charset, rom_charset  # noqa: E402
 from ..gfx.screen import Screen, ScreenSet  # noqa: E402
@@ -32,7 +35,8 @@ class ScreenEditor(EditorPage):
 
     def __init__(self, path: Path | None, charset_files: list[Path] | None = None, *,
                  data: ScreenSet | None = None, charset: Charset | None = None,
-                 cell_colour=None, read_only: bool = False):
+                 cell_colour=None, read_only: bool = False, sprite_files: list[Path] | None = None,
+                 settings=None):
         """Normally edits an .sdd file. With `data` + `charset` it edits a map owned by another editor
         (a CharPad project): colours and charset belong to that project, and `cell_colour(char)`
         gives each cell's colour. `read_only` shows the map without editing (tile-based maps)."""
@@ -58,6 +62,11 @@ class ScreenEditor(EditorPage):
                 self.charset.chars = rom
             self.charset.multicolour = self.data.multicolour
         self.charset_files = [] if self.map_mode else (charset_files or [])
+        self.sprite_files = [] if self.map_mode else (sprite_files or [])
+        self.settings = settings
+        self.digitise = False
+        self.pointer: tuple[int, int] | None = None     # pixel on the screen under the mouse
+        self._pointer_sprites = None                    # the SpriteSet the pointer sprite comes from
         self._glyphs: dict = {}
         # Screens up to 40x25 scale to fit the window; bigger maps scroll at a fixed zoom.
         self.fixed_zoom = 2.0 if (self.data.cols > 40 or self.data.rows > 25) else None
@@ -104,6 +113,10 @@ class ScreenEditor(EditorPage):
             bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
             bar.append(Gtk.Label(label="Charset"))
             bar.append(self.charset_combo)
+            self.digi_btn = Gtk.ToggleButton(icon_name="find-location-symbolic",
+                                             tooltip_text="Digitiser: sprite coordinates of points on the screen")
+            self.digi_btn.connect("toggled", lambda b: self._set_digitise(b.get_active()))
+            bar.append(self.digi_btn)
             bar.append(Gtk.Box(hexpand=True))
             exp = Gtk.Button(label="Export…")
             exp.connect("clicked", self._export_dialog)
@@ -129,6 +142,7 @@ class ScreenEditor(EditorPage):
         self.canvas.add_controller(drag)
         motion = Gtk.EventControllerMotion()
         motion.connect("motion", self._motion)
+        motion.connect("leave", lambda *_: self._pointer_left())
         self.canvas.add_controller(motion)
         if self.fixed_zoom:
             self.canvas.set_content_width(int(self.data.cols * 8 * self.fixed_zoom))
@@ -142,6 +156,10 @@ class ScreenEditor(EditorPage):
 
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         body.append(Gtk.ScrolledWindow(child=side, hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_width=True))
+        self.digi_revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        if not self.map_mode:
+            self.digi_revealer.set_child(self._digitiser_panel())
+            side.append(self.digi_revealer)
         side.append(Gtk.Label(label="<b>Character</b>", use_markup=True, xalign=0))
         self.grid = CharGrid(self.charset, scale=2)
         self.grid.selected = self.char
@@ -246,6 +264,8 @@ class ScreenEditor(EditorPage):
             for c in range(c0, c1):
                 paint_scaled(cr, self._glyph(s.chars[r][c], self._colour_of_cell(r, c)),
                              ox + c * cell, oy + r * cell, scale, scale)
+        if self.digitise and self.pointer is not None:
+            self._draw_pointer(cr, scale, ox, oy)
 
     def _cell(self, x, y):
         scale, ox, oy, _ = self._geometry()
@@ -254,8 +274,241 @@ class ScreenEditor(EditorPage):
             return c, r
         return None
 
+    # ---------------------------------------------------------------- digitiser
+    def _digitiser_panel(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, css_classes=["card"], hexpand=False)
+        g = Gtk.Grid(row_spacing=4, column_spacing=6, margin_start=8, margin_end=8, margin_top=6, margin_bottom=8)
+        box.append(g)
+        st = self.settings
+        g.attach(Gtk.Label(label="<b>Digitiser</b>", use_markup=True, xalign=0), 0, 0, 3, 1)
+        self.digi_xoff = Gtk.SpinButton.new_with_range(-512, 512, 1)
+        self.digi_xoff.set_value(getattr(st, "digitiser_x_offset", digitiser.X_OFFSET))
+        self.digi_yoff = Gtk.SpinButton.new_with_range(-512, 512, 1)
+        self.digi_yoff.set_value(getattr(st, "digitiser_y_offset", digitiser.Y_OFFSET))
+        offs = Gtk.Box(spacing=4)
+        offs.append(self.digi_xoff)
+        offs.append(self.digi_yoff)
+        g.attach(Gtk.Label(label="Offsets X, Y", xalign=0), 0, 1, 1, 1)
+        g.attach(offs, 1, 1, 2, 1)
+        self.digi_msb = Gtk.CheckButton(label="MSB (take 256 off X)")
+        g.attach(self.digi_msb, 0, 2, 3, 1)
+        self.digi_format = Gtk.Entry(text=getattr(st, "digitiser_format", digitiser.FORMAT), width_chars=14,
+                                     max_width_chars=14,
+                                     tooltip_text="{x} and {y}; {$x} / {$y} for hex ({$X} / {$Y} upper case). "
+                                                  "\\n starts a new line")
+        presets = Gtk.MenuButton(icon_name="view-list-symbolic", tooltip_text="Formats")
+        pop = Gtk.Popover()
+        pbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin_start=4, margin_end=4, margin_top=4,
+                       margin_bottom=4)
+        for f in digitiser.PRESETS:
+            b = Gtk.Button(label=f, css_classes=["flat", "monospace"])
+            b.connect("clicked", lambda _b, f=f, p=pop: (p.popdown(), self.digi_format.set_text(f)))
+            pbox.append(b)
+        pop.set_child(pbox)
+        presets.set_popover(pop)
+        g.attach(Gtk.Label(label="Format", xalign=0), 0, 3, 1, 1)
+        g.attach(self.digi_format, 1, 3, 1, 1)
+        g.attach(presets, 2, 3, 1, 1)
+        for w in (self.digi_xoff, self.digi_yoff):
+            w.connect("value-changed", lambda *_: self._digi_settings_changed())
+        self.digi_msb.connect("toggled", lambda *_: self._digi_settings_changed())
+        self.digi_format.connect("changed", lambda *_: self._digi_settings_changed())
+        self.digi_preview = Gtk.Label(xalign=0, css_classes=["monospace"], selectable=True, wrap=True,
+                                      max_width_chars=26, label="Move over the screen")
+        g.attach(self.digi_preview, 0, 4, 3, 1)
+        self.digi_hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=30, css_classes=["dim-label", "caption"])
+        g.attach(self.digi_hint, 0, 5, 3, 1)
+
+        self.digi_use_sprite = Gtk.CheckButton(label="Use sprite as the pointer",
+                                               sensitive=bool(self.sprite_files))
+        if not self.sprite_files:
+            self.digi_use_sprite.set_tooltip_text("The project has no sprite files")
+        g.attach(self.digi_use_sprite, 0, 6, 3, 1)
+        self.digi_sprite_set = Gtk.DropDown.new_from_strings([p.name for p in self.sprite_files] or ["(none)"])
+        self.digi_sprite_set.set_size_request(120, -1)
+        self.digi_sprite_no = Gtk.SpinButton.new_with_range(0, 255, 1)
+        self.digi_expand_x = Gtk.CheckButton(label="Expand X")
+        self.digi_expand_y = Gtk.CheckButton(label="Expand Y")
+        g.attach(Gtk.Label(label="Sprite set", xalign=0), 0, 7, 1, 1)
+        g.attach(self.digi_sprite_set, 1, 7, 2, 1)
+        g.attach(Gtk.Label(label="Sprite #", xalign=0), 0, 8, 1, 1)
+        g.attach(self.digi_sprite_no, 1, 8, 2, 1)
+        ex = Gtk.Box(spacing=8)
+        ex.append(self.digi_expand_x)
+        ex.append(self.digi_expand_y)
+        g.attach(ex, 0, 9, 3, 1)
+        self.digi_sprite_widgets = [self.digi_sprite_set, self.digi_sprite_no, self.digi_expand_x, self.digi_expand_y]
+        for w in self.digi_sprite_widgets:
+            w.set_sensitive(False)
+        self.digi_use_sprite.connect("toggled", lambda *_: self._digi_sprite_changed())
+        self.digi_sprite_set.connect("notify::selected", lambda *_: self._digi_sprite_changed(reload=True))
+        for w in (self.digi_sprite_no, self.digi_expand_x, self.digi_expand_y):
+            w.connect("value-changed" if isinstance(w, Gtk.SpinButton) else "toggled",
+                      lambda *_: self.canvas.queue_draw())
+
+        g.attach(Gtk.Label(label="<b>Points</b> (click the screen to add one)", use_markup=True, xalign=0,
+                           margin_top=6), 0, 10, 3, 1)
+        self.digi_points = Gtk.TextView(monospace=True, top_margin=4, bottom_margin=4, left_margin=4,
+                                        css_classes=["monospace"], wrap_mode=Gtk.WrapMode.CHAR)
+        g.attach(Gtk.ScrolledWindow(child=self.digi_points, min_content_height=110), 0, 11, 3, 1)
+        btns = Gtk.Box(spacing=4)
+        clear = Gtk.Button(label="Clear")
+        clear.connect("clicked", lambda *_: self.digi_points.get_buffer().set_text(""))
+        copy = Gtk.Button(label="Copy All")
+        copy.connect("clicked", lambda *_: self._digi_copy())
+        btns.append(clear)
+        btns.append(copy)
+        g.attach(btns, 0, 12, 3, 1)
+        return box
+
+    def _set_digitise(self, on: bool):
+        self.digitise = on
+        self.digi_revealer.set_reveal_child(on)
+        self.canvas.set_cursor(Gdk.Cursor.new_from_name("crosshair" if on else "default"))
+        if not on:
+            self.pointer = None
+        self.canvas.queue_draw()
+
+    def _digi_settings_changed(self):
+        st = self.settings
+        if st is not None:
+            st.digitiser_x_offset = self.digi_xoff.get_value_as_int()
+            st.digitiser_y_offset = self.digi_yoff.get_value_as_int()
+            st.digitiser_format = self.digi_format.get_text()
+            try:
+                st.save()
+            except OSError:
+                pass
+        if self.pointer is not None:
+            self._show_point(*self.pointer)
+
+    def _screen_pixel(self, x, y) -> tuple[int, int] | None:
+        """The pixel on the screen (0,0 = the text area's top left) under widget point x, y; points
+        in the border count too, which sprites can reach."""
+        scale, ox, oy, border = self._geometry()
+        px, py = int((x - ox) // scale), int((y - oy) // scale)
+        if -border <= px < self.data.cols * 8 + border and -border <= py < self.data.rows * 8 + border:
+            return px, py
+        return None
+
+    def digitised(self, px: int, py: int) -> str:
+        x, y = digitiser.coords(px, py, self.digi_xoff.get_value_as_int(), self.digi_yoff.get_value_as_int(),
+                                self.digi_msb.get_active())
+        return digitiser.format_point(self.digi_format.get_text(), x, y)
+
+    def _show_point(self, px, py):
+        try:
+            self.digi_preview.set_text(self.digitised(px, py))
+        except digitiser.FormatError as e:
+            self.digi_preview.set_text(str(e))
+            return
+        x = px + self.digi_xoff.get_value_as_int()
+        hint = ""
+        if x > 255 and not self.digi_msb.get_active():
+            hint = "X is over 255: set the sprite's bit in $D010, and tick MSB for the low part"
+        elif x < 0 or x > 511:
+            hint = "That X is off the sprite range (0-511)"
+        self.digi_hint.set_text(hint)
+
+    def _digitise_motion(self, x, y):
+        p = self._screen_pixel(x, y)
+        if p != self.pointer:
+            self.pointer = p
+            if p is not None:
+                self._show_point(*p)
+            self.canvas.queue_draw()
+
+    def _pointer_left(self):
+        if self.digitise and self.pointer is not None:
+            self.pointer = None
+            self.canvas.queue_draw()
+
+    def _add_point(self, x, y):
+        p = self._screen_pixel(x, y)
+        if p is None:
+            return
+        try:
+            line = self.digitised(*p)
+        except digitiser.FormatError as e:
+            self.status.set_text(str(e))
+            return
+        b = self.digi_points.get_buffer()
+        b.insert(b.get_end_iter(), ("" if b.get_char_count() == 0 else "\n") + line)
+        self.digi_points.scroll_to_mark(b.get_insert(), 0, False, 0, 1)
+
+    def _digi_copy(self):
+        b = self.digi_points.get_buffer()
+        text = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+        if text:
+            Gdk.Display.get_default().get_clipboard().set(text + "\n")
+            self.status.set_text(f"Copied {len(text.splitlines())} points")
+
+    def _digi_sprite_changed(self, reload: bool = False):
+        on = self.digi_use_sprite.get_active()
+        for w in self.digi_sprite_widgets:
+            w.set_sensitive(on)
+        if on and (reload or self._pointer_sprites is None) and self.sprite_files:
+            path = self.sprite_files[self.digi_sprite_set.get_selected()]
+            try:
+                if path.suffix.lower() == ".spd":
+                    from ..gfx.spritepad import load_spd
+                    self._pointer_sprites = load_spd(path)
+                else:
+                    from ..gfx.sprite import SpriteSet
+                    self._pointer_sprites = SpriteSet.load_spt(path)
+            except (OSError, ValueError) as e:
+                self._pointer_sprites = None
+                self.status.set_text(f"Couldn't read {path.name}: {e}")
+            else:
+                n = len(self._pointer_sprites.sprites)
+                self.digi_sprite_no.set_range(0, max(0, n - 1))
+                s0 = self._pointer_sprites.sprites[0]
+                self.digi_expand_x.set_active(s0.expand_x)
+                self.digi_expand_y.set_active(s0.expand_y)
+        self.canvas.queue_draw()
+
+    def _draw_pointer(self, cr, scale, ox, oy):
+        from .widgets import set_rgb
+        px, py = self.pointer
+        x0, y0 = ox + px * scale, oy + py * scale
+        sprites = self._pointer_sprites if self.digi_use_sprite.get_active() else None
+        if sprites and sprites.sprites:
+            s = sprites.sprites[min(self.digi_sprite_no.get_value_as_int(), len(sprites.sprites) - 1)]
+            sx = scale * (2 if self.digi_expand_x.get_active() else 1)
+            sy = scale * (2 if self.digi_expand_y.get_active() else 1)
+            cols = (None, sprites.mcolour1, s.colour, sprites.mcolour2)
+            for y in range(21):
+                for x in range(s.pixel_width):
+                    v = s.get(x, y)
+                    if not v:
+                        continue                    # transparent
+                    set_rgb(cr, cols[v] if s.multi else s.colour)
+                    w = 2 if s.multi else 1
+                    cr.rectangle(x0 + x * w * sx, y0 + y * sy, w * sx, sy)
+                    cr.fill()
+            return
+        # a crosshair on the pixel
+        cr.set_source_rgba(1, 1, 1, 0.9)
+        cr.set_line_width(1)
+        cr.rectangle(x0, y0, scale, scale)
+        cr.stroke()
+        cr.set_source_rgba(1, 0.2, 0.2, 0.8)
+        cr.move_to(x0 + scale / 2, y0 - 6 * scale)
+        cr.line_to(x0 + scale / 2, y0 - scale)
+        cr.move_to(x0 + scale / 2, y0 + 2 * scale)
+        cr.line_to(x0 + scale / 2, y0 + 7 * scale)
+        cr.move_to(x0 - 6 * scale, y0 + scale / 2)
+        cr.line_to(x0 - scale, y0 + scale / 2)
+        cr.move_to(x0 + 2 * scale, y0 + scale / 2)
+        cr.line_to(x0 + 7 * scale, y0 + scale / 2)
+        cr.stroke()
+
     # ---------------------------------------------------------------- input
     def _drag_begin(self, g, x, y):
+        if self.digitise:
+            if g.get_current_button() == 1:
+                self._add_point(x, y)
+            return
         if self.read_only:
             return
         self._start = (x, y)
@@ -265,12 +518,14 @@ class ScreenEditor(EditorPage):
         self._apply(x, y)
 
     def _drag_update(self, _g, dx, dy):
-        if self.read_only:
+        if self.read_only or self.digitise:
             return
         if self.tool in ("draw", "colour"):
             self._apply(self._start[0] + dx, self._start[1] + dy)
 
     def _motion(self, _c, x, y):
+        if self.digitise:
+            self._digitise_motion(x, y)
         cell = self._cell(x, y)
         if cell:
             c, r = cell
