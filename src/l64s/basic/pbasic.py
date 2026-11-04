@@ -108,10 +108,14 @@ def to_basic(text: str, options: PBasicOptions | None = None) -> PBasicResult:
     labels: dict[tuple[str, str], int] = {}            # (namespace, name) -> line number
     where: dict[tuple[str, str], int] = {}             # ... -> source line, for duplicates
     pending: list[tuple[tuple[str, str], int]] = []
+    keep: list[str] = []
     ns = ""
     for n, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip()
         if not line.strip() or _REGION.match(line):     # an editor fold, not code
+            continue
+        if re.match(r"^\s*tokenfile\s", line, re.I):    # passed on to the tokenizer as it is
+            keep.append(line.strip())
             continue
         m = _NAMESPACE_RE.match(line)
         if m:
@@ -180,7 +184,10 @@ def to_basic(text: str, options: PBasicOptions | None = None) -> PBasicResult:
     if errors:
         raise BasicErrors(errors)
     names = {(f"{k[0]}.{k[1]}" if k[0] else k[1]): v for k, v in labels.items()}
-    return PBasicResult("\n".join(out) + ("\n" if out else ""), [src for _c, src, _n in lines], names)
+    # a tokenfile line goes first, unnumbered; the generated lines' source lines stay where they were
+    head = "".join(k + "\n" for k in keep)
+    srcs = [0] * len(keep) + [src for _c, src, _n in lines]
+    return PBasicResult(head + "\n".join(out) + ("\n" if out else ""), srcs, names)
 
 
 # ---------------------------------------------------------------------- editing tools

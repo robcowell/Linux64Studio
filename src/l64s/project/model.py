@@ -24,7 +24,7 @@ _IMPORT_RE = re.compile(r'(?:\.import\s+(?:binary|source|c64|text)\s+|#import\s+
 TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
-SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".pbas", ".txt"}
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".pbas", ".txt", ".tkn"}
 MUSIC_EXTS = {".sng", ".ins", ".sid"}
 GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
             ".d64", ".d71", ".d81", ".crt"}

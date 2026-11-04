@@ -171,6 +171,37 @@ Abbreviations are read as the C64 reads them, so `pO53280,0` builds: a lower-cas
 capital ends the keyword, and the ROM's keyword order decides which (`pR` is PRINT#, not PRINT).
 A word all in capitals is read in full (`PRINT`).
 
+## Your own tokens (token files)
+
+As CBM prg Studio's user-defined tokens: a BASIC file that starts with
+
+```
+tokenfile mytokens.tkn
+```
+
+is tokenized with the keywords in that file (in the BASIC file's folder; `.tkn` is added if there's
+no extension), so a BASIC extension's keywords (Super Expander's `GRAPHIC`, a cartridge's own)
+build, or a keyword can be given another token. The file is CSV, `KEYWORD, token in hex[,
+abbreviation]` a line, with `#` comments:
+
+```
+# super expander only
+GRAPHIC, CD
+SCNCLR, CE
+CIRCLE, CF
+```
+
+Its keywords are tried first, in the file's order (put a keyword that starts another first, as
+`PRINT#` before `PRINT`), then BASIC V2's that it doesn't name, so a file of just an extension's
+keywords is enough. A token can be two bytes (`FE02`), as the Mega65's are. Abbreviations work as the
+C64's do (`gR` for GRAPHIC). Renumbering, pBASIC, reformatting and folding keep the `tokenfile`
+line where it is.
+
+**Create Token File…** in the main menu writes BASIC V2's table (with abbreviations) to a `.tkn`
+in the project folder, opens it, and copies the `tokenfile` line to paste at the top of a BASIC
+file. CBM prg Studio's tutorial 18 (give PRINT the token `A1` and see it in the `.prg`) works as it
+describes.
+
 ## Listing programs
 
 Opening a `.prg` (or *List BASIC Program…*) lists it as a new `.bas` file. Control characters

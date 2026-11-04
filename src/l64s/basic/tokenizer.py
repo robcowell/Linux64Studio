@@ -11,6 +11,7 @@ Tokenizing follows the C64 ROM's CRUNCH routine, so programs behave as if typed 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from .petscii import ControlCodeError, char_to_petscii, parse_control, petscii_to_text
@@ -97,18 +98,21 @@ def _source_bytes(text: str, line_no: int) -> list[tuple[int, bool]]:
     return out
 
 
-_KW_BYTES = [(bytes(ord(c) - 32 if "a" <= c <= "z" else ord(c) for c in kw), 0x80 + i)
+_KW_BYTES = [(bytes(ord(c) - 32 if "a" <= c <= "z" else ord(c) for c in kw), 0x80 + i, kw)
              for i, kw in enumerate(KEYWORDS)]
 
 
-def match_keyword(src, i: int) -> tuple[int, int] | None:
+def match_keyword(src, i: int, table=None) -> tuple[int | bytes, int, str] | None:
     """The keyword at src[i] as (token, how many bytes), as the ROM finds it: the first in its
     table that matches, written in full or abbreviated. An abbreviation is the start of the
     keyword ending in a shifted (capital) letter after a lower-case one, `pO` for POKE, `pR` for
     PRINT#. A word all in capitals is the keyword in full (PRINT), and `goTo` is GOTO, since the
-    letters after the capital carry on spelling it."""
+    letters after the capital carry on spelling it.
+
+    Returns (token, how many bytes, the keyword). `table` is a token file's (tokenfile.table);
+    a token may be two bytes."""
     n = len(src)
-    for kw, tok in _KW_BYTES:
+    for kw, tok, name in (table or _KW_BYTES):
         k = len(kw)
         j = 0
         while j < k:
@@ -123,15 +127,16 @@ def match_keyword(src, i: int) -> tuple[int, int] | None:
                     i + j + 1 + q < n and src[i + j + 1 + q][0] == rest[q] and not src[i + j + 1 + q][1]
                     for q in range(len(rest)))
                 if not carries_on:
-                    return tok, j + 1          # abbreviated
+                    return tok, j + 1, name          # abbreviated
             j += 1
         if j == k:
-            return tok, k
+            return tok, k, name
     return None
 
 
-def crunch(text: str, line_no: int = 0) -> bytes:
-    """Crunch the text of one line (after its line number)."""
+def crunch(text: str, line_no: int = 0, table=None) -> bytes:
+    """Crunch the text of one line (after its line number), with BASIC V2's keywords or a token
+    file's `table`."""
     src = _source_bytes(text, line_no)
     out = bytearray()
     i = 0
@@ -165,21 +170,22 @@ def crunch(text: str, line_no: int = 0) -> bytes:
             i += 1
             continue
         if b == 0x3F:  # '?'
-            out.append(PRINT)
+            pr = next((tok for _kw, tok, name in table if name == "print"), PRINT) if table else PRINT
+            out += pr if isinstance(pr, bytes) else bytes([pr])
             i += 1
             continue
         if 0x30 <= b <= 0x3B:
             out.append(b)
             i += 1
             continue
-        token = match_keyword(src, i)
+        token = match_keyword(src, i, table)
         if token:
-            tok, k = token
-            out.append(tok)
+            tok, k, name = token
+            out += tok if isinstance(tok, bytes) else bytes([tok])
             i += k
-            if tok == DATA:
+            if name == "data":
                 in_data = True
-            elif tok == REM:
+            elif name == "rem":
                 in_rem = True
             continue
         out.append(b)
@@ -190,6 +196,7 @@ def crunch(text: str, line_no: int = 0) -> bytes:
 # The ROM skips every space between the line number and the text (CHRGET skips spaces).
 _LINE_RE = re.compile(r"^\s*(\d+)\s*(.*)$")
 _REGION = re.compile(r"^\s*#(end)?region\b", re.I)
+_TOKENFILE = re.compile(r"^\s*tokenfile\s+\S", re.I)      # names a token file (tokenfile.py), not a line
 
 
 def parse_source(text: str) -> tuple[list[tuple[int, str, int]], list[BasicError]]:
@@ -199,7 +206,7 @@ def parse_source(text: str) -> tuple[list[tuple[int, str, int]], list[BasicError
     errors: list[BasicError] = []
     for n, raw in enumerate(text.splitlines(), start=1):
         line = raw.rstrip("\r\n")
-        if not line.strip() or _REGION.match(line):     # a fold in the editor, not part of the program
+        if not line.strip() or _REGION.match(line) or _TOKENFILE.match(line):    # a fold, or the token file
             continue
         m = _LINE_RE.match(line)
         if not m:
@@ -245,7 +252,11 @@ def tokenize_files(sources: list[tuple[str | None, str]], start: int = 0x0801) -
     owner: dict[int, tuple[str | None, int]] = {}
     for fname, text in sources:
         try:
-            got, warn = _tokenize_lines(text)
+            got, warn = _tokenize_lines(text, _token_table(text, fname))
+        except BasicError as e:
+            e.file = e.file or fname
+            errors.append(e)
+            continue
         except BasicErrors as e:
             for err in e.errors:
                 err.file = err.file or fname
@@ -269,13 +280,31 @@ def tokenize_files(sources: list[tuple[str | None, str]], start: int = 0x0801) -
     return link_lines(lines, start, warnings)
 
 
-def _tokenize_lines(text: str) -> tuple[list[BasicLine], list[BasicError]]:
+def _token_table(text: str, fname: str | None):
+    """The keyword table of a `tokenfile` line in the source (tokenfile.py), or None for BASIC V2's."""
+    from . import tokenfile
+    for n, line in enumerate(text.splitlines(), start=1):
+        name = tokenfile.tokenfile_line(line)
+        if name is None:
+            continue
+        folder = Path(fname).parent if fname else Path.cwd()
+        path = tokenfile.find(name, folder)
+        if not path.exists():
+            raise BasicError(f"The token file {path.name} isn't there (looked in {path.parent})", n, fname)
+        try:
+            return tokenfile.table(tokenfile.load(path))
+        except BasicError as e:
+            raise BasicError(e.message, n, fname) from None
+    return None
+
+
+def _tokenize_lines(text: str, table=None) -> tuple[list[BasicLine], list[BasicError]]:
     entries, warnings = parse_source(text)
     errors: list[BasicError] = []
     lines: list[BasicLine] = []
     for number, body, src_line in entries:
         try:
-            data = crunch(body, src_line)
+            data = crunch(body, src_line, table)
         except BasicError as e:
             errors.append(e)
             continue

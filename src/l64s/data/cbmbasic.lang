@@ -23,6 +23,10 @@
   <default-regex-options case-sensitive="false"/>
 
   <definitions>
+    <!-- tokenfile name: the BASIC file's own keyword table (tokenfile.py) -->
+    <context id="tokenfile-line" style-ref="region" end-at-line-end="true">
+      <start>^\s*tokenfile\b</start>
+    </context>
     <!-- #region / #endregion: folds in the editor (regions.py), not code -->
     <context id="region-line" style-ref="region" end-at-line-end="true">
       <start>^\s*#(end)?region\b</start>
@@ -84,6 +88,7 @@
 
     <context id="cbmbasic" class="no-spell-check">
       <include>
+        <context ref="tokenfile-line"/>
         <context ref="region-line"/>
         <context ref="namespace"/>
         <context ref="line-number"/>

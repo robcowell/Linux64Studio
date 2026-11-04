@@ -51,7 +51,8 @@ can be followed on Linux.
 * **BASIC V2**: `.bas` files with highlighting, a tokenizer that crunches exactly like the
   C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, automatic line numbers as you type
   (Return starts the next numbered line), CBM prg Studio's reformatting (spaces, REMs, DATA zeros,
-  case) and Compress/Uncompress of keyword abbreviations, renumbering that updates
+  case) and Compress/Uncompress of keyword abbreviations, **token files** for BASIC extensions'
+  keywords (`tokenfile`), renumbering that updates
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source, with control codes in
   Linux64Studio's, CBM prg Studio's BasText or Tok64 (petcat) style (all three are read). A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. **pBASIC** (`.pbas`) is

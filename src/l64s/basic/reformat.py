@@ -19,7 +19,7 @@ from .renumber import find_line_refs
 from .tokenizer import (DATA, KEYWORDS, PRINT, REM, BasicError, _source_bytes, crunch, match_keyword)
 
 _NUMBERED = re.compile(r"^(\s*)(\d+)(\s*)(.*)$")
-_SKIP = re.compile(r"^\s*(#(end)?region\b|@\w+\s*$|namespace\b)", re.I)     # folds, pBASIC labels
+_SKIP = re.compile(r"^\s*(#(end)?region\b|@\w+\s*$|namespace\b|tokenfile\s)", re.I)  # folds, pBASIC labels
 FUNCTIONS = set(range(0xB4, 0xCB)) | {0xA3, 0xA6}            # sgn..mid$, tab(, spc(: no space after
 SYMBOLS = {0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xB1, 0xB2, 0xB3}    # + - * / ^ > = <
 
@@ -58,7 +58,7 @@ def scan(body: str) -> list[Piece]:
             continue
         m = None if literal or 0x30 <= b <= 0x3B else match_keyword(src, i)
         if m:
-            tok, k = m
+            tok, k = m[0], m[1]
             out.append(Piece("kw", s, src[i + k - 1][4], tok))
             i += k
             if tok == REM:

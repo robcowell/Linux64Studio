@@ -104,7 +104,7 @@ def renumber(text: str, start: int = 10, step: int = 10) -> tuple[str, list[Basi
     # fold lines (#region, #endregion) aren't numbered: keep each before the line that followed it
     import re
     folds = [(n, line) for n, line in enumerate(text.splitlines(), start=1)
-             if re.match(r"^\s*#(end)?region\b", line, re.I)]
+             if re.match(r"^\s*(#(end)?region\b|tokenfile\s)", line, re.I)]
     for old, body, src_line in entries:
         while folds and folds[0][0] < src_line:
             out.append(folds.pop(0)[1])

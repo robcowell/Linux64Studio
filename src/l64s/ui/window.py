@@ -40,7 +40,7 @@ from .sid_designer import SidDesigner  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
 
-SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst"}
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst", ".tkn"}
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -108,6 +108,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("String Formatter", "win.string-formatter")
         sec2.append("Source Analyser", "win.source-analyser")
         sec2.append("UTF-8 Check", "win.utf8-check")
+        sec2.append("Create Token File…", "win.create-token-file")
         sec2.append("Statistics (BASIC)", "win.basic-statistics")
         sec2.append("Import CharPad Binaries…", "win.import-charpad")
         sec2.append("Memory Viewer", "win.memory-viewer")
@@ -264,6 +265,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("reformat-basic", lambda *_: self.reformat_dialog())
         add("print", lambda *_: self.print_source())
         add("utf8-check", lambda *_: self.open_utf8_check())
+        add("create-token-file", lambda *_: self.create_token_file())
         add("user-tool", lambda _a, v: self.run_user_tool(v.get_int32()), "i")
         add("git-status", lambda *_: self.git_status())
         add("git-diff", lambda *_: self.git_diff())
@@ -1857,6 +1859,49 @@ class MainWindow(Adw.ApplicationWindow):
             GLib.idle_add(lambda: (self._set_log(text), self.toast(f"{tool.name} {'finished' if ok else 'failed'}"),
                                    False)[2])
         threading.Thread(target=work, daemon=True).start()
+
+    # ================================================================== BASIC token files
+    def create_token_file(self):
+        """Tools → Create Token File: BASIC V2's tokens in a .tkn file to edit (tokenfile.py)."""
+        from ..basic.tokenfile import default_text
+        folder = self.project.directory if self.project else (
+            self._last_source.path.parent if self._last_source and self._last_source.path else Path.home())
+        dlg = Adw.AlertDialog(heading="Create Token File",
+                              body=f"BASIC V2's keywords and tokens, in {folder}, to change or add an "
+                                   f"extension's keywords to. A BASIC file uses it with a tokenfile line.")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        entry = Gtk.Entry(text="tokens", activates_default=True)
+        copy = Gtk.CheckButton(label="Copy the 'tokenfile' line, to paste at the top of a BASIC file", active=True)
+        box.append(entry)
+        box.append(copy)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Create")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            name = entry.get_text().strip() or "tokens"
+            path = folder / name
+            if not path.suffix:
+                path = path.with_suffix(".tkn")
+            if path.exists():
+                self.toast(f"{path.name} is there already: opened it")
+            else:
+                try:
+                    path.write_text(default_text(self.project.name if self.project else ""))
+                except OSError as e:
+                    self.toast(f"Couldn't write {path.name}: {e.strerror}")
+                    return
+            if copy.get_active():
+                Gdk.Display.get_default().get_clipboard().set(f"tokenfile {path.name}\n")
+            self._populate_files()
+            self.open_file(path)
+            if copy.get_active():
+                self.toast(f"Copied 'tokenfile {path.name}': paste it at the top of a BASIC file")
+        dlg.choose(self, None, chosen)
 
     # ================================================================== UTF-8 check
     def open_utf8_check(self):
