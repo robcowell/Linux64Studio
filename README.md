@@ -34,6 +34,9 @@ can be followed on Linux.
   reassembles to the same bytes (traced from the entry points to keep code and data apart),
   `byte` lines or BASIC DATA statements with a loader. Write any range of the last build out as
   `.bin` or `.prg`. See [docs/binary.md](docs/binary.md).
+* **Snapshots**: save the whole machine at any moment of a debug session (VICE snapshots, kept in
+  the project), double-click one to go back there (it starts a debug session if none is running),
+  and compare two to see what changed. See [docs/debugger.md](docs/debugger.md#snapshots).
 * **Memory Manager**: plan what the VIC-II sees (bank, screen, character set or bitmap, sprite
   data), get the `$DD00`/`$D018` values, sprite pointers and setup code, and see conflicts with
   your program and the character ROM. **Read from VICE** shows the layout a running program has

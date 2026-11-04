@@ -24,6 +24,7 @@ from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_manager import MemoryManager  # noqa: E402
+from .snapshot_manager import SnapshotManager  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
@@ -89,6 +90,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
+        sec2.append("Snapshots", "win.snapshots")
         sec2.append("Binary Import/Export", "win.binary-tool")
         sec2.append("Disassembler", "win.disassembler")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
@@ -218,6 +220,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
+        add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
         add("disassembler", lambda *_: self.open_disassembler())
         add("list-prg", lambda *_: self.choose_prg_to_list())
@@ -431,7 +434,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
                 "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
-                "memmgr": "view-grid-symbolic"}.get(ed.kind)
+                "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -807,6 +810,10 @@ class MainWindow(Adw.ApplicationWindow):
                                self.settings.emulator_args)
         self.debug = session
         self.debugger.attach(session)
+        pending = getattr(self, "_pending_snapshot", None)
+        if pending:
+            self._pending_snapshot = None
+            session.connect("connected", lambda s, p=pending: s.cmd(s.restore_snapshot, p))
         session.connect("ended", lambda *_: setattr(self, "debug", None))
         self.bottom_stack.set_visible_child_name("debugger")
         try:
@@ -897,6 +904,33 @@ class MainWindow(Adw.ApplicationWindow):
         kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
         return self._add_page(MemoryManager(kickass, self._memory_of_last_build, lambda: self.debug,
                                             self._insert_into_last_source))
+
+    def snapshot_folder(self) -> Path:
+        if self.project:
+            return self.project.directory / "snapshots"
+        return Path(GLib.get_user_data_dir()) / "linux64studio" / "snapshots"
+
+    def open_snapshots(self):
+        tool = next((ed for ed in self.editors() if isinstance(ed, SnapshotManager)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            tool.refresh()
+            return tool
+        return self._add_page(SnapshotManager(
+            self.snapshot_folder(), lambda: self.debug, self._memory_of_last_build,
+            lambda: self.last_build.prg if self.last_build and self.last_build.ok else None,
+            self.debug_from_snapshot, self._show_memory_at))
+
+    def debug_from_snapshot(self, vsf: Path):
+        """Start debugging the project, then load the snapshot as soon as VICE is ready."""
+        self._pending_snapshot = vsf
+        self.build(run=True, debug=True)
+
+    def _show_memory_at(self, addr: int):
+        viewer = self.open_memory_viewer()
+        if self.debug and self.debug.monitor.connected:
+            viewer.source.set_selected(1)
+        viewer.select(addr)
 
     def _memory_of_last_build(self):
         """(MemoryMap, {address: label}, description) for the last successful build."""

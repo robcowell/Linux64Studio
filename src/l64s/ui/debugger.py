@@ -132,6 +132,37 @@ class DebugSession(GObject.Object):
                     self._quiet = False
         return data
 
+    def save_snapshot(self, path) -> int:
+        """Snapshot the machine to a .vsf. A running program carries on afterwards. Returns the PC."""
+        m = self.monitor
+        was_running = self.running
+        if was_running:
+            self._quiet_stop.clear()
+            self._quiet = True
+        try:
+            m.dump(str(path))
+            pc = m.get_registers().get("PC", 0)
+        finally:
+            if was_running:
+                try:
+                    m.resume()
+                finally:
+                    self._quiet = False
+        return pc
+
+    def restore_snapshot(self, path) -> int:
+        """Load a .vsf and stop there, so the debugger shows the machine as it was."""
+        m = self.monitor
+        self._quiet = True
+        try:
+            pc = m.undump(str(path))
+        finally:
+            self._quiet = False
+        self.running = False
+        self.event_seq += 1
+        GLib.idle_add(self._deliver_stop, pc, self.event_seq)
+        return pc
+
     def _on_event(self, etype: int, body: bytes):
         if self._quiet:
             if etype in (EVT_STOPPED, EVT_JAM):

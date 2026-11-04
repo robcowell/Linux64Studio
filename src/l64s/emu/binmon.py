@@ -29,6 +29,8 @@ CMD_ADVANCE = 0x71
 CMD_EXECUTE_UNTIL_RETURN = 0x73
 CMD_PING = 0x81
 CMD_REGISTERS_AVAILABLE = 0x83
+CMD_DUMP = 0x41
+CMD_UNDUMP = 0x42
 CMD_EXIT = 0xAA
 CMD_QUIT = 0xBB
 CMD_RESET = 0xCC
@@ -235,6 +237,21 @@ class BinaryMonitor:
 
     def step_out(self) -> None:
         self.request(CMD_EXECUTE_UNTIL_RETURN)
+
+    def dump(self, path: str, save_roms: bool = False, save_disks: bool = False) -> None:
+        """Save a snapshot of the whole machine to a .vsf file."""
+        name = str(path).encode()
+        if len(name) > 255:
+            raise MonitorError("Snapshot path is too long")
+        self.request(CMD_DUMP, bytes([int(save_roms), int(save_disks), len(name)]) + name, timeout=20)
+
+    def undump(self, path: str) -> int:
+        """Load a .vsf snapshot. Returns the PC it was taken at."""
+        name = str(path).encode()
+        if len(name) > 255:
+            raise MonitorError("Snapshot path is too long")
+        _, body = self.request(CMD_UNDUMP, bytes([len(name)]) + name, timeout=20)
+        return struct.unpack_from("<H", body)[0] if len(body) >= 2 else 0
 
     def autostart(self, path: str, run: bool = True) -> None:
         name = path.encode()

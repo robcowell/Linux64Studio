@@ -39,6 +39,27 @@ Bytes that changed since the last stop are highlighted.
 Writes to `$D000-$DFFF` reach the chips, so writing `02` to `$D020` turns the border red.
 Code, the screen and the disassembly refresh after every change.
 
+## Snapshots
+
+**Snapshots** in the main menu saves and restores the whole machine (memory, registers, chips,
+drives), like CBM prg Studio's State Manager. Snapshots are VICE snapshot files (`.vsf`), kept in
+the project's `snapshots` folder with a small `.json` beside each for its name, note, PC and which
+build it came from.
+
+* **Take Snapshot** (during a debug session) saves the machine now, under the name you type. A
+  running program pauses only for the save and carries on.
+* **Double-click** a snapshot (or **Restore**) to load it: the machine goes back to that moment and
+  the debugger stops there. With no debug session running, one is started for the project and the
+  snapshot loaded as soon as VICE is ready, which is a quick way back to the middle of a game.
+* Each snapshot shows its registers and the label at its PC, and takes a **note**. It warns if the
+  program has been rebuilt since, as source lines may no longer match.
+* Select **two** (Ctrl+click) to **compare** them: the time between them in cycles, the registers
+  that changed, and every changed memory range with its region, the file it belongs to and the
+  bytes before and after. Double-click a range to see it in the Memory Viewer.
+
+The snapshot files are read directly for listing and comparing, without VICE (`tests/test_snapshot.py`;
+the save and restore round trip through VICE runs with `L64S_VICE_TESTS=1`).
+
 ## Notes on VICE
 
 These are worked around automatically, and were found with VICE 3.7.1:
