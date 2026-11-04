@@ -21,6 +21,11 @@ can be followed on Linux.
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. See
   [docs/basic.md](docs/basic.md).
+* **Memory Viewer**: a map of all 64K showing which file put what where (code, data, included
+  binaries) over the C64's regions, with free space and warnings for common mistakes such as
+  graphics where the VIC-II can't see them. Any address can be viewed as hex, screen text,
+  characters, sprites or a bitmap, from the last build or a live snapshot of the program
+  running in VICE. See [docs/memory.md](docs/memory.md).
 * **Screen Code Builder**: build PRINT strings with colours, cursor moves, reverse and
   Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
   them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for

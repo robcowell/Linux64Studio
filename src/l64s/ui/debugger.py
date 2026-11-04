@@ -113,6 +113,25 @@ class DebugSession(GObject.Object):
             if cid is not None:
                 m.enable_checkpoint(cid, True)
 
+    def snapshot_memory(self) -> bytes:
+        """All 64K as the CPU sees it now. A running program pauses for the read and carries on,
+        without the debugger showing a stop."""
+        m = self.monitor
+        was_running = self.running
+        if was_running:
+            self._quiet_stop.clear()
+            self._quiet = True
+        try:
+            # A response holds at most $FFFF bytes, so read in two halves.
+            data = m.read_memory(0x0000, 0x7FFF) + m.read_memory(0x8000, 0xFFFF)
+        finally:
+            if was_running:
+                try:
+                    m.resume()
+                finally:
+                    self._quiet = False
+        return data
+
     def _on_event(self, etype: int, body: bytes):
         if self._quiet:
             if etype in (EVT_STOPPED, EVT_JAM):

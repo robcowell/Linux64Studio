@@ -21,6 +21,7 @@ from .debugger import DebuggerPanel, DebugSession  # noqa: E402
 from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
+from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
@@ -83,6 +84,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("List BASIC Program (.prg)…", "win.list-prg")
         sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Screen Code Builder", "win.screen-codes")
+        sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
@@ -208,6 +210,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("renumber", lambda *_: self.renumber_dialog())
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("screen-codes", lambda *_: self.open_screen_code_builder())
+        add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -414,7 +417,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic"}.get(ed.kind)
+                "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -832,6 +835,36 @@ class MainWindow(Adw.ApplicationWindow):
                 return ed
         kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
         return self._add_page(ScreenCodeBuilder(kickass, self._insert_into_last_source))
+
+    def open_memory_viewer(self):
+        for ed in self.editors():
+            if isinstance(ed, MemoryViewer):
+                self.tab_view.set_selected_page(self.tab_view.get_page(ed))
+                ed.refresh()
+                return ed
+        return self._add_page(MemoryViewer(self._memory_of_last_build, lambda: self.debug, self._open_source_line))
+
+    def _memory_of_last_build(self):
+        """(MemoryMap, {address: label}, description) for the last successful build."""
+        from .. import memmap
+        res = self.last_build
+        if not res or not res.ok or not res.prg:
+            return None, {}, ""
+        symbols: dict[int, str] = {}
+        if res.asm_result:
+            m = memmap.from_build(res.asm_result)
+            for key, value in res.asm_result.symbols.items():
+                name = res.asm_result.names.get(key, key)
+                if "__m" not in key and not name.startswith("@") and value not in symbols:
+                    symbols[value] = name
+        else:
+            m = memmap.from_prg(res.prg.read_bytes(), res.prg.name)
+        return m, symbols, f"Last build: {res.prg.name}"
+
+    def _open_source_line(self, file: str, line: int):
+        ed = self.open_file(Path(file))
+        if isinstance(ed, SourceEditor):
+            ed.goto_line(line)
 
     def _insert_into_last_source(self, text: str) -> str | None:
         ed = self._last_source
