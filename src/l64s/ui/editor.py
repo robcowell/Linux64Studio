@@ -138,6 +138,11 @@ class SourceEditor(EditorPage):
         typing = Gtk.EventControllerKey()
         typing.connect("key-pressed", self._forget_click)
         self.view.add_controller(typing)
+        # BASIC: Return at the end of a line starts the next numbered line (after the completion
+        # list, which takes Return itself when it's open)
+        numbering = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        numbering.connect("key-pressed", self._basic_return)
+        self.view.add_controller(numbering)
 
     # ---------------------------------------------------------------- appearance
     def _apply_font(self, font: str):
@@ -327,6 +332,33 @@ class SourceEditor(EditorPage):
         right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)
         right.connect("pressed", self._on_right_click)
         self.view.add_controller(right)
+
+    def _basic_return(self, _c, keyval, _code, state):
+        if keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) or not self.is_basic or self.is_pbasic:
+            return False
+        if not getattr(self.settings, "basic_auto_number", True) or self.completion.visible:
+            return False
+        if state & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK):
+            return False                        # Shift+Return: a new line without a number (CBM prg Studio)
+        buf = self.buffer
+        if buf.get_has_selection():
+            return False
+        it = buf.get_iter_at_mark(buf.get_insert())
+        end = it.copy()
+        if not end.ends_line():
+            end.forward_to_line_end()
+        if buf.get_text(it, end, False).strip():
+            return False                        # in the middle of a line: just split it
+        from ..basic.autonumber import next_number
+        lines = self.get_text().split("\n")
+        n = next_number(lines, it.get_line(), int(getattr(self.settings, "basic_number_step", 10) or 10))
+        if n is None:
+            return False
+        buf.begin_user_action()
+        buf.insert_at_cursor(f"\n{n} ")
+        buf.end_user_action()
+        self.view.scroll_mark_onscreen(buf.get_insert())
+        return True
 
     def _forget_click(self, *_):
         self._click_iter_offset = None          # menu items act on the cursor again

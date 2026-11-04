@@ -1307,7 +1307,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.toast("Renumbering works on a BASIC (.bas) file")
             return
         if ed.is_pbasic:
-            self.toast("pBASIC has no line numbers to renumber: Preferences → pBASIC sets how it's numbered")
+            self.toast("pBASIC has no line numbers to renumber: Preferences → BASIC sets how it's numbered")
             return
         dlg = Adw.AlertDialog(heading="Renumber BASIC program",
                               body="GOTO, GOSUB, THEN, ON…GOTO/GOSUB, RUN and LIST line numbers are updated too.")

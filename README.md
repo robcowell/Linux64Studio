@@ -38,7 +38,8 @@ can be followed on Linux.
   to export by hand after every change. A link is switched on automatically only when the
   `.bin` already matches the source, so unrelated files are never overwritten.
 * **BASIC V2**: `.bas` files with highlighting, a tokenizer that crunches exactly like the
-  C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, renumbering that updates
+  C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, automatic line numbers as you type
+  (Return starts the next numbered line), renumbering that updates
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source, with control codes in
   Linux64Studio's, CBM prg Studio's BasText or Tok64 (petcat) style (all three are read). A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. **pBASIC** (`.pbas`) is

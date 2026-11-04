@@ -31,7 +31,9 @@ class Settings:
     dark_mode: str = "system"     # system | light | dark
     save_before_build: bool = True
     auto_complete: bool = True
-    basic_code_style: str = "standard"   # control codes in BASIC listings: standard, bastext or tok64    # suggest names while typing (Ctrl+Space always does)
+    basic_code_style: str = "standard"
+    basic_auto_number: bool = True       # Return at the end of a BASIC line starts the next numbered line
+    basic_number_step: int = 10   # control codes in BASIC listings: standard, bastext or tok64    # suggest names while typing (Ctrl+Space always does)
     pbasic_start: int = 10        # pBASIC: the first line number, the step and the label prefix
     pbasic_step: int = 10
     pbasic_prefix: str = "@"

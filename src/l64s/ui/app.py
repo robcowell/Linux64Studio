@@ -194,16 +194,23 @@ class Application(Adw.Application):
         for w in (font, tabw, spaces, complete, save_first, scheme):
             ed.add(w)
         page.add(ed)
-        pb = Adw.PreferencesGroup(title="pBASIC", description="BASIC without line numbers (.pbas files): "
-                                                              "how lines are numbered when it's built.")
+        pb = Adw.PreferencesGroup(title="BASIC")
+        auto_num = Adw.SwitchRow(title="Number new lines", active=s.basic_auto_number,
+                                 subtitle="Return at the end of a line starts the next one with a line number "
+                                          "(Shift+Return doesn't)")
+        num_step = Adw.SpinRow.new_with_range(1, 1000, 1)
+        num_step.set_title("Line number step")
+        num_step.set_value(s.basic_number_step)
+        pb.add(auto_num)
+        pb.add(num_step)
         pb_start = Adw.SpinRow.new_with_range(0, 63999, 1)
-        pb_start.set_title("First line number")
+        pb_start.set_title("pBASIC: first line number")
         pb_start.set_value(s.pbasic_start)
         pb_step = Adw.SpinRow.new_with_range(1, 1000, 1)
-        pb_step.set_title("Increment")
+        pb_step.set_title("pBASIC: increment")
         pb_step.set_value(s.pbasic_step)
-        pb_prefix = Adw.EntryRow(title="Label prefix (best left as @)", text=s.pbasic_prefix)
-        pb_preview = Adw.SwitchRow(title="Preview generation",
+        pb_prefix = Adw.EntryRow(title="pBASIC: label prefix (best left as @)", text=s.pbasic_prefix)
+        pb_preview = Adw.SwitchRow(title="pBASIC: preview generation",
                                    subtitle="Show the numbered BASIC after building", active=s.pbasic_preview)
         for w in (pb_start, pb_step, pb_prefix, pb_preview):
             pb.add(w)
@@ -234,6 +241,8 @@ class Application(Adw.Application):
             prefix = pb_prefix.get_text().strip()
             s.pbasic_prefix = prefix if prefix and not prefix.isalnum() and " " not in prefix else "@"
             s.pbasic_preview = pb_preview.get_active()
+            s.basic_auto_number = auto_num.get_active()
+            s.basic_number_step = int(num_step.get_value())
             s.basic_code_style = style_keys[codes.get_selected()]
             s.dark_mode = ["system", "light", "dark"][scheme.get_selected()]
             s.save()

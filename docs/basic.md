@@ -40,7 +40,7 @@ Put these in braces inside strings. Case doesn't matter.
 ### Code styles: BasText and Tok64
 
 CBM prg Studio writes control codes in one of two styles, BasText or Tok64. Linux64Studio reads
-both, and its own, whichever is chosen. **Preferences → pBASIC → Control codes in BASIC** chooses
+both, and its own, whichever is chosen. **Preferences → BASIC → Control codes in BASIC** chooses
 how they're written when a `.prg` is listed (and `l64bas --list --codes standard|bastext|tok64`)
 and in the Screen Code Builder, which also has its own choice.
 
@@ -75,6 +75,14 @@ Output is checked against VICE's `petcat -w2` (`tests/test_basic.py`). There are
 differences, both because the real C64 does it this way: `?` becomes `PRINT` (petcat leaves a
 `?`), and `π` in UTF-8 source is the single PETSCII `π` byte.
 
+## Automatic line numbers
+
+As in CBM prg Studio, pressing Return at the end of a line in a `.bas` file starts the next line
+with its number: the step after this line's (10 by default), or, between two lines, a number in
+between them if there's one free (Return after `10` with `20` below gives `15`). In the middle of
+a line, Return just splits it; **Shift+Return** adds a line without a number. **Preferences →
+BASIC** turns it off and sets the step. It's one undo step, and pBASIC files aren't numbered.
+
 ## Renumbering
 
 *Renumber BASIC…* in the menu (or `l64bas --renumber`) renumbers the whole file and updates
@@ -106,7 +114,7 @@ the labels, so this becomes `30 print chr$(18)…` and `60 print chr$(5);: goto 
 case; a label must be on a line of its own; an `@` inside a string, REM or DATA is just a
 character. Errors point at the pBASIC line.
 
-**Preferences → pBASIC** sets the first line number, the increment and the label prefix (`@`
+**Preferences → BASIC** sets the first line number, the increment and the label prefix (`@`
 unless you change it), and *Preview generation* opens the numbered BASIC in a read-only
 *name (generated).bas* tab after each build. Right-click → *Preview Generated BASIC* shows it at
 any time.
