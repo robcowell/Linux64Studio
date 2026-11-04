@@ -22,6 +22,7 @@ from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
+from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
@@ -87,6 +88,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Binary Import/Export", "win.binary-tool")
+        sec2.append("Disassembler", "win.disassembler")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
@@ -214,6 +216,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("binary-tool", lambda *_: self.open_binary_tool())
+        add("disassembler", lambda *_: self.open_disassembler())
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -367,7 +370,7 @@ class MainWindow(Adw.ApplicationWindow):
                 charsets.sort(key=lambda f: (f.parent != path.parent, f.suffix != ".cst"))
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".prg":
-                return self.list_prg(path)
+                return self._open_prg(path)
             elif sfx == ".sid":
                 ed = SidFileView(path, self.settings, self.project)
             elif sfx == ".sng":
@@ -424,7 +427,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
                 "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic",
-                "binary": "document-open-symbolic"}.get(ed.kind)
+                "binary": "document-open-symbolic", "disasm": "system-search-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -863,6 +866,19 @@ class MainWindow(Adw.ApplicationWindow):
             tool.load_file(path)
         return tool
 
+    def open_disassembler(self, path: Path | None = None):
+        tool = next((ed for ed in self.editors() if isinstance(ed, DisassemblerView)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+        else:
+            kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+            tool = self._add_page(DisassemblerView(kickass, self.project.directory if self.project else None,
+                                                   self._build_memory, lambda: self.debug,
+                                                   self._insert_into_last_source))
+        if path:
+            tool.load_file(path)
+        return tool
+
     def _build_memory(self):
         """(memory, used, {address: label}, description) of the last build, for exporting."""
         m, symbols, desc = self._memory_of_last_build()
@@ -948,6 +964,23 @@ class MainWindow(Adw.ApplicationWindow):
             except GLib.Error:
                 pass
         dlg.open(self, None, done)
+
+    def _open_prg(self, path: Path):
+        """A .prg can be BASIC or machine code (usually behind a one-line BASIC loader): ask."""
+        dlg = Adw.AlertDialog(heading=f"Open {path.name}", body="List it as a BASIC program, or disassemble it?")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("basic", "List as BASIC")
+        dlg.add_response("disasm", "Disassemble")
+        dlg.set_default_response("disasm")
+
+        def chosen(d, res):
+            r = d.choose_finish(res)
+            if r == "basic":
+                self.list_prg(path)
+            elif r == "disasm":
+                self.open_disassembler(path)
+        dlg.choose(self, None, chosen)
+        return None
 
     def list_prg(self, prg: Path):
         """Detokenize a .prg into a new (unsaved) .bas file next to it."""

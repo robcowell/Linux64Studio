@@ -1,4 +1,4 @@
-# Binary Import/Export
+# Binary Import/Export and the Disassembler
 
 **Binary Import/Export** in the main menu, or **Import as Source** when you open a `.bin` from
 the sidebar.
@@ -48,3 +48,51 @@ l64bin export game.prg --from 3000 --to 37ff -o sprites.bin
 Kick Assembler versions, and Vol 2), both traced and linear, and requires the built-in
 assembler to rebuild each one byte for byte. With `L64S_VICE_TESTS=1`, it also runs a generated
 BASIC loader in VICE and checks that it `POKE`s the right bytes into memory.
+
+# Disassembler
+
+**Disassembler** in the main menu, or **Disassemble** when you open a `.prg` from the sidebar.
+Where Binary Import turns a whole file into source in one go, the Disassembler is for working
+through a program and improving the result as you go.
+
+## Sources
+
+* **File**: any `.prg`, or another file with a load address (`C000` by default).
+* **Last build**: the range **From**–**To** of the last build's memory, with the build's labels.
+* **Running program (VICE)**: the same range from a snapshot of a debug session (Shift+F5). This
+  is how to look at code the program built or loaded itself, or at the ROMs.
+
+**Entry points** say where code starts (`auto` is a BASIC loader's `SYS` address, or the start).
+With **Trace code**, only code reachable from them and from your code marks is disassembled.
+**C64 names** names I/O registers, vectors and KERNAL routines, using the names in *Mapping the
+Commodore 64* (`EXTCOL`, `SCROLX`, `CIAICR`, `CHROUT`).
+
+## Keys in the listing
+
+| Key | |
+|---|---|
+| C | Code from here (also clears the rest of a data range) |
+| D | Data: the line, or every line in the selection |
+| N | Name the address (empty removes the label) |
+| ; | Comment |
+| Enter | Follow the jump or branch on this line |
+| Esc / Backspace | Back to where you followed from |
+| G | Go to an address or label |
+
+The side panel shows the current address, what refers to it, and every label. Click any of them
+to go there.
+
+Labels must be valid and unique (the assembler ignores case), and can't be a mnemonic, directive
+or `A`/`X`/`Y`. Labelling an address outside the file names it in the source as an equate, which
+is handy for zero-page variables (`temp = $FB`). Your own names win over the C64 names.
+
+## Saving and exporting
+
+For a file, the session (marks, labels, comments) is saved after every change next to it as
+`<file>.l64dis`, and comes back when you open the file again.
+
+**Export Source…**, **Copy** or **Insert into Editor** give source in the project's syntax: names
+used outside the file as equates (`EXTCOL = $D020`, or `.const` for Kick Assembler), then the
+code and data. It reassembles to exactly the same bytes, whatever you've marked or named. The
+KERNAL ROM, traced from its vectors and jump table, comes out as `CHROUT  jmp (IBSOUT)` and so on,
+and rebuilds byte for byte (`tests/test_disassembler.py`).

@@ -26,6 +26,10 @@ can be followed on Linux.
   graphics where the VIC-II can't see them. Any address can be viewed as hex, screen text,
   characters, sprites or a bitmap, from the last build or a live snapshot of the program
   running in VICE. See [docs/memory.md](docs/memory.md).
+* **Disassembler**: an interactive listing of a file, the last build or the running program.
+  Mark code and data, name labels, add comments, follow jumps and see what refers to what. I/O
+  registers and KERNAL routines get their standard names (EXTCOL, SCROLX, CHROUT). Export source
+  that reassembles to the same bytes. See [docs/binary.md](docs/binary.md#disassembler).
 * **Binary Import/Export**: turn any `.bin` or `.prg` into source, as a disassembly that
   reassembles to the same bytes (traced from the entry points to keep code and data apart),
   `byte` lines or BASIC DATA statements with a loader. Write any range of the last build out as
