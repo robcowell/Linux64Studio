@@ -133,3 +133,32 @@ own, which you can import from your copy. `tests/test_snippets.py` checks that e
 tokenises and lists back unchanged, and every Machine Code snippet assembles. Its VICE tests
 (`L64S_VICE_TESTS=1`) run some of them: copying the character ROM to RAM, plotting a point in
 a bitmap, and the raster interrupt.
+
+## SYS() call generator
+
+**Menu → SYS() Call Generator** writes the one-line BASIC program that starts a machine code
+program when you RUN it, as `byte` lines for the top of an assembler source. This is the same
+thing the book's chapters start with (`10 SYS (2064)`). It has three styles, as in CBM prg Studio:
+
+* **Decorated**: `10 SYS (2064)`. With the defaults it gives exactly the book's 15 bytes.
+* **Plain**: `10 SYS2061`, one byte shorter.
+* **Obfuscated**: the line is `10 SYS2094:REM` followed by DEL characters and a message. When
+  the program is LISTed, the DELs rub out the SYS on screen and only the message shows. RUN
+  still runs the SYS. The message can use control codes such as `{white}`, as in the Screen Code
+  Builder, and can be up to 60 characters.
+
+Choose the BASIC line number and where the program starts. **Right after the SYS line**, the
+usual choice, works out the address, which depends on its own number of digits. **At** takes
+`$hex`, decimal, or a label from the last build (such as `start`). If the program starts well
+above the SYS line, the bytes between are padding in the `.prg`, which makes it bigger. The
+source ends with `*=` the start address, so your code follows on.
+
+**Insert at Top** puts the stub at the start of the last source file you used, and **Insert at
+Cursor** puts it at the cursor. It won't insert into a file that already has code at `$0801`, or
+into a BASIC file. In a Kick Assembler project the output uses `.byte` and `//` comments
+(Kick Assembler's own `BasicUpstart2` macro does the same job).
+
+`tests/test_sysgen.py` checks the bytes (the decorated stub is the book's), reads the SYS address
+back, and assembles the source. Its VICE tests (`L64S_VICE_TESTS=1`) RUN each style and check
+that the machine code ran. They also LIST the obfuscated line and check the screen shows only
+the message.

@@ -54,6 +54,9 @@ can be followed on Linux.
   your program, with `!1`-style labels for GOTO targets. Kept in CBM prg Studio's
   `Snippets.xml` format, so you can import CBM's own snippets. See
   [docs/basic.md](docs/basic.md#code-snippets).
+* **SYS() call generator**: the BASIC `10 SYS (2064)` line that starts your machine code, as
+  `byte` lines for the top of your source, in decorated, plain or obfuscated style (it lists as
+  a message of your own). See [docs/basic.md](docs/basic.md#sys-call-generator).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory
