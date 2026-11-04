@@ -5,7 +5,8 @@ CBM prg Studio. It was built so the *Retro Game Dev C64 Edition* books by Derek 
 can be followed on Linux.
 
 * **Assembler** compatible with CBM prg Studio's syntax (macros with `/1`, `@locals`,
-  `Operator Calc`, `incbin`, …). All 12 Vol 1 chapter projects build byte-for-byte
+  `Operator Calc`, `incbin`, `repeat`, `relocate`, `func`, `generateto`, debugger `breakpoint`
+  and `watch` directives, …). All 12 Vol 1 chapter projects build byte-for-byte
   identical to the book's `.prg` files. See [docs/dialect.md](docs/dialect.md).
 * **Projects**: opens CBM prg Studio `.cbmprj` files directly, using the same build order.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.

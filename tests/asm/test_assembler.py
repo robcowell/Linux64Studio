@@ -66,7 +66,7 @@ def test_branch_out_of_range():
 # ---------------------------------------------------------------- expressions and labels
 
 def test_numbers_and_operators():
-    b = code(" byte $ff, %101, 10, 'a', 2+3*4, (2+3)*4, 1<<3, $f0>>4, $0f&3, 1|2, 7^1, -1")
+    b = code(" byte $ff, %101, 10, 'a', 2+3*4, (2+3)*4, 1<<3, $f0>>4, $0f&3, 1|2, 7 xor 1, -1")
     assert list(b) == [255, 5, 10, 1, 14, 20, 8, 15, 3, 3, 6, 255]
 
 

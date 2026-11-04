@@ -11,6 +11,21 @@ and memory. The editor highlights the source line, or the line that called the m
 | F10 / F11 / Shift+F11 | Step over / into / out |
 | F9 | Toggle breakpoint |
 
+## Breakpoints and watches in the source
+
+As in CBM prg Studio, the source can set up the debugger:
+
+```
+        breakpoint loop X == 20     ; stop at loop, but only when X is 20
+        breakpoint                  ; stop at the next instruction
+        watch score, player score   ; show score's byte at every stop
+        debugstartaddress start     ; begin debugging at start
+```
+
+These breakpoints are added to the ones set in the gutter. A condition is VICE's, so it can
+test `A`, `X`, `Y`, `SP` and `PC` (`PC == $1000`); decimal numbers are converted to hex for
+VICE. Watches appear under the registers.
+
 ## Editing registers
 
 PC, A, X, Y and SP are text fields. Type a value and press **Enter** to set it, or **Escape**

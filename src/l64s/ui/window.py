@@ -844,6 +844,16 @@ class MainWindow(Adw.ApplicationWindow):
         start = res.run_target(self.project) if self.project else res.prg
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
                                self._vice_args())
+        r = res.asm_result
+        if r is not None:
+            # CBM prg Studio's BREAKPOINT, DEBUGSTARTADDRESS and WATCH directives
+            for addr, cond in r.breakpoints:
+                session.source_breakpoints.add(addr)
+                if cond:
+                    session.conditions[addr] = cond
+            if r.debug_start is not None:
+                session.source_breakpoints.add(r.debug_start)
+            session.watches = list(r.watches)
         self.debug = session
         self.debugger.attach(session)
         pending = getattr(self, "_pending_snapshot", None)

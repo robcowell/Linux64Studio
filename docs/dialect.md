@@ -31,11 +31,14 @@ byte (0). **verified**
 
 | Form | Meaning |
 |---|---|
-| `$FF`, `%1010`, `255` | hex, binary, decimal |
-| `'a'` | **screen code** of the character (`'a'` = 1, `'@'` = 0, space = 32) **verified** |
+| `$FF`, `%1010`, `@17`, `255` | hex, binary, octal, decimal |
+| `'a'` or `` `a` `` | **screen code** of the character (`'a'` = 1, `'@'` = 0, space = 32) **verified** |
+| `"a"` | the character's ASCII code |
 | `*` | current address |
 | `<expr`, `>expr` | low / high byte |
-| `+ - * / % << >> & \| ^` | arithmetic and bitwise, usual precedence |
+| `+ - * / % << >> & \|` | arithmetic and bitwise, usual precedence |
+| `mod and or xor not` | the same as words (`not` gives 1 for 0, otherwise 0), any case |
+| `^` | power, grouping to the right (`2^3` = 8). Not XOR: use `xor` |
 | `= == <> != < > <= >=` | comparisons (1 or 0), for `if` |
 | `#` inside an expression | ignored: the book's `lda #1<<#/1` means `1 << /1` **verified** |
 
@@ -78,12 +81,35 @@ Undocumented 6510 opcodes (`lax`, `sax`, `dcp`, …) are available with `l64asm 
 | `fltp` 3.14159265, … | Commodore BASIC's 5-byte floating point numbers (as in BASIC variables). Use `.` as the decimal point; a label or expression gives a whole number. Each value is the nearest 5-byte number, which matches the C64's own for most values. The ROM's number reader can be one step off in the last bit (`12345.678`) |
 | `text 'string'` | screen codes. Numbers may be mixed in **verified** |
 | `text "string"` | PETSCII, as CBM prg Studio's help describes (`--text screen` or `--text petscii` forces one encoding for both kinds of quotes) |
-| `dcb count, value` | `count` copies of `value` **verified** |
+| `dcb count, a, b, …` / `dcw count, a, …` | `count` copies of the list (bytes / words) **verified** |
+| `bytes`/`words` a, n*v, … | a single number gives that many zeros; `n*v` gives `n` copies of `v` |
+| `bits 00001111`, `bits ....@@@@` | bytes from binary digits; `.` is 0 and `@` is 1, 8 to a byte |
+| `null "str"`, `ptext "str"` | a string ending in a zero byte / starting with its length |
+| `func start,end,step,expr` / `funcw` | a table of `expr` for `x` from `start` to `end` (as the Data Generator tool) |
+| `random n,min,max[,seed]` / `randomw` | `n` random bytes / words; a seed gives the same values each build |
+| `long`/`longs` | an error: they're 65816 only |
+| `charset 1` / `charset 2` | which character set `'…'` screen codes are for: 1 (upper case and graphics, so `'A'` = `'a'` = 1) or 2 (lower and upper case, `'A'` = 65) |
+| `charmap c,petscii,screen` / `charmap off` | change one character's PETSCII and screen code in `text`, `byte` and `'c'` |
 | `incbin file[, skip[, length]]` | quotes optional, path relative to the source file **verified** |
 | `incasm "file"` | include source, nested up to 16 deep |
 | `defm NAME` … `endm` | macro, parameters `/1`…`/9` **verified** |
 | `if expr` / `ifdef` / `ifndef` / `else` / `endif` | conditional assembly |
 | `align n`, `org addr` | pad to a multiple of n / same as `*=` |
+| `relocate addr` … `relocate off` | assemble for `addr` (labels, jumps) while storing the code where `*` is, for code copied elsewhere before it runs |
+| `noloadaddr` | the program file has no 2-byte load address |
+| `saveblock start,end` | the program file holds only `start`–`end` |
+| `padbyte n` | the byte that fills gaps between blocks (default 0) |
+| `zpopt on`/`off` | with `off`, an address written with 4 digits (`$00F3`) stays absolute, and a warning says it could be zero page |
+| `warning on`/`off` | warnings for the lines in between are dropped. `jmp ($xxFF)` warns about the 6502's page-boundary bug |
+| `target TGT_C64` | sets the machine (`ifdef TGT_C64` is true); others are accepted with a warning, since only the C64 is supported |
+| `repeat n[,name]`, `repeat start,end[,step],name` … `endrepeat` | the lines in between, `n` times; `name` is replaced by the count (whole words). Nests |
+| `debug "text"`, `debug label` | a message in the build log; `debug option auto on` shows each label as it's defined, `debug option base hex`/`decimal` |
+| `export label` | puts `label`'s value into the project's BASIC files (`sys start` becomes `sys 32768`), outside strings and `rem` |
+| `watch label[, comment]` | the debugger shows `label`'s byte whenever the program stops |
+| `breakpoint [label] [condition]` | a breakpoint at `label` (or the next instruction) when debugging, with an optional VICE condition such as `X == 20` |
+| `debugstartaddress label` | the debugger starts the program here |
+| `generateto file.prg[,disk.d64[,diskname][,append]]` | the program's file name, and a disk image it's written to. `.p00` writes a PC64 file; `null` writes nothing |
+| `checksum` | accepted and ignored |
 | `Operator Calc` / `Operator HiLo` | see above **verified** |
 
 ### Macros
@@ -107,7 +133,9 @@ defm    LIBMATH_ADD8BIT_AVA     ; /1 = address, /2 = value, /3 = address
 ## Projects
 
 A CBM prg Studio project (`.cbmprj`) is built by assembling every file in its `<BuildList>`,
-in order, as one program. All labels and macros are shared between files. **verified** In
+in order, as one program. Macros are shared between files, and so are labels, except that a
+label defined in more than one file is local to each of them (each file sees its own), and a
+label ending in `$` (`score$`) is project-wide and may be defined only once. **verified** In
 CBM prg Studio, Ctrl+F5 (*Build → Project → And Run*) does this, and F5 builds only the current
 file. Linux64Studio uses the same keys.
 
@@ -143,4 +171,3 @@ image is written after the build events. The project's VICE options (`vice_args`
 ## Not implemented (yet)
 
 * CBM prg Studio's label-based "pBASIC"
-* `GenerateTo`/`Watch` are accepted and ignored with a warning

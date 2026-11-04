@@ -257,9 +257,18 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
         return BuildResult(False, None, None, [d], str(d))
     basic_files = [Path(f) for f in files if Path(f).suffix.lower() in BASIC_EXTS]
     asm_files = [f for f in files if Path(f).suffix.lower() not in BASIC_EXTS]
-    basic, basic_diags = _tokenize_basic(basic_files, overrides) if basic_files else (None, [])
     opts = Options(padding_byte=project.padding_byte)
     result = Assembler(opts).assemble_files(asm_files, overrides)
+    # EXPORT: labels the BASIC can use by name (10 sys start), so the BASIC is read after the code
+    basic_overrides = overrides
+    if basic_files and result.exports:
+        basic_overrides = dict(overrides or {})
+        for p in basic_files:
+            try:
+                basic_overrides[str(p)] = substitute_exports(_read_source(p, overrides), result.exports)
+            except OSError:
+                pass
+    basic, basic_diags = _tokenize_basic(basic_files, basic_overrides) if basic_files else (None, [])
     result.diagnostics[:0] = basic_diags
     if basic_files and basic is None:
         result.ok = False
@@ -269,11 +278,29 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
         out = Path(only_file).with_suffix(".prg")
     else:
         out = project.output_path()
+    gen = result.generate_to
+    no_output = bool(gen) and gen[0].upper() == "NULL"
+    p00_name = None
+    if gen and not no_output:
+        # GENERATETO: the program file, always in the project folder (CBM prg Studio)
+        out = (project.directory / Path(gen[0]).name).resolve()
+        if out.suffix.lower() == ".p00":
+            p00_name = gen[1] if len(gen) > 1 else out.stem
     labels = out.with_suffix(".vs")
     log = [f"Building {'file ' + Path(only_file).name if only_file else 'project ' + project.name}"]
     log += [str(d) for d in result.diagnostics]
+    log += [f"debug: {m}" for m in result.messages]
+    if result.ok and no_output:
+        log.append("GENERATETO NULL: no program file written")
+        return BuildResult(True, None, None, result.diagnostics, "\n".join(log),
+                           srcmap=source_map(result), asm_result=result)
     if result.ok:
         write_outputs(result, out, labels=labels, lst=out.with_suffix(".lst"))
+        if p00_name is not None:
+            out.write_bytes(p00(result.prg(), p00_name))
+            log.append(f"Wrote {out.name} as a PC64 .p00 file named {p00_name.upper()[:16]}")
+        if gen and len(gen) >= 3 and Path(gen[1]).suffix.lower() in (".d64", ".d71", ".d81"):
+            log.append(_generate_to_disk(project, out, result.prg(), gen))
         if result.start is not None:
             log.append(f"Wrote {out} (${result.start:04X}-${result.end - 1:04X}, "
                        f"{result.end - result.start} bytes)")
@@ -284,6 +311,53 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
     return BuildResult(result.ok, out if result.ok else None, labels if result.ok else None,
                        result.diagnostics, "\n".join(log),
                        srcmap=source_map(result) if result.ok else {}, asm_result=result)
+
+
+def substitute_exports(text: str, exports: dict[str, int]) -> str:
+    """Put exported labels' values into BASIC source (10 sys start -> 10 sys 32768): whole words,
+    in any case, outside strings and REMs."""
+    if not exports:
+        return text
+    names = {k.lower(): v for k, v in exports.items()}
+    word = re.compile(r"(?<![A-Za-z0-9_$])([A-Za-z_][A-Za-z0-9_]*\$?)(?![A-Za-z0-9_])")
+    out_lines = []
+    for line in text.split("\n"):
+        parts = re.split(r'("[^"]*"?)', line)
+        rem = False
+        for i, part in enumerate(parts):
+            if rem or part.startswith('"'):
+                continue
+            m = re.search(r"\brem\b", part, re.I)
+            head, tail = (part[:m.start()], part[m.start():]) if m else (part, "")
+            head = word.sub(lambda w: str(names[w.group(1).lower()]) if w.group(1).lower() in names
+                            else w.group(1), head)
+            parts[i] = head + tail
+            rem = bool(m)
+        out_lines.append("".join(parts))
+    return "\n".join(out_lines)
+
+
+def p00(prg: bytes, name: str) -> bytes:
+    """A PC64 .p00 file: "C64File", the 16-character name, then the program with its load address."""
+    raw = name.upper().encode("ascii", "replace")[:16].ljust(17, b"\0")
+    return b"C64File\0" + raw + b"\0" + prg
+
+
+def _generate_to_disk(project: Project, prg_path: Path, prg: bytes, gen: list[str]) -> str:
+    """GENERATETO prg, disk, name[, append]: the program on a disk image, new or added to."""
+    from ..disk.image import DiskError, DiskImage, build_disk
+    disk = (project.directory / Path(gen[1]).name).resolve()
+    name = prg_path.stem[:16]
+    try:
+        if len(gen) > 3 and gen[3].lower() == "append" and disk.exists():
+            d = DiskImage.load(disk)
+            d.add_file(name, prg, "prg", replace=True)
+            d.save(disk)
+            return f"Added {name} to {disk.name}"
+        build_disk(disk, gen[2][:16], "00", [(name, prg, "prg")])
+        return f"Wrote {disk.name} with {name}"
+    except DiskError as e:
+        return f"GENERATETO couldn't write {disk.name}: {e}"
 
 
 def _merge_basic(result: Result, basic) -> None:

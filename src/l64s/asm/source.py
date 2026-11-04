@@ -20,9 +20,13 @@ DIRECTIVES = {
     "text", "dcb", "incbin", "incasm", "operator", "align", "org",
     "defm", "endm", "if", "ifdef", "ifndef", "else", "endif", "equ",
     "generateto", "watch",
+    # also from CBM prg Studio's directive list
+    "bits", "bytes", "words", "dcw", "null", "ptext", "long", "longs", "func", "funcw", "random", "randomw",
+    "relocate", "noloadaddr", "saveblock", "padbyte", "target", "charmap", "charset", "zpopt", "warning",
+    "debug", "export", "breakpoint", "debugstartaddress", "checksum", "repeat", "endrepeat",
 }
 
-LABEL_RE = re.compile(r"[@A-Za-z_][A-Za-z0-9_.@]*")
+LABEL_RE = re.compile(r"[@A-Za-z_][A-Za-z0-9_.@]*\$?")   # a trailing $ makes a label project-wide
 
 
 @dataclass
@@ -194,7 +198,96 @@ class SourceLoader:
         for p in paths:
             lines.extend(self._read_file(Path(p), depth=0))
         lines = self._collect_macros(lines)
-        return self._expand(lines)
+        return self._expand(self._repeats(lines))
+
+    # ---------------------------------------------------------------- REPEAT ... ENDREPEAT
+    _CONST_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([$%]?[0-9A-Fa-f]+)\s*$")
+
+    def _number(self, text: str, consts: dict[str, int], loc) -> int:
+        t = text.strip()
+        try:
+            if t.startswith("$"):
+                return int(t[1:], 16)
+            if t.startswith("%"):
+                return int(t[1:], 2)
+            if t.lstrip("-").isdigit():
+                return int(t)
+        except ValueError:
+            pass
+        if t.lower() in consts:
+            return consts[t.lower()]
+        raise AsmError(f"REPEAT needs numbers (or constants set to a number earlier): '{t}'")
+
+    def _repeats(self, lines: list[Line]) -> list[Line]:
+        """Expand REPEAT blocks. As in CBM prg Studio:
+             repeat count[, name]            name runs 1..count
+             repeat start, end[, name]       name runs start..end
+             repeat start, end, step[, name]
+        and `name` in the block is replaced by the counter."""
+        consts: dict[str, int] = {}
+        out: list[Line] = []
+        i = 0
+        while i < len(lines):
+            ln = lines[i]
+            m = self._CONST_RE.match(ln.code)
+            if m:
+                try:
+                    consts[m.group(1).lower()] = self._number(m.group(2), {}, ln.loc)
+                except AsmError:
+                    pass
+            label, rest = split_label(ln.code, self.kw)
+            word, args = first_word(rest)
+            if word.lower() == "endrepeat":
+                self.error("ENDREPEAT without REPEAT", ln.loc)
+                i += 1
+                continue
+            if word.lower() != "repeat":
+                out.append(ln)
+                i += 1
+                continue
+            # find the matching ENDREPEAT (blocks may nest)
+            depth, j = 1, i + 1
+            while j < len(lines):
+                w = first_word(split_label(lines[j].code, self.kw)[1])[0].lower()
+                depth += 1 if w == "repeat" else -1 if w == "endrepeat" else 0
+                if depth == 0:
+                    break
+                j += 1
+            if j >= len(lines):
+                self.error("REPEAT without ENDREPEAT", ln.loc)
+                return out
+            body = self._repeats(lines[i + 1:j])
+            parts = split_top_level(args) if args.strip() else []
+            name = None
+            if parts and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", parts[-1]) and parts[-1].lower() not in consts:
+                name = parts.pop()
+            try:
+                nums = [self._number(x, consts, ln.loc) for x in parts]
+                if len(nums) == 1:
+                    values = list(range(1, nums[0] + 1))
+                elif len(nums) == 2:
+                    values = list(range(nums[0], nums[1] + 1))
+                elif len(nums) == 3:
+                    if nums[2] == 0:
+                        raise AsmError("REPEAT's step can't be 0")
+                    values = list(range(nums[0], nums[1] + (1 if nums[2] > 0 else -1), nums[2]))
+                else:
+                    raise AsmError("REPEAT needs a count, or a start and an end (and a step), then an optional name")
+                if len(values) > 65536:
+                    raise AsmError("REPEAT repeats more than 65536 times")
+            except AsmError as e:
+                self.error(e.message, ln.loc)
+                i = j + 1
+                continue
+            if label:
+                out.append(Line(label, ln.loc, ln.called_from, raw=ln.raw))
+            word_re = re.compile(rf"(?<![A-Za-z0-9_@$]){re.escape(name)}(?![A-Za-z0-9_])", re.I) if name else None
+            for v in values:
+                for b in body:
+                    code = word_re.sub(str(v), b.code) if word_re else b.code
+                    out.append(Line(code, b.loc, b.called_from, raw=b.raw))
+            i = j + 1
+        return out
 
     def _read_file(self, path: Path, depth: int, from_loc: SourceLoc | None = None) -> list[Line]:
         if depth > 16:
@@ -291,7 +384,7 @@ class SourceLoader:
                     idx = int(m.group(1)) - 1
                     if idx >= len(argv):
                         raise AsmError(f"Macro {macro.name} uses /{idx + 1} but only {len(argv)} parameter(s) given")
-                    return argv[idx]
+                    return argv[idx] if argv[idx].strip() else "0"      # an empty parameter is 0 (CBM prg Studio)
                 try:
                     code = self._PARAM_RE.sub(sub, b.code)
                 except AsmError as e:

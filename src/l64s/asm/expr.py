@@ -1,10 +1,11 @@
 """Expression lexer and evaluator for the CBM prg Studio dialect.
 
 Supported:
-  numbers   $FF  %1010  255  'a' (screen code of the character)
-  symbols   labels/constants, '*' (current program counter)
-  unary     -  ~  !  <  (low byte)  >  (high byte)  #  (no-op, seen as `#1<<#/1` in the book)
-  binary    * / %   + -   << >>   < > <= >=   = == <> !=   &   ^   |
+  numbers   $FF  %1010  @17 (octal)  255
+            'a' (screen code)  `a` (screen code)  "a" (ASCII), as CBM prg Studio's help lists them
+  symbols   labels/constants (a trailing $ marks a project-wide label: start$), '*' (the program counter)
+  unary     -  ~  !  NOT  <  (low byte)  >  (high byte)  #  (no-op, seen as `#1<<#/1` in the book)
+  binary    ^ (power)   * / % MOD   + -   << >>   < > <= >=   = == <> !=   & AND   XOR   | OR
 
 `Operator HiLo` (the default) makes `<`/`>` bind tightly: `<A+1` is `(<A)+1`.
 `Operator Calc` evaluates the rest of the expression first: `<A+1` is `<(A+1)`.
@@ -39,9 +40,10 @@ _TOKEN_RE = re.compile(
     (?P<ws>\s+)
   | (?P<hex>\$[0-9A-Fa-f]+)
   | (?P<bin>%[01]+)
+  | (?P<oct>@[0-7]+(?![A-Za-z0-9_]))
   | (?P<dec>[0-9]+)
-  | (?P<chr>'(?:[^']|'')'|"(?:[^"])")
-  | (?P<sym>[@A-Za-z_][A-Za-z0-9_.@]*)
+  | (?P<chr>'(?:[^']|'')'|"(?:[^"])"|`(?:[^`])`)
+  | (?P<sym>[@A-Za-z_][A-Za-z0-9_.@]*\$?)
   | (?P<op><<|>>|<=|>=|<>|!=|==|[-+*/%&|^~!<>=()#])
     """,
     re.VERBOSE,
@@ -61,15 +63,18 @@ def tokenize(text: str) -> list[Tok]:
             toks.append(Tok("num", int(s[1:], 16), pos))
         elif kind == "bin":
             toks.append(Tok("num", int(s[1:], 2), pos))
+        elif kind == "oct":
+            toks.append(Tok("num", int(s[1:], 8), pos))
         elif kind == "dec":
             toks.append(Tok("num", int(s), pos))
         elif kind == "chr":
             ch = s[1:-1]
             if ch == "''":
                 ch = "'"
-            toks.append(Tok("num", char_to_screencode(ch), pos))
+            toks.append(Tok("chr", (s[0], ch), pos))      # converted by the evaluator (CHARSET, CHARMAP)
         elif kind == "sym":
-            toks.append(Tok("sym", s, pos))
+            word = _WORD_OPS.get(s.lower())
+            toks.append(Tok("word", word, pos) if word else Tok("sym", s, pos))
         elif kind == "op":
             toks.append(Tok("op", s, pos))
         pos = m.end()
@@ -77,14 +82,18 @@ def tokenize(text: str) -> list[Tok]:
     return toks
 
 
-# Binary operator precedence (higher binds tighter).
+# MOD, AND, OR, XOR and NOT, in either case, are operators (CBM prg Studio's help lists them)
+_WORD_OPS = {"mod": "%", "and": "&", "or": "|", "xor": "xor", "not": "not"}
+
+# Binary operator precedence (higher binds tighter). ^ is a power, as in CBM prg Studio.
 _BINARY = {
-    "|": 1, "^": 2, "&": 3,
+    "|": 1, "xor": 2, "&": 3,
     "=": 4, "==": 4, "<>": 4, "!=": 4,
     "<": 5, ">": 5, "<=": 5, ">=": 5,
     "<<": 6, ">>": 6,
     "+": 7, "-": 7,
     "*": 8, "/": 8, "%": 8,
+    "^": 10,
 }
 _UNARY_PREC = 9
 
@@ -105,7 +114,13 @@ def _apply(op: str, a: int, b: int) -> int:
     if op == ">>": return a >> b
     if op == "&": return a & b
     if op == "|": return a | b
-    if op == "^": return a ^ b
+    if op == "xor": return a ^ b
+    if op == "^":
+        if b < 0:
+            raise AsmError("A negative power isn't a whole number")
+        if b > 64:
+            raise AsmError(f"Power {b} is too large")
+        return a ** b
     if op in ("=", "=="): return int(a == b)
     if op in ("<>", "!="): return int(a != b)
     if op == "<": return int(a < b)
@@ -118,10 +133,13 @@ def _apply(op: str, a: int, b: int) -> int:
 class Evaluator:
     """Pratt-parser evaluator. `lookup(name)` returns a value or raises Undefined."""
 
-    def __init__(self, lookup: Callable[[str], int], pc: int | None, calc_mode: bool):
+    def __init__(self, lookup: Callable[[str], int], pc: int | None, calc_mode: bool,
+                 char_value: Callable[[str, str], int] | None = None):
         self.lookup = lookup
         self.pc = pc
         self.calc_mode = calc_mode
+        # (quote, character) -> value; the assembler's follows CHARSET and CHARMAP
+        self.char_value = char_value or default_char_value
 
     def evaluate(self, text: str) -> int:
         self.text = text
@@ -146,17 +164,21 @@ class Evaluator:
         left = self._unary()
         while True:
             t = self._peek()
-            if t.kind != "op" or t.value not in _BINARY:
+            if t.kind not in ("op", "word") or t.value not in _BINARY:
                 return left
             prec = _BINARY[t.value]
             if prec <= min_prec:
                 return left
             self._next()
-            right = self._expr(prec)
+            # ^ (power) groups to the right: 2^3^2 is 2^(3^2)
+            right = self._expr(prec - 1 if t.value == "^" else prec)
             left = _apply(t.value, left, right)
 
     def _unary(self) -> int:
         t = self._peek()
+        if t.kind == "word" and t.value == "not":
+            self._next()
+            return int(self._unary() == 0)
         if t.kind == "op":
             if t.value in ("<", ">"):
                 self._next()
@@ -182,6 +204,8 @@ class Evaluator:
         t = self._next()
         if t.kind == "num":
             return t.value
+        if t.kind == "chr":
+            return self.char_value(*t.value)
         if t.kind == "sym":
             return self.lookup(t.value)
         if t.kind == "op" and t.value == "*":
@@ -205,3 +229,10 @@ def symbols_in(text: str) -> list[str]:
         return [t.value for t in tokenize(text) if t.kind == "sym"]
     except AsmError:
         return []
+
+
+def default_char_value(quote: str, ch: str) -> int:
+    """'a' and `a` are screen codes, "a" is the character's ASCII value."""
+    if quote == '"':
+        return ord(ch) & 0xFF
+    return char_to_screencode(ch)

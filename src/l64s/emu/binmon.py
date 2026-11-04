@@ -23,6 +23,7 @@ CMD_CHECKPOINT_SET = 0x12
 CMD_CHECKPOINT_DELETE = 0x13
 CMD_CHECKPOINT_LIST = 0x14
 CMD_CHECKPOINT_TOGGLE = 0x15
+CMD_CONDITION_SET = 0x22
 CMD_REGISTERS_GET = 0x31
 CMD_REGISTERS_SET = 0x32
 CMD_ADVANCE = 0x71
@@ -225,6 +226,13 @@ class BinaryMonitor:
         body = struct.pack("<HHBBBB", start, end if end is not None else start, int(stop), 1, op, int(temporary))
         _, r = self.request(CMD_CHECKPOINT_SET, body)
         return parse_checkpoint(r)
+
+    def set_condition(self, cid: int, condition: str) -> None:
+        """Make a checkpoint stop only when a condition holds, in VICE's monitor syntax (X == $14)."""
+        text = condition.encode("ascii")
+        if len(text) > 255:
+            raise MonitorError("The condition is too long")
+        self.request(CMD_CONDITION_SET, struct.pack("<IB", cid, len(text)) + text)
 
     def delete_checkpoint(self, cid: int) -> None:
         self.request(CMD_CHECKPOINT_DELETE, struct.pack("<I", cid))
