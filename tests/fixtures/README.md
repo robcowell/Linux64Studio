@@ -8,3 +8,10 @@ after the first three are saved, then validate. The disk fills up before `H` is 
 
 Each line is a file's directory type, block count and sector chain, then the free block
 count, then the sectors marked used in the BAM for each track.
+
+`real-1571-allocation.txt` is the same experiment on a 1571 in double-sided mode (the
+program first sends `U0>M1`), where file `H` fits by crossing onto side two.
+`real-1581-allocation.txt` is from a 1581: format as `ALLOC81,A8`, save twenty 100-byte
+files `S1` to `S20`, scratch `S3` and `S7`, save four 50798-byte files `BIG1` to `BIG4`
+(which fill the gaps and cross tracks), then validate. Both also come from Rift64
+(`tests/fixtures/allocation/`), recorded with VICE 3.7.1's true drive emulation.

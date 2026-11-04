@@ -26,7 +26,7 @@ TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
 GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
-            ".d64"}
+            ".d64", ".d71", ".d81"}
 
 
 @dataclass

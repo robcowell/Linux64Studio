@@ -34,6 +34,10 @@ def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_po
     if labels and labels.exists():
         args += ["-moncommands", str(labels)]
     args += list(extra_args or [])
+    # A 1571 or 1581 disk needs drive 8 to be that kind of drive.
+    drive = {".d71": "1571", ".d81": "1581"}.get(Path(prg).suffix.lower())
+    if drive and not any(a.startswith("-drive8type") for a in args):
+        args += ["-drive8type", drive]
     args += ["-autostartprgmode", "1", str(prg)]
     return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True)

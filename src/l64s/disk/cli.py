@@ -1,6 +1,6 @@
-"""l64disk: create and work with 1541 disk images (.d64).
+"""l64disk: create and work with disk images: .d64 (1541), .d71 (1571) and .d81 (1581).
 
-  l64disk create game.d64 "my game,mg" game.prg [more files...]
+  l64disk create game.d64 "my game,mg" game.prg [more files...]   # format from the extension
   l64disk list game.d64
   l64disk add game.d64 hiscores.seq [--name HISCORES --type seq]
   l64disk extract game.d64 GAME [-o game.prg]
@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .d64 import D64, DiskError, build_disk, file_type_for
+from .image import DiskError, DiskImage, build_disk, file_type_for
 
 
 def _split_header(header: str) -> tuple[str, str]:
@@ -21,7 +21,7 @@ def _split_header(header: str) -> tuple[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="l64disk", description="1541 disk image (.d64) tool")
+    ap = argparse.ArgumentParser(prog="l64disk", description="Disk image tool (.d64, .d71, .d81)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create", help="make a new disk image")
     c.add_argument("image")
@@ -50,16 +50,16 @@ def main(argv: list[str] | None = None) -> int:
             disk = build_disk(Path(args.image), name, disk_id, files)
             print(f"{args.image}: {len(files)} file(s), {disk.blocks_free} blocks free")
         elif args.cmd == "list":
-            sys.stdout.write(D64.load(args.image).listing())
+            sys.stdout.write(DiskImage.load(args.image).listing())
         elif args.cmd == "add":
-            disk = D64.load(args.image)
+            disk = DiskImage.load(args.image)
             src = Path(args.file)
             disk.add_file(args.name or src.stem[:16], src.read_bytes(), args.type or file_type_for(src),
                           replace=args.replace)
             disk.validate()
             disk.save(args.image)
         elif args.cmd == "extract":
-            disk = D64.load(args.image)
+            disk = DiskImage.load(args.image)
             e = disk.find(args.name)
             if e is None:
                 raise DiskError(f"File '{args.name}' not found")
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             out.write_bytes(disk.read_file(e))
             print(f"{out}: {e.blocks} blocks")
         elif args.cmd == "delete":
-            disk = D64.load(args.image)
+            disk = DiskImage.load(args.image)
             disk.delete(args.name)
             disk.save(args.image)
         return 0

@@ -272,7 +272,7 @@ class MainWindow(Adw.ApplicationWindow):
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
                   ("Binary", lambda f: f.suffix.lower() == ".bin"),
-                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64"))]
+                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81"))]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
             if not members:
@@ -352,7 +352,7 @@ class MainWindow(Adw.ApplicationWindow):
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".prg":
                 return self.list_prg(path)
-            elif sfx == ".d64":
+            elif sfx in (".d64", ".d71", ".d81"):
                 ed = DiskEditor(path)
                 ed.connect("run-disk", self._run_disk_editor)
                 ed.connect("list-basic", lambda _e, name, data: self.list_program_bytes(
@@ -567,7 +567,7 @@ class MainWindow(Adw.ApplicationWindow):
             return
         dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file", "spt": "New sprite set",
                                        "cst": "New character set", "sdd": "New screen design",
-                                       "d64": "New disk image"}[kind])
+                                       "d64": "New disk image (.d64, .d71 or .d81)"}[kind])
         default = {"asm": "gameNew.asm", "bas": "main.bas", "spt": "sprites.spt", "cst": "characters.cst",
                    "sdd": "screens.sdd", "d64": "disk.d64"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
@@ -590,7 +590,8 @@ class MainWindow(Adw.ApplicationWindow):
             fname = entry.get_text().strip()
             if not fname:
                 return
-            if not fname.lower().endswith("." + kind):
+            exts = (".d64", ".d71", ".d81") if kind == "d64" else ("." + kind,)
+            if not fname.lower().endswith(exts):
                 fname += "." + kind
             path = self.project.directory / fname
             if path.exists():
@@ -615,8 +616,8 @@ class MainWindow(Adw.ApplicationWindow):
                 cs.chars = rom_charset(True) or cs.chars
                 cs.save_cst(path)
             elif kind == "d64":
-                from ..disk.d64 import D64
-                d = D64()
+                from ..disk.image import DiskImage, format_for
+                d = DiskImage(format_for(path))
                 d.format(self.project.name[:16], "00")
                 d.save(path)
             elif kind == "sdd":
@@ -966,20 +967,30 @@ class MainWindow(Adw.ApplicationWindow):
         # ---------- disk image page
         dpage = Adw.PreferencesPage(title="Disk Image", icon_name="media-floppy-symbolic")
         win.add(dpage)
-        dg = Adw.PreferencesGroup(title="1541 disk image (.d64)",
+        dg = Adw.PreferencesGroup(title="Disk image",
                                   description="Written after every project build, with the program as its first "
-                                              "file. Files are laid out exactly as a real 1541 drive would.")
+                                              "file. Files are laid out exactly as the real drive would.")
         dpage.add(dg)
         stem = Path(p.executable or p.name).stem
         d_on = Adw.SwitchRow(title="Write a disk image", active=bool(p.disk_image))
+        kinds = [".d64", ".d71", ".d81"]
+        current = Path(p.disk_image).suffix.lower() if p.disk_image else ".d64"
+        d_kind = Adw.ComboRow(title="Format", model=Gtk.StringList.new(
+            ["1541 (.d64, 664 blocks)", "1571 (.d71, 1328 blocks)", "1581 (.d81, 3160 blocks)"]),
+            selected=kinds.index(current) if current in kinds else 0)
         d_path = Adw.EntryRow(title="Image file", text=p.disk_image or f"{stem}.d64")
+
+        def kind_changed(row, _ps):
+            text = d_path.get_text().strip() or f"{stem}.d64"
+            d_path.set_text(str(Path(text).with_suffix(kinds[row.get_selected()])))
+        d_kind.connect("notify::selected", kind_changed)
         d_name = Adw.EntryRow(title="Disk name (16 characters)", text=p.disk_name or p.name[:16])
         d_id = Adw.EntryRow(title="Disk ID (2 characters)", text=p.disk_id or "00")
         d_file = Adw.EntryRow(title="Program's name on the disk", text=p.disk_file_name or stem[:16])
         d_run = Adw.SwitchRow(title="Run from the disk image",
                               subtitle="Ctrl+F5 and debugging autostart the .d64 instead of the .prg",
                               active=p.run_from_disk)
-        for w in (d_on, d_path, d_name, d_id, d_file, d_run):
+        for w in (d_on, d_kind, d_path, d_name, d_id, d_file, d_run):
             dg.add(w)
         xg = Adw.PreferencesGroup(title="More files on the disk",
                                   description="Added after the program: other programs, data files (SEQ) and so on.")
@@ -1005,7 +1016,7 @@ class MainWindow(Adw.ApplicationWindow):
             xrows.append(add)
 
         def choose_extra(*_):
-            from ..disk.d64 import file_type_for
+            from ..disk.image import file_type_for
             fd = Gtk.FileDialog(title="Add a file to the disk image")
             fd.set_initial_folder(Gio.File.new_for_path(str(p.directory)))
 

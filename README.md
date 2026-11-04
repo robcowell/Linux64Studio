@@ -21,10 +21,11 @@ can be followed on Linux.
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. See
   [docs/basic.md](docs/basic.md).
-* **Disk images**: a project can write a 1541 `.d64` on every build (Project Properties →
-  Disk Image), with the program first and any extra files after it, and run or debug from
-  the disk. `.d64` files open in a directory view where you can add, extract and delete files.
-  Files are laid out exactly as a real 1541 drive lays them out. See [docs/disk.md](docs/disk.md).
+* **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
+  build (Project Properties → Disk Image), with the program first and any extra files after
+  it, and run or debug from the disk on the matching drive. Disk images open in a directory
+  view where you can add, extract and delete files. Files are laid out exactly as the real
+  drive lays them out. See [docs/disk.md](docs/disk.md).
 * **Run and debug in VICE**: breakpoints, step into/over/out, registers, disassembly
   with labels, memory view, and the current source line highlighted. Uses VICE's
   binary monitor.
@@ -60,7 +61,7 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 .venv/bin/l64asm chapter17.cbmprj                    # build a CBM prg Studio project
 .venv/bin/l64asm gameMain.asm -o game.prg -l game.vs --list game.lst
 .venv/bin/l64asm chapter17.cbmprj --d64 game.d64 --disk-name "my game,mg"
-.venv/bin/l64disk list game.d64                # also: create, add, extract, delete
+.venv/bin/l64disk list game.d64                # also: create, add, extract, delete (.d64/.d71/.d81)
 .venv/bin/l64bas game.bas                      # tokenize BASIC -> game.prg
 .venv/bin/l64bas --list game.prg               # list a program as BASIC source
 .venv/bin/l64bas --renumber game.bas --start 100 --step 10

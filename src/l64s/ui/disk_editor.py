@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk  # noqa: E402
 
-from ..disk.d64 import D64, DiskError, file_type_for  # noqa: E402
+from ..disk.image import DiskError, DiskImage, file_type_for, format_for  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 
@@ -23,7 +23,7 @@ class DiskEditor(EditorPage):
 
     def __init__(self, path: Path):
         super().__init__(path)
-        self.disk = D64.load(path) if path.exists() else D64()
+        self.disk = DiskImage.load(path) if path.exists() else DiskImage(format_for(path))
 
         bar = Gtk.Box(spacing=6, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
         self.append(bar)
@@ -63,7 +63,7 @@ class DiskEditor(EditorPage):
         while (row := self.listbox.get_row_at_index(0)) is not None:
             self.listbox.remove(row)
         hdr = Gtk.Label(xalign=0, margin_start=6, margin_top=4, margin_bottom=4,
-                        label=f'0 "{self.disk.disk_name:<16}" {self.disk.disk_id} 2A')
+                        label=f'0 "{self.disk.disk_name:<16}" {self.disk.disk_id} {self.disk.fmt.dos_type.decode()}')
         hdr.add_css_class("heading")
         self.listbox.append(Gtk.ListBoxRow(child=hdr, activatable=False, selectable=False))
         for e in self.disk.entries():
@@ -74,7 +74,8 @@ class DiskEditor(EditorPage):
         foot = Gtk.Label(label=f"{self.disk.blocks_free} BLOCKS FREE.", xalign=0, margin_start=6, margin_top=4)
         self.listbox.append(Gtk.ListBoxRow(child=foot, activatable=False, selectable=False))
         n = len(self.disk.entries())
-        self.status.set_text(f"{n} file(s). Drop files here to add them. Double-click a program to list it as BASIC.")
+        self.status.set_text(f"{self.disk.fmt.drive} disk (.{self.disk.fmt.kind}), {n} file(s). Drop files here to "
+                             f"add them. Double-click a program to list it as BASIC.")
 
     def _selected(self):
         row = self.listbox.get_selected_row()

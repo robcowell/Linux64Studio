@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--list", dest="listing", help="write a listing file")
     ap.add_argument("--srcmap", help="write an address->source map (JSON)")
     ap.add_argument("--raw", action="store_true", help="write a raw binary without the 2-byte load address")
-    ap.add_argument("--d64", help="also write a 1541 disk image containing the program")
+    ap.add_argument("--d64", metavar="IMAGE", help="also write a disk image (.d64, .d71 or .d81) with the program")
     ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
     ap.add_argument("--illegal", action="store_true", help="allow undocumented 6510 opcodes")
     ap.add_argument("--case-sensitive", action="store_true", help="treat labels as case-sensitive")
@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _write_d64(image: str, header: str | None, prg: Path, quiet: bool) -> int:
-    from ..disk.d64 import DiskError, build_disk
+    from ..disk.image import DiskError, build_disk
     name, _, disk_id = (header or prg.stem).partition(",")
     try:
         disk = build_disk(Path(image), name[:16], disk_id or "00", [(prg.stem[:16], prg.read_bytes(), "prg")])

@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--step", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--load-address", type=lambda s: int(s, 0), default=0x0801)
-    ap.add_argument("--d64", help="also write a 1541 disk image containing the program")
+    ap.add_argument("--d64", metavar="IMAGE", help="also write a disk image (.d64, .d71 or .d81) with the program")
     ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
     a = ap.parse_args(argv)
     src = Path(a.input)

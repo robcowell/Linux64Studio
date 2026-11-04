@@ -27,10 +27,14 @@ class BuildResult:
 
 def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Diagnostic], str]:
     """Write the project's .d64: the built program first, then any extra files."""
-    from ..disk.d64 import DiskError, build_disk, file_type_for
+    from ..disk.image import DiskError, build_disk, file_type_for, format_for
     dest = project.disk_image_path()
     if dest is None:
         return None, [], ""
+    try:
+        format_for(dest)
+    except DiskError as e:
+        return None, [Diagnostic("error", f"Disk image: {e}", None)], ""
     name = project.disk_file_name or prg.stem
     files = [(name, prg.read_bytes(), "prg")]
     for extra in project.disk_extra_files:
