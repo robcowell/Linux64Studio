@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .. import __version__  # noqa: E402
 from ..settings import Settings  # noqa: E402
@@ -55,6 +55,12 @@ class Application(Adw.Application):
 
     def do_startup(self):
         Adw.Application.do_startup(self)
+        # the app's icon, from the package (tools/install-desktop.sh also installs it for the menu)
+        display = Gdk.Display.get_default()
+        if display is not None:
+            Gtk.IconTheme.get_for_display(display).add_search_path(
+                str(Path(__file__).resolve().parent.parent / "data" / "icons"))
+        Gtk.Window.set_default_icon_name(APP_ID)
         self._apply_colour_scheme()
         for name, cb in (("preferences", self._preferences), ("about", self._about),
                          ("shortcuts", self._shortcuts), ("quit", lambda *_: self.window and self.window.close())):
@@ -97,7 +103,7 @@ class Application(Adw.Application):
     # ------------------------------------------------------------------ dialogs
     def _about(self, *_):
         about = Adw.AboutDialog(application_name="Linux64Studio", version=__version__,
-                                application_icon="applications-games-symbolic",
+                                application_icon=APP_ID,
                                 comments="A Commodore 64 development environment for Linux, with an assembler "
                                          "compatible with CBM prg Studio's syntax.")
         about.present(self.window)

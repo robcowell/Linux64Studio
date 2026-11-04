@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Linux64Studio: a beige 8-bit case with a blue screen saying 64 -->
+  <defs>
+    <linearGradient id="case" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9e1c8"/><stop offset="1" stop-color="#c9bf9f"/>
+    </linearGradient>
+    <clipPath id="inside"><rect x="7" y="11" width="114" height="108" rx="15"/></clipPath>
+  </defs>
+  <rect x="6" y="10" width="116" height="110" rx="16" fill="url(#case)" stroke="#8f8466" stroke-width="2"/>
+  <rect x="18" y="20" width="92" height="66" rx="6" fill="#7b71d7" stroke="#5a50b0" stroke-width="2"/>
+  <rect x="26" y="27" width="76" height="52" rx="2" fill="#40318d"/>
+  <g fill="#9f99f0"><rect x="39.2" y="34.0" width="5.2" height="5.2"/><rect x="44.4" y="34.0" width="5.2" height="5.2"/><rect x="49.6" y="34.0" width="5.2" height="5.2"/><rect x="34.0" y="39.2" width="5.2" height="5.2"/><rect x="34.0" y="44.4" width="5.2" height="5.2"/><rect x="34.0" y="49.6" width="5.2" height="5.2"/><rect x="39.2" y="49.6" width="5.2" height="5.2"/><rect x="44.4" y="49.6" width="5.2" height="5.2"/><rect x="49.6" y="49.6" width="5.2" height="5.2"/><rect x="34.0" y="54.8" width="5.2" height="5.2"/><rect x="54.8" y="54.8" width="5.2" height="5.2"/><rect x="34.0" y="60.0" width="5.2" height="5.2"/><rect x="54.8" y="60.0" width="5.2" height="5.2"/><rect x="39.2" y="65.2" width="5.2" height="5.2"/><rect x="44.4" y="65.2" width="5.2" height="5.2"/><rect x="49.6" y="65.2" width="5.2" height="5.2"/><rect x="80.8" y="34.0" width="5.2" height="5.2"/><rect x="75.6" y="39.2" width="5.2" height="5.2"/><rect x="80.8" y="39.2" width="5.2" height="5.2"/><rect x="70.4" y="44.4" width="5.2" height="5.2"/><rect x="80.8" y="44.4" width="5.2" height="5.2"/><rect x="65.2" y="49.6" width="5.2" height="5.2"/><rect x="80.8" y="49.6" width="5.2" height="5.2"/><rect x="65.2" y="54.8" width="5.2" height="5.2"/><rect x="70.4" y="54.8" width="5.2" height="5.2"/><rect x="75.6" y="54.8" width="5.2" height="5.2"/><rect x="80.8" y="54.8" width="5.2" height="5.2"/><rect x="86.0" y="54.8" width="5.2" height="5.2"/><rect x="80.8" y="60.0" width="5.2" height="5.2"/><rect x="80.8" y="65.2" width="5.2" height="5.2"/></g>
+  <g clip-path="url(#inside)"><path d="M70 118 L79 118 L101 96 L92 96 Z" fill="#e0393e"/><path d="M79 118 L88 118 L110 96 L101 96 Z" fill="#f08a24"/><path d="M88 118 L97 118 L119 96 L110 96 Z" fill="#f5d327"/><path d="M97 118 L106 118 L128 96 L119 96 Z" fill="#3fae49"/><path d="M106 118 L115 118 L137 96 L128 96 Z" fill="#2f6fd6"/></g>
+  <circle cx="22" cy="106" r="5" fill="#8f8466"/>
+</svg>
