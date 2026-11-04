@@ -323,3 +323,10 @@ so a path with spaces stays one argument; quote an argument that has spaces of i
 | `.sdd` screens | XML, `<RowData>` of 7-digit hex cells | char = bits 20–27, colour = bits 12–19 |
 | `.spd` SpritePad v1 | binary: `SPD`, version, counts, 3 colours, 64 bytes per sprite, 4 per animation | the 64th byte is the attribute (bit 7 multicolour, low nibble colour) and is part of SpritePad's `.bin` exports **verified** (Vol 2) |
 | `.ctm` CharPad v5 | binary, as in CharPad's own format notes | charset, colour and map exports match the book's `.bin` files; all 213 `.ctm` files in the download re-save byte-identical **verified** (Vol 2) |
+
+## Not ported from CBM prg Studio
+
+* **The sliding puzzle** (Extras → Puzzle), a tile-sliding game to pass the time. It has nothing to
+  do with programming the C64, so it's not important and hasn't been ported.
+* **Other machines**: CBM prg Studio also targets the C128, Plus/4, VIC-20, PET and Mega65, and the
+  65816. Linux64Studio is for the C64 only (`target` other than `TGT_C64` gives a warning).
