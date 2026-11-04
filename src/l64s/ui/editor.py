@@ -87,7 +87,8 @@ class SourceEditor(EditorPage):
             self.view = GtkSource.View(buffer=self.buffer, show_line_numbers=True, highlight_current_line=True,
                                        auto_indent=True, show_line_marks=True, smart_backspace=True)
             lm = GtkSource.LanguageManager.get_default()
-            lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
+            if str(DATA_DIR) not in lm.get_search_path():      # it can only be set before any language loads
+                lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
             is_basic = bool(path) and path.suffix.lower() == ".bas"
             lang = lm.get_language("cbmbasic" if is_basic else "cbmasm")
             if lang:
