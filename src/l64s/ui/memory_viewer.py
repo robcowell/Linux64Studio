@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk  # noqa: E402
 
 from .. import memmap  # noqa: E402
 from ..emu.values import ValueError_, parse_address  # noqa: E402
@@ -244,6 +244,41 @@ class MemoryViewer(EditorPage):
         bar.append(self.addr_entry)
         self.info = Gtk.Label(xalign=0, hexpand=True, ellipsize=3, css_classes=["dim-label"])
         bar.append(self.info)
+        self.find_btn = Gtk.ToggleButton(icon_name="edit-find-symbolic", tooltip_text="Find bytes or text (Ctrl+F)")
+        self.find_btn.connect("toggled", lambda b: self._show_find(b.get_active()))
+        bar.append(self.find_btn)
+        exp = Gtk.Button(label="Export…", tooltip_text="Export a block of memory as text or BASIC DATA")
+        exp.connect("clicked", lambda *_: self.open_export())
+        bar.append(exp)
+
+        # Find, as in CBM prg Studio's Find in Memory
+        self.find_revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        fr = Gtk.Box(spacing=6, margin_start=8, margin_end=8, margin_bottom=6)
+        fr.append(Gtk.Label(label="From"))
+        self.find_from = Gtk.Entry(text="0000", width_chars=8, tooltip_text="Where to start looking ($hex, "
+                                                                            "decimal or a label)")
+        fr.append(self.find_from)
+        fr.append(Gtk.Label(label="Find"))
+        self.find_text = Gtk.Entry(hexpand=True, placeholder_text='bytes ($A9 1, 0x20) or "a string"',
+                                   tooltip_text="Values in hex or decimal, separated by spaces or commas; strings in "
+                                                "quotes. They can be mixed")
+        self.find_text.connect("activate", lambda *_: self.find_next())
+        fr.append(self.find_text)
+        self.find_strings = Gtk.DropDown.new_from_strings(["Strings as PETSCII", "Strings as screen codes"])
+        self.find_strings.set_tooltip_text("PETSCII is how text is printed (CHROUT, BASIC); screen codes are what's in "
+                                           "screen memory")
+        fr.append(self.find_strings)
+        self.find_use = Gtk.CheckButton(label="Next find starts after it", active=True,
+                                        tooltip_text="Use the search result as the start address for the next find")
+        fr.append(self.find_use)
+        fb = Gtk.Button(label="Find / Next", css_classes=["suggested-action"])
+        fb.connect("clicked", lambda *_: self.find_next())
+        fr.append(fb)
+        self.find_revealer.set_child(fr)
+        self.append(self.find_revealer)
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self._key)
+        self.add_controller(keys)
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True, position=420,
                           shrink_start_child=False, shrink_end_child=False)
@@ -466,6 +501,81 @@ class MemoryViewer(EditorPage):
         if self._timer:
             GLib.source_remove(self._timer)
             self._timer = None
+
+    # ---------------------------------------------------------------- find and export
+    def _key(self, _c, keyval, _code, state):
+        if not state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        name = (Gdk.keyval_name(keyval) or "").lower()
+        if name == "f":
+            self.find_btn.set_active(True)
+            self.find_text.grab_focus()
+            return True
+        if name == "g":
+            self.addr_entry.grab_focus()
+            self.addr_entry.select_region(0, -1)
+            return True
+        return False
+
+    def _show_find(self, on: bool):
+        self.find_revealer.set_reveal_child(on)
+        if on:
+            self.find_text.grab_focus()
+        else:
+            self.hex.marked = None
+            self.hex.queue_draw()
+
+    def find_next(self) -> int | None:
+        from ..memtools import MemToolError, count, find, parse_find
+        if not self.map:
+            self.status.set_text("There's no memory to search: build the project or start debugging")
+            return None
+        names = {name: addr for addr, name in self.symbols.items()}
+        try:
+            start = parse_address(self.find_from.get_text() or "0", names)
+            pattern = parse_find(self.find_text.get_text(),
+                                 "screen" if self.find_strings.get_selected() == 1 else "petscii")
+        except (ValueError_, MemToolError) as e:
+            self.status.set_text(str(e))
+            return None
+        mem = self.map.memory
+        at = find(mem, pattern, start)
+        if at is None:
+            self.status.set_text(f"{self.find_text.get_text().strip()} isn't in memory")
+            self.hex.marked = None
+            self.hex.queue_draw()
+            return None
+        wrapped = at < start
+        self.stack.set_visible_child_name("hex")
+        self.select(at)
+        self.hex.marked = (at, at + len(pattern) - 1)
+        self.hex.queue_draw()
+        if self.find_use.get_active():
+            self.find_from.set_text(f"{(at + 1) & 0xFFFF:04X}")
+        n = count(mem, pattern)
+        self.status.set_text(f"Found at ${at:04X} ({len(pattern)} byte{'s' if len(pattern) != 1 else ''}; "
+                             f"{n} match{'es' if n != 1 else ''} in memory)" + (" — wrapped round to the start"
+                                                                                  if wrapped else ""))
+        return at
+
+    def open_export(self):
+        from .memory_export import MemoryExportDialog
+        if not self.map:
+            self.status.set_text("There's no memory to export: build the project or start debugging")
+            return None
+        start = self.address
+        end = min(0xFFFF, start + 255)
+        if self.hex.marked:
+            start, end = self.hex.marked
+        else:
+            seg = self.map.owner_of(start)
+            if seg:
+                start, end = seg.start, seg.end
+        desc = ("From the running program's memory" if self.source.get_selected() == 1
+                else "From the last build's memory")
+        dlg = MemoryExportDialog(self.get_root(), bytes(self.map.memory), start, end, self.symbols, desc)
+        dlg.present()
+        return dlg
 
     def save(self):
         self.set_modified(False)

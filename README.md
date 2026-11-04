@@ -30,7 +30,8 @@ can be followed on Linux.
   binaries) over the C64's regions, with free space and warnings for common mistakes such as
   graphics where the VIC-II can't see them. Any address can be viewed as hex, screen text,
   characters, sprites or a bitmap, from the last build or a live snapshot of the program
-  running in VICE. See [docs/memory.md](docs/memory.md).
+  running in VICE. **Find** bytes or text in it, and **Export** any block as formatted text or
+  BASIC DATA. See [docs/memory.md](docs/memory.md).
 * **Disassembler**: an interactive listing of a file, the last build or the running program.
   Mark code and data, name labels, add comments, follow jumps and see what refers to what. I/O
   registers and KERNAL routines get their standard names (EXTCOL, SCROLX, CHROUT). Export source

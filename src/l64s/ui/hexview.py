@@ -46,6 +46,7 @@ class HexView(Gtk.DrawingArea):
         self.pending: int | None = None      # first hex digit typed for the cursor byte
         self.editable = False
         self.labels: dict[int, str] = {}
+        self.marked: tuple[int, int] | None = None   # (first, last) addresses highlighted, e.g. a find
         self.set_draw_func(self._draw)
         self._font = Pango.FontDescription.from_string("Monospace 10")
         keys = Gtk.EventControllerKey()
@@ -132,6 +133,12 @@ class HexView(Gtk.DrawingArea):
                 if v is None:
                     continue
                 x = self._cell_x(c, cw)
+                if self.marked and self.marked[0] <= a <= self.marked[1]:
+                    cr.set_source_rgba(0.95, 0.75, 0.10, 0.45)
+                    cr.rectangle(x - 2, y, cw * 2 + 4, ch)
+                    cr.fill()
+                    cr.rectangle(self._ascii_x(c, cw), y, cw, ch)
+                    cr.fill()
                 if a == self.cursor:
                     acc = self.get_color()
                     cr.set_source_rgba(acc.red, acc.green, acc.blue, 0.22 if self.has_focus() else 0.12)

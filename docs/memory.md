@@ -53,6 +53,40 @@ the CPU sees it, including whatever the program has drawn or changed. A running 
 only for the read and carries on; the debugger doesn't show a stop. With **Every second** the
 snapshot keeps refreshing. Who-owns-what still comes from the build.
 
+## Find
+
+**Find** (the magnifier, or Ctrl+F) searches memory for bytes or text, as CBM prg Studio's Find in
+Memory does. Type the values in hex (`$A9`, `0xA9`), decimal (`169`) or binary (`%10101001`),
+separated by spaces or commas, and strings in quotes. You can mix them: `$A9 0 "hi"`. Choose
+whether strings are **PETSCII** (as BASIC and CHROUT print them) or **screen codes** (as they
+are in screen memory, and as the book's `text '…'` lines store them). The search starts at
+**From** and wraps round to $0000. The bytes it finds are highlighted in the Hex view, with how
+many matches there are in all. With **Next find starts after it** ticked, pressing Enter or
+**Find / Next** again finds the next one. Ctrl+G goes to the address box.
+
+## Export
+
+**Export…** writes a block of memory out as text, as CBM prg Studio's Export Memory does. The
+block starts as the found bytes, or the segment at the cursor, or else 256 bytes from it. Set:
+
+* **Block start** and **Block end** (`$hex`, decimal or a label).
+* **Format specifier**, the text before each value (`$`, `0x`), and the **Separator** between
+  them.
+* **Number base**: hex, decimal, octal or binary, padded to 2, 3 or 8 digits if you like. As in
+  CBM prg Studio, changing the base doesn't change the format specifier.
+* **Values per row**, and **Row leading** and **trailing text**, such as `byte ` before each row,
+  or brackets around it. The trailing text goes on the last row too.
+* **Header** and **Footer**. `%start%`, `%end%`, `%size%` and `%date%` are replaced; they're
+  case-sensitive. So `; %start%-%end%, %size% bytes` becomes `; $0ACB-$0AD4, 10 bytes`.
+
+Or export as **BASIC DATA with a loader**: DATA lines and a line that POKEs them back into
+place, as CBM prg Studio's Create DATA From Memory does. The preview updates as you change things.
+**Copy** it, or **Save…** it to a file.
+
+`tests/test_memtools.py` checks the search values, PETSCII and screen code strings, wrapping,
+every number base, the rows, and the header keywords. It includes the example from CBM prg
+Studio's help.
+
 # Memory Manager
 
 **Memory Manager** in the main menu plans what the VIC-II sees, which is the part of C64 memory
