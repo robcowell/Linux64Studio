@@ -27,7 +27,9 @@ def _children(widget):
 
 TOOLS = [("draw", "document-edit-symbolic", "Draw"), ("fill", "color-select-symbolic", "Flood fill"),
          ("pick", "find-location-symbolic", "Pick character and colour"),
-         ("colour", "applications-graphics-symbolic", "Paint colour only")]
+         ("colour", "applications-graphics-symbolic", "Paint colour only"),
+         ("stamp", "view-grid-symbolic", "Stamp the character scratch pad (or the part selected in it): "
+                                         "click where its top left goes")]
 
 
 class ScreenEditor(EditorPage):
@@ -562,8 +564,31 @@ class ScreenEditor(EditorPage):
             return
         elif self.tool == "fill":
             self._flood(c, r, s.chars[r][c], s.colours[r][c], ch, col)
+        elif self.tool == "stamp":
+            if not self.stamp(c, r):
+                self.undo.pop()
+                self.status.set_text("The character scratch pad is empty: open it from the character editor")
+                return
         self.set_modified(True)
         self._invalidate()
+
+    def stamp(self, col: int, row: int) -> bool:
+        """Put the character scratch pad (or its selected part) here, in the current colour (in a
+        CharPad map, each character's own). Empty cells of the pad leave the screen as it is."""
+        from ..gfx import charscratch
+        block = charscratch.stamp_block()
+        if not any(ch is not None for line in block for ch in line):
+            return False
+        s = self.screen
+        colour = self.colour | (8 if self.mc_colour.get_active() else 0)
+        for dr, line in enumerate(block):
+            for dc, ch in enumerate(line):
+                r, c = row + dr, col + dc
+                if ch is None or not (0 <= r < self.data.rows and 0 <= c < self.data.cols):
+                    continue
+                s.chars[r][c] = ch
+                s.colours[r][c] = self.cell_colour(ch) if self.cell_colour else colour
+        return True
 
     def _flood(self, c, r, old_ch, old_col, ch, col):
         if old_ch == ch and (self.cell_colour or old_col == col):

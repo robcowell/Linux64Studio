@@ -123,6 +123,31 @@ The pad shows sprites as you edit them, keeps pointing at the same sprites when 
 or deleted, and is saved with the sprite file (in the project's settings), so closing without
 saving leaves both as they were.
 
+## Character scratch pad
+
+The **Scratch Pad…** button in the character editor's toolbar (the grid icon) opens CBM prg
+Studio's character scratch pad: a grid for designing graphics made of several characters. It
+shows the characters as they're drawn in the editor.
+
+* Paint the character selected in the editor with the left button; the right button clears
+  cells. Characters can also be dragged in from the editor's character set, or put on in order
+  with **Get Characters…**: a list such as `1,2,3,4-10,11,12` (`$hex` too), from a column and row,
+  going across (then the next row) or down (then the next column). It says if some didn't fit.
+* Shift+drag selects a block: Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste it (at the selection,
+  or the cell last clicked), Delete clears it, Esc deselects. Double-click a cell to edit that
+  character.
+* The header shifts the pad's contents (wrapping round), sets its size and zoom, and turns the
+  grid lines and character codes on or off. **Clear** empties the pad; **Clear the characters on
+  it** blanks those characters in the set, to draw them afresh (one Ctrl+Z in the editor undoes it).
+
+As in CBM prg Studio, the pad belongs to no project or character set: it's kept in the settings
+folder (`char_scratchpad.json`) and is the same whichever set is open.
+
+In the **screen designer**, the **stamp** tool (the grid icon) puts the scratch pad on the screen
+with its top left where you click, in the current colour (in a CharPad map, each character's
+own), as one undo step. If a block is selected in the scratch pad, only that part is stamped;
+empty cells of the pad leave the screen as it is.
+
 ## Digitiser
 
 The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)

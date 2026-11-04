@@ -32,6 +32,19 @@ class CharGrid(Gtk.DrawingArea):
         click = Gtk.GestureClick()
         click.connect("pressed", self._clicked)
         self.add_controller(click)
+        # drag a character out (onto the character scratch pad)
+        drag = Gtk.DragSource(actions=Gdk.DragAction.COPY)
+        drag.connect("prepare", self._drag_prepare)
+        self.add_controller(drag)
+
+    def _char_at(self, x, y) -> int | None:
+        s = min(self.get_width(), self.get_height()) / 128
+        cx, cy = int(x // (8 * s)), int(y // (8 * s))
+        return cy * 16 + cx if 0 <= cx < 16 and 0 <= cy < 16 else None
+
+    def _drag_prepare(self, _src, x, y):
+        ch = self._char_at(x, y)
+        return Gdk.ContentProvider.new_for_value(f"char:{ch}") if ch is not None else None
 
     def invalidate(self):
         self._surface = None
@@ -92,6 +105,7 @@ class CharsetEditor(EditorPage):
         self.pen = 1
         self.undo: list[tuple[int, list[int]]] = []
         self.clipboard: list[int] | None = None
+        self._pad_window = None
         self._build()
         self._select(0)
 
@@ -110,6 +124,8 @@ class CharsetEditor(EditorPage):
             ("go-next-symbolic", "Shift right", lambda *_: self._modify(lambda c: [((b >> 1) | (b << 7)) & 0xFF for b in c])),
             ("go-up-symbolic", "Shift up", lambda *_: self._modify(lambda c: c[1:] + c[:1])),
             ("go-down-symbolic", "Shift down", lambda *_: self._modify(lambda c: c[-1:] + c[:-1])),
+            ("view-grid-symbolic", "Scratch Pad… (design graphics made of several characters)",
+             lambda *_: self.open_scratch_pad()),
         ]:
             b = Gtk.Button(icon_name=icon, tooltip_text=tip)
             b.connect("clicked", cb)
@@ -250,6 +266,8 @@ class CharsetEditor(EditorPage):
             self._update_mode()
         self.canvas.queue_draw()
         self.preview.queue_draw()
+        if getattr(self, "_pad_window", None) is not None:
+            self._pad_window._hint()
 
     def _show_material_name(self):
         names = self.material_names() if self.material_names else []
@@ -293,6 +311,16 @@ class CharsetEditor(EditorPage):
         self.grid.invalidate()
         self.canvas.queue_draw()
         self.preview.queue_draw()
+        if self._pad_window is not None:
+            self._pad_window.refresh()
+
+    def open_scratch_pad(self):
+        from .char_scratchpad import CharScratchPadWindow
+        if self._pad_window is None:
+            self._pad_window = CharScratchPadWindow(self.get_root(), self)
+            self._pad_window.connect("close-request", lambda *_: (setattr(self, "_pad_window", None), False)[1])
+        self._pad_window.present()
+        return self._pad_window
 
     def _draw_preview(self, _da, cr, w, h):
         from .render import Bitmap, draw_char_into
@@ -321,7 +349,12 @@ class CharsetEditor(EditorPage):
     def do_undo(self, *_):
         if self.undo:
             i, c = self.undo.pop()
-            self.data.chars[i] = c
+            if i == "group":                    # several characters changed at once (scratch pad)
+                for j, cj in c:
+                    self.data.chars[j] = cj
+                i = c[0][0]
+            else:
+                self.data.chars[i] = c
             self._select(i)
             self._changed()
 

@@ -26,7 +26,8 @@ can be followed on Linux.
   **Morph** makes the frames that turn one sprite into another, and the **Explosion
   Generator** makes explosion animations. **Import from Image** cuts sprites out of a `.bmp`,
   `.png` or `.gif` sprite sheet or screenshot, hires or multicolour, and the **Scratch Pad** lays
-  sprites out side by side and in layers. The screen editor's **digitiser** gives the sprite
+  sprites out side by side and in layers; the character editor's **Scratch Pad** builds graphics
+  from several characters, which the screen designer can stamp. The screen editor's **digitiser** gives the sprite
   coordinates of points on the screen ([docs/graphics.md](docs/graphics.md)).
   CharPad tile maps can be painted and their tiles edited, with a room grid and a materials
   view, and **Import CharPad Binaries** turns a game's char/attribute/tile/map files into an
