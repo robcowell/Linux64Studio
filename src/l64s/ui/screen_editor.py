@@ -7,7 +7,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .. import digitiser  # noqa: E402
 
@@ -28,6 +29,8 @@ def _children(widget):
 TOOLS = [("draw", "document-edit-symbolic", "Draw"), ("fill", "color-select-symbolic", "Flood fill"),
          ("pick", "find-location-symbolic", "Pick character and colour"),
          ("colour", "applications-graphics-symbolic", "Paint colour only"),
+         ("path", "mark-location-symbolic", "Path: click to add points, drag one to move it, right click "
+                                            "one to delete it or add a point after it"),
          ("stamp", "view-grid-symbolic", "Stamp the character scratch pad (or the part selected in it): "
                                          "click where its top left goes")]
 
@@ -54,7 +57,9 @@ class ScreenEditor(EditorPage):
         self.tool = "draw"
         self.char = 160 if not self.data.multicolour else 0
         self.colour = 1
-        self.undo: list[tuple[int, list, list]] = []
+        self.undo: list[tuple[int, list, list, list]] = []
+        self.show_order = False
+        self._drag_point: int | None = None
         if charset is not None:
             self.charset = charset
         else:
@@ -91,8 +96,8 @@ class ScreenEditor(EditorPage):
             b.connect("toggled", lambda btn, t=tid: btn.get_active() and setattr(self, "tool", t))
             if tid == "draw":
                 b.set_active(True)
-            if self.map_mode and tid == "colour":
-                continue  # in a CharPad project the colour comes from the character
+            if self.map_mode and tid in ("colour", "path"):
+                continue  # in a CharPad project the colour comes from the character; paths are per screen
             bar.append(b)
         ub = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text="Undo (Ctrl+Z)")
         ub.connect("clicked", self.do_undo)
@@ -119,6 +124,7 @@ class ScreenEditor(EditorPage):
                                              tooltip_text="Digitiser: sprite coordinates of points on the screen")
             self.digi_btn.connect("toggled", lambda b: self._set_digitise(b.get_active()))
             bar.append(self.digi_btn)
+            bar.append(self._path_menu())
             bar.append(Gtk.Box(hexpand=True))
             exp = Gtk.Button(label="Export…")
             exp.connect("clicked", self._export_dialog)
@@ -268,6 +274,8 @@ class ScreenEditor(EditorPage):
                              ox + c * cell, oy + r * cell, scale, scale)
         if self.digitise and self.pointer is not None:
             self._draw_pointer(cr, scale, ox, oy)
+        if not self.map_mode and self.screen.path.points:
+            self._draw_path(cr, scale, ox, oy)
 
     def _cell(self, x, y):
         scale, ox, oy, _ = self._geometry()
@@ -275,6 +283,182 @@ class ScreenEditor(EditorPage):
         if 0 <= c < self.data.cols and 0 <= r < self.data.rows:
             return c, r
         return None
+
+    # ---------------------------------------------------------------- paths
+    def _path_menu(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6,
+                      margin_start=6, margin_end=6)
+        order = Gtk.CheckButton(label="Show the order")
+        order.connect("toggled", lambda b: (setattr(self, "show_order", b.get_active()), self._invalidate()))
+        box.append(order)
+        pop = Gtk.Popover(child=box)
+        for label, cb in (("Generate Data…", self.path_generate_dialog), ("Use a Function…", self.path_function_dialog),
+                          ("Subdivide (a point between each)", self.path_subdivide),
+                          ("Convert to Characters", self.path_to_characters), ("Clear the Path", self.path_clear)):
+            b = Gtk.Button(label=label, css_classes=["flat"])
+            b.get_child().set_xalign(0)
+            b.connect("clicked", lambda _b, f=cb: (pop.popdown(), f()))
+            box.append(b)
+        return Gtk.MenuButton(label="Path", popover=pop, tooltip_text="The screen's path: movement data for sprites")
+
+    def _path_hit(self, x, y) -> int | None:
+        scale, *_ = self._geometry()
+        p = self._screen_pixel(x, y)
+        return self.screen.path.nearest(p, max(3, 7 / scale)) if p else None
+
+    def _path_press(self, button, x, y):
+        self._drag_point = None
+        hit = self._path_hit(x, y)
+        if button == 3:
+            if hit is not None:
+                self._path_point_menu(hit, x, y)
+            return
+        self._push_undo()
+        if hit is not None:
+            self._drag_point = hit                   # drag it
+            self._start = (x, y)
+            return
+        p = self._screen_pixel(x, y)
+        if p is None:
+            self.undo.pop()
+            return
+        self._drag_point = self.screen.path.add(p)
+        self._start = (x, y)
+        self.set_modified(True)
+        self._invalidate()
+        self._path_status()
+
+    def _path_point_menu(self, i, x, y):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=4, margin_bottom=4)
+        pop = Gtk.Popover(child=box, has_arrow=True)
+        pop.set_parent(self.canvas)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        pop.set_pointing_to(rect)
+
+        def act(fn):
+            pop.popdown()
+            self._push_undo()
+            fn()
+            self.set_modified(True)
+            self._invalidate()
+            self._path_status()
+        for label, fn in ((f"Delete point {i}", lambda: self.screen.path.delete(i)),
+                          ("Add a point after it", lambda: self.screen.path.insert_after(i))):
+            b = Gtk.Button(label=label, css_classes=["flat"])
+            b.connect("clicked", lambda _b, f=fn: act(f))
+            box.append(b)
+        pop.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        pop.popup()
+
+    def _path_status(self):
+        p = self.screen.path
+        self.status.set_text(f"Path: {len(p.points)} point{'s' if len(p.points) != 1 else ''}, "
+                             f"{p.lines} line{'s' if p.lines != 1 else ''}")
+
+    def _draw_path(self, cr, scale, ox, oy):
+        pts = self.screen.path.points
+        active = self.tool == "path"
+        cr.save()
+        cr.set_line_width(max(1.5, scale * 0.6))
+        cr.set_source_rgba(1, 0.85, 0.1, 0.95 if active else 0.45)
+        sx = [(ox + (x + 0.5) * scale, oy + (y + 0.5) * scale) for x, y in pts]
+        cr.move_to(*sx[0])
+        for p in sx[1:]:
+            cr.line_to(*p)
+        cr.stroke()
+        if active or self.show_order:
+            r = max(2.5, scale * 1.2)
+            for n, (px, py) in enumerate(sx):
+                cr.set_source_rgba(1, 0.3, 0.1, 1) if n == 0 else cr.set_source_rgba(1, 0.85, 0.1, 1)
+                cr.arc(px, py, r, 0, 6.2832)
+                cr.fill()
+                if self.show_order:
+                    cr.set_font_size(max(9, scale * 4))
+                    cr.set_source_rgb(1, 1, 1)
+                    cr.move_to(px + r + 1, py - r)
+                    cr.show_text(str(n))
+        cr.restore()
+
+    def path_subdivide(self):
+        self._push_undo()
+        self.screen.path.subdivide()
+        self.set_modified(True)
+        self._invalidate()
+        self._path_status()
+
+    def path_clear(self):
+        self._push_undo()
+        self.screen.path.points.clear()
+        self.set_modified(True)
+        self._invalidate()
+        self._path_status()
+
+    def path_to_characters(self):
+        """Draw the path in the current character and colour (Path → Convert To Characters)."""
+        from ..gfx.paths import to_cells
+        cells = to_cells(self.screen.path, self.data.cols, self.data.rows)
+        if not cells:
+            self.status.set_text("The path doesn't cross the screen")
+            return
+        self._push_undo()
+        s = self.screen
+        colour = self.colour | (8 if self.mc_colour.get_active() else 0)
+        for c, r in cells:
+            s.chars[r][c], s.colours[r][c] = self.char, colour
+        self.set_modified(True)
+        self._invalidate()
+        self.status.set_text(f"Drew the path in {len(cells)} characters")
+
+    def path_function_dialog(self):
+        from ..gfx.paths import PathError, function_points
+        dlg = Adw.AlertDialog(heading="Path from a Function",
+                              body="y = f(x), plotted from the start to the end x. The screen's y runs down, so "
+                                   "negate the function to draw it the right way up. This replaces the path.")
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        expr = Gtk.Entry(text="-sin(x/20)*40+100", hexpand=True, activates_default=True)
+        x0 = Gtk.SpinButton.new_with_range(-64, 383, 1)
+        x1 = Gtk.SpinButton.new_with_range(-64, 383, 1)
+        step = Gtk.SpinButton.new_with_range(1, 64, 1)
+        x0.set_value(0)
+        x1.set_value(self.data.cols * 8 - 1)
+        step.set_value(8)
+        for r, (label, w) in enumerate((("y =", expr), ("Start x", x0), ("End x", x1), ("Step", step))):
+            grid.attach(Gtk.Label(label=label, xalign=0), 0, r, 1, 1)
+            grid.attach(w, 1, r, 1, 1)
+        err = Gtk.Label(xalign=0, wrap=True, css_classes=["error"])
+        grid.attach(err, 0, 4, 2, 1)
+        dlg.set_extra_child(grid)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Make the Path")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            try:
+                pts = function_points(expr.get_text(), int(x0.get_value()), int(x1.get_value()),
+                                      int(step.get_value()))
+            except PathError as e:
+                self.status.set_text(str(e))
+                return
+            self._push_undo()
+            self.screen.path.points = pts
+            self.set_modified(True)
+            self._invalidate()
+            self._path_status()
+        dlg.choose(self.get_root(), None, chosen)
+
+    def path_generate_dialog(self):
+        from .path_dialog import PathGenerateDialog
+        root = self.get_root()
+        project = getattr(root, "project", None)
+        kick = bool(project) and project.toolchain == "kickass"
+        insert = getattr(root, "_insert_into_last_source", None)
+        dlg = PathGenerateDialog(root, self.screen.path, kick, insert, self.settings)
+        dlg.present()
+        return dlg
 
     # ---------------------------------------------------------------- digitiser
     def _digitiser_panel(self):
@@ -513,6 +697,9 @@ class ScreenEditor(EditorPage):
             return
         if self.read_only:
             return
+        if self.tool == "path":
+            self._path_press(g.get_current_button(), x, y)
+            return
         self._start = (x, y)
         self._button = g.get_current_button()
         self._last = None
@@ -521,6 +708,14 @@ class ScreenEditor(EditorPage):
 
     def _drag_update(self, _g, dx, dy):
         if self.read_only or self.digitise:
+            return
+        if self.tool == "path":
+            if self._drag_point is not None:
+                p = self._screen_pixel(self._start[0] + dx, self._start[1] + dy)
+                if p and p != self.screen.path.points[self._drag_point]:
+                    self.screen.path.move(self._drag_point, p)
+                    self.set_modified(True)
+                    self._invalidate()
             return
         if self.tool in ("draw", "colour"):
             self._apply(self._start[0] + dx, self._start[1] + dy)
@@ -613,14 +808,15 @@ class ScreenEditor(EditorPage):
 
     def _push_undo(self):
         s = self.screen
-        self.undo.append((self.index, [list(r) for r in s.chars], [list(r) for r in s.colours]))
+        self.undo.append((self.index, [list(r) for r in s.chars], [list(r) for r in s.colours], list(s.path.points)))
         del self.undo[:-50]
 
     def do_undo(self, *_):
         if self.undo:
-            i, chars, cols = self.undo.pop()
+            i, chars, cols, points = self.undo.pop()
             if i < len(self.data.screens):
                 self.data.screens[i].chars, self.data.screens[i].colours = chars, cols
+                self.data.screens[i].path.points = points
                 self._select_screen(i)
                 self.set_modified(True)
 

@@ -9,6 +9,10 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .paths import ScreenPath
 
 COLS, ROWS = 40, 25
 
@@ -23,6 +27,12 @@ class Screen:
     bk1: int = 0
     bk2: int = 0
     m3: int = 0
+    path: "ScreenPath" = field(default_factory=lambda: _new_path())   # the screen's path (paths.py)
+
+
+def _new_path():
+    from .paths import ScreenPath
+    return ScreenPath()
 
 
 @dataclass
@@ -82,6 +92,11 @@ class ScreenSet:
             scr.bk1 = int(sel.findtext("BK1Colour", "0"))
             scr.bk2 = int(sel.findtext("BK2Colour", "0"))
             scr.m3 = int(sel.findtext("M3Colour", "0"))
+            pel = sel.find("Path")
+            if pel is not None:
+                from .paths import parse_point
+                scr.path.width = int(pel.findtext("Width", "0") or 0)
+                scr.path.points = [p for p in (parse_point(e) for e in pel.findall("./Points/Point")) if p]
             ss.screens.append(scr)
         if not ss.screens:
             ss.screens.append(Screen())
@@ -103,6 +118,11 @@ class ScreenSet:
                 cells = [f"{(s.chars[r][c] << 20) | ((s.colours[r][c] & 0xFF) << 12) | (s.flags[r][c] & 0xFFF):07X}"
                          for c in range(self.cols)]
                 ET.SubElement(el, "RowData").text = ",".join(cells)
+            pel = ET.SubElement(el, "Path")
+            ET.SubElement(pel, "Width").text = str(s.path.width)
+            pts = ET.SubElement(pel, "Points")
+            for x, y in s.path.points:
+                ET.SubElement(pts, "Point").text = f"{x},{y}"
             ET.SubElement(el, "Description")
         ET.indent(root)
         Path(path).write_bytes(b'<?xml version="1.0" encoding="utf-8" standalone="yes"?>\n'

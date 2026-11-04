@@ -33,12 +33,14 @@ class DataGenError(ValueError):
 
 
 class Function:
-    """A function of x, parsed once and evaluated many times (only arithmetic is allowed)."""
+    """A function of x, parsed once and evaluated many times (only arithmetic is allowed).
+    `var` names the variable; with `need_var` False it may be a constant (a path's y = 5)."""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, var: str = "x", need_var: bool = True):
         self.text = text.strip()
+        self.var = var
         if not self.text:
-            raise DataGenError("Enter a function with at least one x term, e.g. sin(x)")
+            raise DataGenError(f"Enter a function with at least one {var} term, e.g. sin({var})")
         src = self.text.lower().replace("^", "**")
         try:
             tree = ast.parse(src, mode="eval")
@@ -47,7 +49,7 @@ class Function:
         uses_x = False
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
-                if node.id == "x":
+                if node.id == var:
                     uses_x = True
                 elif node.id not in CONSTANTS and node.id not in FUNCTIONS:
                     raise DataGenError(f"Unknown name '{node.id}' in the function")
@@ -62,20 +64,20 @@ class Function:
                 raise DataGenError(f"The function is badly formed: {self.text}")
             if isinstance(node, ast.Constant) and not isinstance(node.value, (int, float)):
                 raise DataGenError(f"The function is badly formed: {self.text}")
-        if not uses_x:
-            raise DataGenError("The function must contain an x term, e.g. sin(x)")
+        if not uses_x and need_var:
+            raise DataGenError(f"The function must contain an {var} term, e.g. sin({var})")
         self._code = compile(tree, "<function>", "eval")
 
     def __call__(self, x: float) -> float:
-        env = {"__builtins__": {}, "x": x, **CONSTANTS, **FUNCTIONS}
+        env = {"__builtins__": {}, self.var: x, **CONSTANTS, **FUNCTIONS}
         try:
             v = eval(self._code, env)           # noqa: S307 - the tree was checked to be arithmetic only
         except ZeroDivisionError:
-            raise DataGenError(f"Division by zero at x={x}") from None
+            raise DataGenError(f"Division by zero at {self.var}={x}") from None
         except (ValueError, OverflowError, TypeError) as e:
-            raise DataGenError(f"Problem generating data at x={x}: {e}") from None
+            raise DataGenError(f"Problem generating data at {self.var}={x}: {e}") from None
         if isinstance(v, complex) or not math.isfinite(v):
-            raise DataGenError(f"Problem generating data at x={x}: the result isn't a real number")
+            raise DataGenError(f"Problem generating data at {self.var}={x}: the result isn't a real number")
         return float(v)
 
 

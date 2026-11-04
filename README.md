@@ -28,7 +28,8 @@ can be followed on Linux.
   `.png` or `.gif` sprite sheet or screenshot, hires or multicolour, and the **Scratch Pad** lays
   sprites out side by side and in layers; the character editor's **Scratch Pad** builds graphics
   from several characters, which the screen designer can stamp, and **Animation** plays a run of
-  characters (or 2×2 blocks) looped or ping-pong. The screen editor's **digitiser** gives the sprite
+  characters (or 2×2 blocks) looped or ping-pong. Screen **paths** turn points drawn on a screen into
+  movement data (assembler or BASIC). The screen editor's **digitiser** gives the sprite
   coordinates of points on the screen ([docs/graphics.md](docs/graphics.md)).
   CharPad tile maps can be painted and their tiles edited, with a room grid and a materials
   view, and **Import CharPad Binaries** turns a game's char/attribute/tile/map files into an

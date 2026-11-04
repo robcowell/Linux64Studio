@@ -163,6 +163,32 @@ animation preview: it plays a run of characters as an animation.
   zooms the preview. It shows which frame and characters are on screen, and edits to the
   characters straight away.
 
+## Screen designer paths
+
+A path is a line of points on a screen that describes how something moves round it (an enemy
+along a platform, say), turned into data for the code to follow, as in CBM prg Studio. Each
+screen has one, saved in the `.sdd` file.
+
+* With the **path** tool (the pin icon), click to add a point at the end, drag a point to move
+  it, and right-click one to delete it or add a point after it (halfway to the next). The first
+  point is red. Ctrl+Z undoes path edits too.
+* The **Path** menu: **Show the order** numbers the points; **Subdivide** puts a point halfway along
+  every line; **Convert to Characters** draws the path on the screen in the current character and
+  colour (an approximation: straight lines work best); **Use a Function…** makes the path from
+  y = f(x) between two x values (negate it, as the screen's y runs down: `-sin(x/20)*40+100`);
+  **Clear the Path**.
+* **Generate Data…** makes a point every n pixels along the lines (all of them, or a range), or
+  just the path's own points; as x, y pairs or an x table then a y table; through an x and a y
+  transform (`x+24`, `x*2`, `(x+5)/2`, or a number; **Sprite Coordinates** fills in the
+  digitiser's offsets); as assembler bytes or words (with a label, in the project's syntax) or
+  BASIC DATA lines (start line, increment, points a line), with comments if you like. It warns
+  when values don't fit a byte. Copy the result, or **Insert into Editor**.
+
+Points are pixels of the text screen (0, 0 at its top left), and may be in the border. CBM prg
+Studio's `.sdd` files keep a `<Path>` for each screen; Linux64Studio reads its points written as
+`x,y`, `{X=x,Y=y}`, `<X>`/`<Y>` or attributes, and writes `x,y` (no CBM file with a path was at
+hand to confirm its exact form).
+
 ## Digitiser
 
 The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)
