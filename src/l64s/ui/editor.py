@@ -295,6 +295,7 @@ class SourceEditor(EditorPage):
             sub.append(label, f"editor.convert::{base}")
         menu = Gio.Menu()
         menu.append_submenu("Convert Number", sub)
+        menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
         self.view.set_extra_menu(menu)
         self._click_iter_offset: int | None = None
         right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)

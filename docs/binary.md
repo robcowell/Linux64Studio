@@ -128,3 +128,46 @@ last source file you used.
 range errors, clamping, deltas, pairs and the output in both syntaxes, and assembles the result.
 The 5-byte floats are checked against values the C64 stores itself: an opt-in VICE test
 (`L64S_VICE_TESTS=1`) runs a BASIC program that sets variables and reads them back from memory.
+
+# Source Analyser
+
+**Menu → Source Analyser** gives statistics about the instructions in assembler source, as in CBM
+prg Studio: instruction counts, addressing modes and estimated cycle times. Choose what to
+analyse: **the project** (its build list), **the current file**, or **the selected lines**. Or
+right-click in the editor and choose **Analyse…**, which analyses the selected lines if there
+are any, and otherwise the whole file.
+
+For CBM prg Studio syntax the code is assembled first, in memory and with any unsaved changes.
+So the addressing modes are the real ones: zero page or absolute, once every label's value is
+known. A macro's instructions are counted at each line that uses it. A file or selection is
+still assembled with the rest of the project, so labels and macros from the other files are
+known. A file outside the build list is assembled on its own.
+
+For **Kick Assembler** projects, which this assembler can't build, the instructions are read
+from the source text. It starts from the main file and follows its `#import`s; an import whose
+case differs from the file on disk, as in the book's `../../Library/`, is still found. Labels
+with a plain number (`.const`, `.label`, `.var`, `NAME = $FB`) are used to tell zero page from
+absolute. Any other label counts as absolute. Macro bodies are counted once, where they're
+written. CBM source that doesn't assemble is read the same way, and the results say so.
+
+* **Statistics**: each instruction, with its count and cycles. Expand it to see the addressing
+  modes it's used in, each with its opcode, cycles and count. Click a mode to go to each use in
+  the source in turn. Filter by mode, file, text (the instruction or its source line) and cycle
+  range. **Show invalid** lists the lines that look like instructions but aren't (such as
+  `stx $10,x`).
+* **Footprint**: the instructions that take the most cycles, the ten most used, and each file's
+  instructions and cycles.
+* **Charts**: the top 10 instructions, the top 10 cycle consumers, addressing modes, the
+  distribution of cycle counts, and instruction categories.
+* **Metrics**: files, instructions, unique mnemonics and opcodes, average and estimated
+  base and maximum cycles, zero-page use, branches, instructions whose timing varies, subroutine
+  calls, returns, the most used instruction and the largest cycle consumer.
+
+The cycles are static: each instruction is counted once, at its base cycles and at its maximum.
+The maximum adds a cycle when abs,X / abs,Y / (zp),Y reads cross a page, and two when a branch is
+taken across a page. **Export** saves everything as a text or HTML file.
+
+`tests/test_analyser.py` checks the cycle table, reading instructions from the assembler and
+from text, the scopes, imports and constants, and both of the book's chapter 17 projects. The
+cycle table was compared with CBM prg Studio's own `6502_opcodes_cycles.csv`, and all 151
+rows agree. To repeat that check, point `L64S_CBM_CYCLES` at the file from your copy.

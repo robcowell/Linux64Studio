@@ -64,6 +64,10 @@ can be followed on Linux.
 * **String Formatter**: split long strings into lines of a set length, as BASIC `a$=a$+"…"`
   lines or `text` lines (PETSCII or screen codes), with case changes and regular-expression find
   and replace. See [docs/basic.md](docs/basic.md#string-formatter).
+* **Source Analyser**: instruction counts, addressing modes and estimated cycles for a project,
+  file or selection, from the assembled code (real zero page/absolute modes, macros counted
+  where they're used), with filters, a footprint, charts, metrics, and text/HTML export. See
+  [docs/binary.md](docs/binary.md#source-analyser).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

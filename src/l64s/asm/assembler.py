@@ -46,6 +46,7 @@ class ListingEntry:
     loc: SourceLoc
     called_from: SourceLoc | None
     source: str
+    kind: str = ""          # the statement kind: "instr", "data", "text", "dcb", "incbin", "fltp", "align"
 
 
 @dataclass
@@ -293,7 +294,7 @@ class Assembler:
                     mem[a] = b & 0xFF
                     used[a] = 1
                 listing.append(ListingEntry(pc, bytes(b & 0xFF for b in data), stmt.line.loc,
-                                            stmt.line.called_from, stmt.line.code))
+                                            stmt.line.called_from, stmt.line.code, stmt.kind))
             if data:
                 st["lo"] = pc if st["lo"] is None else min(st["lo"], pc)
                 end = pc + len(data)

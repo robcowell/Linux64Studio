@@ -22,6 +22,7 @@ from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
+from .analyser_view import SourceAnalyser  # noqa: E402
 from .datagen_view import DataGenerator  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_manager import MemoryManager  # noqa: E402
@@ -99,6 +100,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("SYS() Call Generator", "win.sys-call")
         sec2.append("Data Generator", "win.data-generator")
         sec2.append("String Formatter", "win.string-formatter")
+        sec2.append("Source Analyser", "win.source-analyser")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Snapshots", "win.snapshots")
@@ -235,6 +237,8 @@ class MainWindow(Adw.ApplicationWindow):
         add("sys-call", lambda *_: self.open_sys_call())
         add("data-generator", lambda *_: self.open_data_generator())
         add("string-formatter", lambda *_: self.open_string_formatter())
+        add("source-analyser", lambda *_: self.open_source_analyser())
+        add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
@@ -452,7 +456,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -923,6 +927,54 @@ class MainWindow(Adw.ApplicationWindow):
             return tool
         kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
         return self._add_page(StringFormatter(kickass, self._insert_into_last_source, self._last_source_editor))
+
+    def open_source_analyser(self) -> SourceAnalyser:
+        tool = next((ed for ed in self.editors() if isinstance(ed, SourceAnalyser)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            return tool
+        tool = self._add_page(SourceAnalyser(self._analysis_request, self._open_source_line))
+        if not self.project:
+            tool.set_scope("file")
+        return tool
+
+    def analyse_from_editor(self):
+        """The editor's right-click Analyse: the selected lines, or else the whole file."""
+        ed = self._last_source_editor()
+        scope = "selection" if ed is not None and ed.buffer.get_has_selection() else "file"
+        self.open_source_analyser().run(scope)
+
+    def _analysis_request(self, scope: str):
+        """The arguments for analyser.analyse() for a scope, or why it can't be done."""
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        build = self.project.build_paths() if self.project else []
+        if kickass and self.project.main_file:
+            from ..analyser import kickass_sources
+            build = kickass_sources(self.project.directory / self.project.main_file,
+                                    [self.project.directory / d for d in self.project.lib_dirs])
+        req = {"files": list(build), "overrides": self._overrides(), "kickass": kickass,
+               "padding_byte": self.project.padding_byte if self.project else 0}
+        if scope == "project":
+            if not self.project:
+                return "Open a project first, or analyse the current file"
+            return {**req, "title": self.project.name}
+        ed = self._last_source_editor()
+        if ed is None or not ed.path:
+            return "Open (or click into) an assembler file first"
+        if ed.is_basic:
+            return f"{ed.title} is BASIC: the analyser looks at assembler"
+        req["scope"] = ed.path
+        if not req["files"]:
+            req["files"] = [ed.path]
+        if scope == "file":
+            return {**req, "title": ed.title}
+        sel = ed.buffer.get_selection_bounds()
+        if not sel:
+            return f"Select some lines in {ed.title} first"
+        a, b = sel
+        last = b.get_line() + (0 if b.starts_line() and b.get_line() > a.get_line() else 1)
+        req["lines"] = (a.get_line() + 1, last)
+        return {**req, "title": f"{ed.title} lines {a.get_line() + 1}-{last}"}
 
     def _last_source_editor(self):
         ed = self._last_source
