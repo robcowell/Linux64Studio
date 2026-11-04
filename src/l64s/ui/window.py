@@ -23,6 +23,7 @@ from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
+from .memory_manager import MemoryManager  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
@@ -87,6 +88,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Memory Viewer", "win.memory-viewer")
+        sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Binary Import/Export", "win.binary-tool")
         sec2.append("Disassembler", "win.disassembler")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
@@ -215,6 +217,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
+        add("memory-manager", lambda *_: self.open_memory_manager())
         add("binary-tool", lambda *_: self.open_binary_tool())
         add("disassembler", lambda *_: self.open_disassembler())
         add("list-prg", lambda *_: self.choose_prg_to_list())
@@ -427,7 +430,8 @@ class MainWindow(Adw.ApplicationWindow):
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
                 "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic",
-                "binary": "document-open-symbolic", "disasm": "system-search-symbolic"}.get(ed.kind)
+                "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
+                "memmgr": "view-grid-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -883,6 +887,16 @@ class MainWindow(Adw.ApplicationWindow):
         """(memory, used, {address: label}, description) of the last build, for exporting."""
         m, symbols, desc = self._memory_of_last_build()
         return (m.memory, m.used, symbols, desc) if m else None
+
+    def open_memory_manager(self):
+        tool = next((ed for ed in self.editors() if isinstance(ed, MemoryManager)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            tool._update()
+            return tool
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        return self._add_page(MemoryManager(kickass, self._memory_of_last_build, lambda: self.debug,
+                                            self._insert_into_last_source))
 
     def _memory_of_last_build(self):
         """(MemoryMap, {address: label}, description) for the last successful build."""

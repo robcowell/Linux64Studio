@@ -34,6 +34,10 @@ can be followed on Linux.
   reassembles to the same bytes (traced from the entry points to keep code and data apart),
   `byte` lines or BASIC DATA statements with a loader. Write any range of the last build out as
   `.bin` or `.prg`. See [docs/binary.md](docs/binary.md).
+* **Memory Manager**: plan what the VIC-II sees (bank, screen, character set or bitmap, sprite
+  data), get the `$DD00`/`$D018` values, sprite pointers and setup code, and see conflicts with
+  your program and the character ROM. **Read from VICE** shows the layout a running program has
+  actually set. See [docs/memory.md](docs/memory.md#memory-manager).
 * **Screen Code Builder**: build PRINT strings with colours, cursor moves, reverse and
   Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
   them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for

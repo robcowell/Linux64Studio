@@ -52,3 +52,47 @@ the built-in assembler.
 the CPU sees it, including whatever the program has drawn or changed. A running program pauses
 only for the read and carries on; the debugger doesn't show a stop. With **Every second** the
 snapshot keeps refreshing. Who-owns-what still comes from the build.
+
+# Memory Manager
+
+**Memory Manager** in the main menu plans what the VIC-II sees, which is the part of C64 memory
+that most often goes wrong: a character set that won't show, or sprites that come out as garbage.
+
+## Choosing a layout
+
+* **VIC-II bank**: the 16K the VIC-II reads from (`$DD00` bits 0-1).
+* **Screen memory**: any 1K block in the bank. The sprite pointers are its last 8 bytes
+  (screen+`$3F8`).
+* **Character set**: any 2K block. In banks 0 and 2, `$1000` and `$1800` are the ROM's upper-case
+  and lower-case sets.
+* **Bitmap mode**: an 8K bitmap (either half of the bank) instead of a character set.
+* **Sprite data**: add 64-byte blocks by address (`3000`, or a label) or pointer value (`#192`).
+
+## What you get
+
+* The **bank picture**: the 16K with the screen, sprite pointers, character set or bitmap and
+  sprites drawn in, the character ROM hatched where the VIC-II sees it instead of RAM, and (with
+  *Show the last build*) your program's bytes. Hover for what's at an address.
+* The **register values**: `$DD00` bits, `$D018`, where the sprite pointers are, and the value for
+  the book's `LIBSCREEN_SETCHARMEMORY` macro (14 for characters at `$3800`).
+* **Issues**:
+  * anything placed where the VIC-II sees the character ROM (it shows the ROM, not your data);
+  * areas that overlap each other;
+  * areas under the I/O area in bank 3 (the VIC-II reads the RAM; the CPU has to switch I/O out
+    to write it);
+  * a character set slot in bank 1 or 3 that would be the ROM in banks 0 and 2;
+  * overlaps with the program's code (a warning), or the data that fills an area, e.g. "Character
+    set holds an included binary from gameMemory.asm" (a note).
+* **Setup code** in the project's syntax: constants (`VICBANK`, `SCREENRAM`, `SPRITEPTRS`,
+  `CHARSET` or `BITMAP`), then the `$DD00` and `$D018` writes and the sprite pointers. **Copy** or
+  **Insert into Editor**.
+
+## Read from VICE
+
+During a debug session (Shift+F5), **Read** takes the layout the running program has actually
+set (bank, screen, character set or bitmap, and the pointers of the sprites that are switched on)
+from a snapshot of memory, without stopping it. Use it to see why something isn't showing.
+
+These were checked against VICE: reading chapter 17 gives bank 0, screen `$0400`, characters
+`$3800` and sprite pointer 192 (data at `$3000`), and the generated setup code sets the layout it
+describes (`tests/test_vicmem.py`, with `L64S_VICE_TESTS=1`).
