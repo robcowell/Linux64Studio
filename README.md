@@ -10,6 +10,8 @@ can be followed on Linux.
 * **Projects**: opens CBM prg Studio `.cbmprj` files directly, using the same build order.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
 * **Editor** with 6502 syntax highlighting, error navigation and breakpoints in the gutter.
+  Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
+  ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's
   `.spt`, `.cst` and `.sdd` files, SpritePad `.spd` and CharPad `.ctm` projects (Vol 2), and
   export `.bin` for `incbin` / `.import binary` or `byte` source.

@@ -7,7 +7,9 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, GObject, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
+
+from .. import numconv  # noqa: E402
 
 try:
     gi.require_version("GtkSource", "5")
@@ -120,6 +122,7 @@ class SourceEditor(EditorPage):
 
         self.view.set_has_tooltip(True)
         self.view.connect("query-tooltip", self._on_tooltip)
+        self._setup_convert_menu()
 
     # ---------------------------------------------------------------- appearance
     def _apply_font(self, font: str):
@@ -278,12 +281,97 @@ class SourceEditor(EditorPage):
         if button == 1 and n_presses == 1:
             self.toggle_breakpoint(it.get_line() + 1)
 
+    # ---------------------------------------------------------------- base conversion
+    def _setup_convert_menu(self):
+        """Right-click → Convert Number, and remember where the right-click was."""
+        group = Gio.SimpleActionGroup()
+        act = Gio.SimpleAction.new("convert", GLib.VariantType.new("s"))
+        act.connect("activate", lambda _a, v: self.convert_number(v.get_string()))
+        group.add_action(act)
+        self.view.insert_action_group("editor", group)
+        sub = Gio.Menu()
+        for base, label in (("hex", "Hexadecimal ($)"), ("dec", "Decimal"), ("bin", "Binary (%)")):
+            sub.append(label, f"editor.convert::{base}")
+        menu = Gio.Menu()
+        menu.append_submenu("Convert Number", sub)
+        self.view.set_extra_menu(menu)
+        self._click_iter_offset: int | None = None
+        right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        right.connect("pressed", self._on_right_click)
+        self.view.add_controller(right)
+
+    def _iter_at_widget(self, x, y):
+        bx, by = self.view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))
+        ok, it = self.view.get_iter_at_location(bx, by)
+        return it if ok else None
+
+    def _on_right_click(self, _g, _n, x, y):
+        it = self._iter_at_widget(x, y)
+        self._click_iter_offset = it.get_offset() if it else None
+
+    def _number_near(self, it) -> tuple[numconv.Number, Gtk.TextIter] | None:
+        """The number at an iter, and the iter at the start of its line."""
+        line_start = it.copy()
+        line_start.set_line_offset(0)
+        line_end = line_start.copy()
+        if not line_end.ends_line():
+            line_end.forward_to_line_end()
+        line = self.buffer.get_text(line_start, line_end, False)
+        n = numconv.number_at(line, it.get_line_offset())
+        return (n, line_start) if n else None
+
+    def convert_number(self, base: str) -> bool:
+        """Rewrite the selected number (or the one right-clicked, or at the cursor) in a base."""
+        if self.is_basic:
+            return False
+        buf = self.buffer
+        sel = buf.get_selection_bounds()
+        if sel:
+            start, end = sel
+            text = buf.get_text(start, end, False)
+            body = text.lstrip(" \t#")             # "#$12" selected: convert the number, keep the #
+            n = numconv.parse(body)
+            if n is None:
+                self.view.error_bell()
+                return False
+            lead = len(text) - len(body)
+            start.forward_chars(lead)
+            end = start.copy()
+            end.forward_chars(len(n.text))
+        else:
+            off = self._click_iter_offset
+            it = buf.get_iter_at_offset(off) if off is not None else buf.get_iter_at_mark(buf.get_insert())
+            found = self._number_near(it)
+            if not found:
+                self.view.error_bell()
+                return False
+            n, line_start = found
+            start = line_start.copy()
+            start.forward_chars(n.start)
+            end = line_start.copy()
+            end.forward_chars(n.end)
+        new = numconv.to_base(n.value, base, n)
+        offset = start.get_offset()
+        buf.begin_user_action()
+        buf.delete(start, end)
+        buf.insert(buf.get_iter_at_offset(offset), new)
+        buf.end_user_action()
+        if sel:
+            buf.select_range(buf.get_iter_at_offset(offset), buf.get_iter_at_offset(offset + len(new)))
+        self._click_iter_offset = None
+        return True
+
     # ---------------------------------------------------------------- hover help
     def _on_tooltip(self, view, x, y, _keyboard, tooltip):
         bx, by = view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, x, y)
         ok, it = view.get_iter_at_location(bx, by)
         if not ok:
             return False
+        if not self.is_basic:
+            found = self._number_near(it)
+            if found:
+                tooltip.set_text(numconv.describe(found[0]))
+                return True
         start = it.copy()
         while not start.starts_line():
             start.backward_char()

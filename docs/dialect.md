@@ -39,6 +39,16 @@ byte (0). **verified**
 | `= == <> != < > <= >=` | comparisons (1 or 0), for `if` |
 | `#` inside an expression | ignored: the book's `lda #1<<#/1` means `1 << /1` **verified** |
 
+### Base conversion in the editor
+
+As in CBM prg Studio, hover over a number in an assembler file to see it in hex, decimal and
+binary. For a byte it also shows the signed value; for a word, its high and low bytes. To
+rewrite a number in another base, select it (or just right-click it) and choose **Convert Number
+→ Hexadecimal / Decimal / Binary**. A selection may include the `#` of an immediate value.
+Hex is written with 2 or 4 digits, binary with 8 or 16, and a wider original (`$0012`) keeps its
+width. Numbers inside quotes and digits that are part of a name (`label2`, `/1`) aren't numbers.
+Each conversion is one undo step.
+
 ### `Operator Calc` / `Operator HiLo`
 
 This sets how tightly `<` and `>` bind, from that line onwards:
