@@ -62,6 +62,9 @@ class SpriteEditor(EditorPage):
             ("go-next-symbolic", "Shift right", lambda *_: self._modify(lambda s: s.shift(1, 0))),
             ("go-up-symbolic", "Shift up", lambda *_: self._modify(lambda s: s.shift(0, -1))),
             ("go-down-symbolic", "Shift down", lambda *_: self._modify(lambda s: s.shift(0, 1))),
+            (None, None, None),
+            ("media-playlist-shuffle-symbolic", "Morph… (frames that turn this sprite into another)",
+             lambda *_: self.open_morph()),
         ]:
             if icon is None:
                 bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -344,6 +347,23 @@ class SpriteEditor(EditorPage):
                 self.data.sprites[i] = s
                 self._select(i)
                 self.set_modified(True)
+
+    def open_morph(self):
+        from .morph_dialog import MorphDialog
+        if len(self.data.sprites) < 2:
+            self._add()                 # a second sprite to morph into
+        dlg = MorphDialog(self.get_root(), self.data, self.index, self._insert_frames)
+        dlg.present()
+        return dlg
+
+    def _insert_frames(self, frames, at: int):
+        for k, f in enumerate(frames):
+            self.data.sprites.insert(at + k, f)
+        self.undo.clear()               # undo works per sprite, and the sprites have moved
+        self.redo.clear()
+        self._refresh_list()
+        self._select(at)
+        self.set_modified(True)
 
     def _add(self, *_):
         self.data.sprites.insert(self.index + 1, Sprite(multi=self.sprite.multi, colour=self.sprite.colour))
