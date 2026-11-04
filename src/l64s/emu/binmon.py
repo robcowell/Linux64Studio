@@ -182,8 +182,11 @@ class BinaryMonitor:
         n = struct.unpack_from("<H", r)[0]
         return r[2:2 + n] if n else r[2:]
 
-    def write_memory(self, start: int, data: bytes) -> None:
-        body = struct.pack("<BHHBH", 0, start, start + len(data) - 1, 0, 0) + data
+    def write_memory(self, start: int, data: bytes, side_effects: bool = False) -> None:
+        """Write CPU memory. With side_effects, writes to I/O reach the chips (e.g. $D020 changes the border)."""
+        if not data or start + len(data) > 0x10000:
+            raise MonitorError("Write must be 1 or more bytes inside $0000-$FFFF")
+        body = struct.pack("<BHHBH", int(side_effects), start, start + len(data) - 1, 0, 0) + data
         self.request(CMD_MEM_SET, body)
 
     def registers_available(self) -> dict[int, str]:
@@ -223,6 +226,9 @@ class BinaryMonitor:
 
     def delete_checkpoint(self, cid: int) -> None:
         self.request(CMD_CHECKPOINT_DELETE, struct.pack("<I", cid))
+
+    def enable_checkpoint(self, cid: int, enabled: bool) -> None:
+        self.request(CMD_CHECKPOINT_TOGGLE, struct.pack("<IB", cid, int(enabled)))
 
     def step(self, count: int = 1, over: bool = False) -> None:
         self.request(CMD_ADVANCE, struct.pack("<BH", int(over), count))

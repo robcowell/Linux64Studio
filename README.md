@@ -34,9 +34,11 @@ can be followed on Linux.
   `incbin`. Songs and sound effects from [GoatTracker GTK Edition and SidMonkey](https://github.com/robcowell/goattracker)
   open in those editors and are packed with GoatTracker's `gt2reloc` before every build, at the
   address you choose, with ready-to-paste player code. See [docs/music.md](docs/music.md).
-* **Run and debug in VICE**: breakpoints, step into/over/out, registers, disassembly
-  with labels, memory view, and the current source line highlighted. Uses VICE's
-  binary monitor.
+* **Run and debug in VICE**: breakpoints, step into/over/out, disassembly with labels,
+  and the current source line highlighted. You can **edit registers and flags** and **edit
+  memory** in a hex editor (type over bytes, go to an address or label, write byte lists or
+  text); changes since the last stop are highlighted. Uses VICE's binary monitor. See
+  [docs/debugger.md](docs/debugger.md).
 
 ## Install
 
