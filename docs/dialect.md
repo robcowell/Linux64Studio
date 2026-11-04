@@ -222,6 +222,57 @@ and set the Disk Image page's **Program file to put on the disk** to `game.prg.e
 image is written after the build events. The project's VICE options (`vice_args` in the
 `.l64proj`) are added to the ones in Preferences whenever the project runs or is debugged.
 
+## UTF-8 check
+
+**UTF-8 Check** in the main menu (CBM prg Studio's Tools → UTF-8 Check) finds the characters in
+the source that aren't plain ASCII: the ones that slip in when code is pasted from a web page, a PDF
+or a word processor, which the assembler and the C64 can't take. Each is listed with where it is,
+its Unicode name, and the ASCII for it: curly quotes become straight ones, dashes `-`, `…` `...`,
+no-break spaces plain ones, a byte order mark or a zero-width space nothing, `é` `e`.
+
+Check the **current file** or the **whole project** (open files as they are in the editor, unsaved
+changes too). Double-click a line to go to it; **Replace All with ASCII** puts the ASCII in (one
+undo a file; characters with no ASCII, such as `Ω`, are left for you). In BASIC, `£ π ← ↑` are
+fine: they stand for the C64's own characters. A file that isn't UTF-8 at all (Windows-1252, say)
+is reported too, from where it stops being UTF-8; saving it from the editor writes it as UTF-8.
+
+## Git
+
+As in CBM prg Studio, a project can be kept in Git, from the main menu's **Git** submenu and the
+file list's right-click menu. It uses the `git` command (install it with `sudo apt install git`).
+
+* **Create a Repository for the Project** (or tick *Create a Git repository* when making a new
+  project) runs `git init` in the project folder and writes an ignore list, `.gitignore`, from the
+  template in **Preferences → Git**, whose `{now}`, `{author}`, `{comment}` and `{project}` are
+  filled in. The default leaves out what the build makes (`*.prg`, `*.vs`, `*.lst`, `*.dbg`, `*.p00`,
+  `*.exo`) and backups (`*.bak`). **Manage Ignore List** opens it.
+* The file list shows each file's state: **?** not in the repository, **A** added, **M** modified,
+  **D** being removed, **U** a conflict (hover for more). It's updated as files are saved.
+* **Status**, **Changes** (a diff against the last commit, highlighted) and **History** (the log)
+  open in tabs. **Add All Files** adds everything not ignored.
+* **Commit…** asks for a message, the author and email (from Preferences → Git, or git's own
+  settings when empty), and whether to add changed files first (on by default, as CBM prg Studio's
+  option). Files open in the editor are saved first.
+* Right-click a file for **Add**, **Commit This File…**, its **Changes** and **History**, and
+  **Remove from the Repository** (it stays on disk).
+
+A project inside a bigger repository uses that one.
+
+## User tools
+
+As CBM prg Studio's Tools → User menu does, the main menu's **User Tools** runs programs of your
+own: an editor, a cruncher, another emulator, git. Set them up in **Preferences → User Tools**: a
+name, the program (a name on the PATH or a path), its arguments, the folder to run it in (the
+project's if empty), and whether to wait and show what it prints in the build output (otherwise
+it's just started). The tools are yours, not the project's, so they're there in every project.
+
+Arguments take CBM prg Studio's presets: `[prg]` `[prgName]` `[prgDir]` (the program, from the last
+build or the project), `[ProjectDir]` `[ProjectName]` `[OutputDir]` `[OutputDirFull]`,
+`[CurrentFile]` `[CurrentDir]` (the file being edited), `[Date]`, `[Version]`, `[Target]`
+`[TargetFull]` and `[System]`. They're split into words as a shell would before the presets go in,
+so a path with spaces stays one argument; quote an argument that has spaces of its own. For example
+`exomizer` with `sfx sys -o [prgDir]/[ProjectName].exo [prg]`, or `x64sc` with `-autostart [prg]`.
+
 ## Graphics files
 
 | File | Format | Notes |

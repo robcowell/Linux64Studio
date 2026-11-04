@@ -34,7 +34,12 @@ class Settings:
     basic_code_style: str = "standard"
     basic_auto_number: bool = True       # Return at the end of a BASIC line starts the next numbered line
     basic_number_step: int = 10
-    basic_uncompress_lowercase: bool = True   # Uncompress writes keywords in lower case (else upper)   # control codes in BASIC listings: standard, bastext or tok64    # suggest names while typing (Ctrl+Space always does)
+    basic_uncompress_lowercase: bool = True
+    user_tools: list[dict] = field(default_factory=list)
+    git_author: str = ""            # for commits ("" = git's own user.name)
+    git_email: str = ""
+    git_auto_add: bool = True       # add changed files before committing (CBM prg Studio's option)
+    git_ignore: str = ""            # the ignore list a new repository starts with ("" = the default)   # usertools.UserTool.to_dict(), for Tools → User   # Uncompress writes keywords in lower case (else upper)   # control codes in BASIC listings: standard, bastext or tok64    # suggest names while typing (Ctrl+Space always does)
     pbasic_start: int = 10        # pBASIC: the first line number, the step and the label prefix
     pbasic_step: int = 10
     pbasic_prefix: str = "@"

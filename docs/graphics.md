@@ -123,6 +123,46 @@ The pad shows sprites as you edit them, keeps pointing at the same sprites when 
 or deleted, and is saved with the sprite file (in the project's settings), so closing without
 saving leaves both as they were.
 
+## Import characters or sprites from a listing
+
+The **Import from Listing…** button in the character and sprite editors' toolbars reads
+characters or sprites out of a source file, as CBM prg Studio's Import → From Listing does: the
+BASIC DATA or the assembler byte lines of a program that defines its own graphics.
+
+* **Source**: any open source file (the one you last worked on comes first), or a file from disk.
+* **Start at**: each place with data, a BASIC line number or an assembler label, with how many
+  bytes and characters follow. **Find Character Data** picks the first with a whole character.
+* **Store from character** (or sprite): where they go in the set (the one selected, to start
+  with). Sprites go over the ones there and on past the end, in the current sprite's mode and
+  colour.
+* **As many as possible**, or a number of them. The preview shows what will be imported.
+
+In BASIC the DATA items are read as READ would, from that line, line after line until one without
+DATA (an empty item is 0). In assembler the source is assembled first when it can be on its own,
+so data written as `bits ..@@@@..`, `%00111100`, `dcb` or an expression comes out as the program
+has it, running on past later labels until the code; when it can't (it needs a project's other
+files, or it's Kick Assembler) the numbers on the byte lines are read. A sprite is 63 bytes, or 64
+when the data is padded to 64 (as `.spr` exports and SpritePad's are). One Ctrl+Z undoes a
+character import.
+
+## Import characters or sprites from memory or a file
+
+The **Import from Memory or a File…** button (the drive icon) in the character and sprite editors
+is CBM prg Studio's Import → From Memory and From File. It reads them from:
+
+* the **last build**'s memory, or the **running program**'s while debugging (VICE's memory, read
+  over its monitor), so you can take a set the program built or changed at run time;
+* **a file**: a `.prg` at the address its first two bytes give, or a raw `.bin` from address 0
+  (untick *It starts with a load address* for a raw file);
+* for characters, the C64's **character ROM**, upper or lower case.
+
+Give the **address** as `$hex` (or bare hex digits), `#decimal`, or a label from the build (`font`,
+`font+8`), or work it out from where the VIC-II looks: a **VIC bank** (0-3, `$DD00`) and the
+**character set** (0-7, `$D018`) or the **sprite pointer** (0-255). It warns where, in banks 0 and
+2, the VIC-II sees the character ROM instead of RAM. Then how many, and where they go in the set
+(sprites are read 64 bytes apart, the 64th left out). Reading stops at the end of the file's data
+or at a gap in the build's.
+
 ## Character scratch pad
 
 The **Scratch Pad…** button in the character editor's toolbar (the grid icon) opens CBM prg

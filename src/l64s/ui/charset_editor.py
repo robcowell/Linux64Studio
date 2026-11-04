@@ -129,6 +129,11 @@ class CharsetEditor(EditorPage):
              lambda *_: self.open_scratch_pad()),
             ("media-playback-start-symbolic", "Animation… (play a run of characters as an animation)",
              lambda *_: self.open_animation()),
+            ("insert-text-symbolic", "Import from Listing… (characters from DATA or byte lines in a source)",
+             lambda *_: self.open_listing_import()),
+            ("drive-harddisk-symbolic", "Import from Memory or a File… (the last build, the running program, "
+                                        "a .prg or .bin)",
+             lambda *_: self.open_memory_import()),
         ]:
             b = Gtk.Button(icon_name=icon, tooltip_text=tip)
             b.connect("clicked", cb)
@@ -321,6 +326,45 @@ class CharsetEditor(EditorPage):
             self._pad_window.refresh()
         if self._anim_window is not None:
             self._anim_window.refresh()
+
+    def open_memory_import(self, path=None):
+        """Import → From Memory (and From File): the last build's memory, the running program's, a file."""
+        from .listing_import_dialog import char_drawer, sprite_drawer  # noqa: F401
+        from .memory_import_dialog import MemoryImportDialog
+        win = self.get_root()
+        get_build = getattr(win, "_memory_of_last_build", lambda: (None, {}, ""))
+        folder = self.project.directory if self.project else (self.path.parent if self.path else None)
+        dlg = MemoryImportDialog(win, "chars", get_build, lambda: getattr(win, "debug", None), self.index, len(self.data.chars),
+                                 char_drawer(self.data, lambda: self.data.char_colour | (8 if self.data.multicolour else 0)), self._import_chars, folder)
+        dlg.present()
+        if path:
+            dlg.load_file(path)
+        return dlg
+
+    def open_listing_import(self):
+        """Import → From Listing: characters out of the DATA or byte lines of a source file."""
+        from .editor import SourceEditor
+        from .listing_import_dialog import ListingImportDialog, char_drawer
+        win = self.get_root()
+        eds = [e for e in (win.editors() if hasattr(win, "editors") else []) if isinstance(e, SourceEditor)]
+        last = getattr(win, "_last_source", None)
+        eds.sort(key=lambda e: e is not last)              # the source last worked on first
+        sources = [(e.title, e.get_text(), e.is_basic) for e in eds]
+        folder = self.project.directory if self.project else (self.path.parent if self.path else None)
+        dlg = ListingImportDialog(win, "chars", sources, self.index, len(self.data.chars),
+                                  char_drawer(self.data, lambda: self.data.char_colour
+                                              | (8 if self.data.multicolour else 0)),
+                                  self._import_chars, folder)
+        dlg.present()
+        return dlg
+
+    def _import_chars(self, items, at: int):
+        idx = [at + i for i in range(len(items)) if at + i < len(self.data.chars)]
+        self.undo.append(("group", [(i, list(self.data.chars[i])) for i in idx]))     # one Ctrl+Z
+        for i, rows in zip(idx, items):
+            self.data.chars[i] = [b & 0xFF for b in rows]
+        self._select(at)
+        self._changed()
 
     def open_animation(self):
         from .char_animation import CharAnimationWindow

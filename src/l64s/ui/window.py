@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
@@ -107,6 +107,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Data Generator", "win.data-generator")
         sec2.append("String Formatter", "win.string-formatter")
         sec2.append("Source Analyser", "win.source-analyser")
+        sec2.append("UTF-8 Check", "win.utf8-check")
         sec2.append("Statistics (BASIC)", "win.basic-statistics")
         sec2.append("Import CharPad Binaries…", "win.import-charpad")
         sec2.append("Memory Viewer", "win.memory-viewer")
@@ -122,6 +123,17 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Save All", "win.save-all")
         sec2.append("Close Project", "win.close-project")
         menu.append_section(None, sec2)
+        self.user_tools_menu = Gio.Menu()
+        tools_sec = Gio.Menu()
+        git_menu = Gio.Menu()
+        for label, act in (("Status", "win.git-status"), ("Changes (diff)", "win.git-diff"),
+                           ("History (log)", "win.git-log"), ("Commit…", "win.git-commit"),
+                           ("Add All Files", "win.git-add-all"), ("Manage Ignore List", "win.git-ignore"),
+                           ("Create a Repository for the Project", "win.git-init")):
+            git_menu.append(label, act)
+        tools_sec.append_submenu("Git", git_menu)
+        tools_sec.append_submenu("User Tools", self.user_tools_menu)
+        menu.append_section(None, tools_sec)
         sec3 = Gio.Menu()
         sec3.append("Preferences", "app.preferences")
         sec3.append("Keyboard Shortcuts", "app.shortcuts")
@@ -162,6 +174,9 @@ class MainWindow(Adw.ApplicationWindow):
         side.append(self.sidebar_title)
         self.file_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
         self.file_list.connect("row-activated", self._on_file_activated)
+        file_menu = Gtk.GestureClick(button=3)
+        file_menu.connect("pressed", self._file_menu)
+        self.file_list.add_controller(file_menu)
         side.append(Gtk.ScrolledWindow(child=self.file_list, vexpand=True))
         outer.set_start_child(side)
         outer.set_shrink_start_child(False)
@@ -217,6 +232,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._install_actions()
         self._refresh_recent()
+        self.refresh_user_tools()
 
     def _install_actions(self):
         def add(name, cb, param=None):
@@ -247,6 +263,16 @@ class MainWindow(Adw.ApplicationWindow):
         add("renumber", lambda *_: self.renumber_dialog())
         add("reformat-basic", lambda *_: self.reformat_dialog())
         add("print", lambda *_: self.print_source())
+        add("utf8-check", lambda *_: self.open_utf8_check())
+        add("user-tool", lambda _a, v: self.run_user_tool(v.get_int32()), "i")
+        add("git-status", lambda *_: self.git_status())
+        add("git-diff", lambda *_: self.git_diff())
+        add("git-log", lambda *_: self.git_log())
+        add("git-commit", lambda *_: self.git_commit_dialog())
+        add("git-add-all", lambda *_: self.git_do("add-all"))
+        add("git-ignore", lambda *_: self.git_ignore_list())
+        add("git-init", lambda *_: self.git_init())
+        add("git-file", lambda _a, v: self.git_file(v.get_string()), "s")
         add("print-preview", lambda *_: self.print_source(preview=True))
         add("basic-compress", lambda *_: self.basic_keywords("abbreviate"))
         add("basic-uncompress", lambda *_: self.basic_keywords(
@@ -336,6 +362,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_title()
 
     def _populate_files(self):
+        self._git_states = self._git_status_map()
         while (row := self.file_list.get_row_at_index(0)) is not None:
             self.file_list.remove(row)
         if not self.project:
@@ -371,6 +398,11 @@ class MainWindow(Adw.ApplicationWindow):
                 box.append(Gtk.Image(icon_name=icon))
                 lbl = Gtk.Label(label=str(rel), xalign=0, ellipsize=Pango.EllipsizeMode.START, hexpand=True)
                 box.append(lbl)
+                gs = self._git_states.get(f.resolve()) if hasattr(self, "_git_states") else None
+                if gs is not None:
+                    box.append(Gtk.Label(label=gs.letter, tooltip_text=f"Git: {gs.description}",
+                                         css_classes=["caption-heading", {"?": "dim-label", "A": "success",
+                                                      "D": "error", "U": "error"}.get(gs.letter, "warning")]))
                 bi = build.get(str(f.resolve()))
                 if bi is not None:
                     box.append(Gtk.Label(label=str(bi + 1), css_classes=["dim-label", "caption"],
@@ -488,7 +520,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -523,7 +555,7 @@ class MainWindow(Adw.ApplicationWindow):
             return False
         if extra:
             self.toast(f"Saved {ed.title} and updated {', '.join(p.name for p in extra)}")
-        GLib.idle_add(lambda: (self.refresh_tasks(), False)[1])
+        GLib.idle_add(lambda: (self.refresh_tasks(), self._populate_files(), False)[2])
         return True
 
     def save_all(self):
@@ -627,9 +659,13 @@ class MainWindow(Adw.ApplicationWindow):
         loc.add_suffix(pick)
         tool = Adw.ComboRow(title="Type", model=Gtk.StringList.new(
             ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2", "Cartridge, 8K (assembler)"]))
+        from ..gitrepo import available as git_available
+        make_git = Adw.SwitchRow(title="Create a Git repository", active=False, sensitive=git_available(),
+                                 subtitle="With an ignore list (Preferences → Git)")
         grp.add(name)
         grp.add(loc)
         grp.add(tool)
+        grp.add(make_git)
         page.add(grp)
         btn = Gtk.Button(label="Create", css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER,
                          margin_bottom=12)
@@ -658,6 +694,8 @@ class MainWindow(Adw.ApplicationWindow):
             proj = new_project(directory, n, tc, basic=sel == 2, cartridge=sel == 3)
             win.close()
             self.open_project(proj.path)
+            if make_git.get_active():
+                self.git_init()
         btn.connect("clicked", create)
         win.present(self)
 
@@ -1568,6 +1606,287 @@ class MainWindow(Adw.ApplicationWindow):
         ed = self.open_file(path)
         if isinstance(ed, SourceEditor):
             ed.goto_line(line, select=False)
+
+    # ================================================================== git
+    def _repo(self, quiet: bool = False):
+        from ..gitrepo import Repo, available
+        if not self.project:
+            if not quiet:
+                self.toast("Open a project first")
+            return None
+        if not available():
+            if not quiet:
+                self.toast("git isn't installed: sudo apt install git")
+            return None
+        return Repo(self.project.directory, self.settings.git_author, self.settings.git_email)
+
+    def _git_status_map(self) -> dict:
+        r = self._repo(quiet=True)
+        if r is None:
+            return {}
+        try:
+            return r.status()
+        except Exception:
+            return {}
+
+    def _git_page(self, title: str, text: str, language: str | None = None, key: str | None = None):
+        from .textpage import TextPage
+        key = key or title
+        for ed in self.editors():
+            if isinstance(ed, TextPage) and ed.key == key:
+                ed.set_text(text)
+                self.tab_view.set_selected_page(self.tab_view.get_page(ed))
+                return ed
+        return self._add_page(TextPage(title, text, language, key))
+
+    def _git_run(self, fn, done=None):
+        """Run a git command, telling of a failure."""
+        from ..gitrepo import GitError
+        try:
+            out = fn()
+        except GitError as e:
+            self.toast(f"Git: {e}")
+            return None
+        self._populate_files()
+        if done:
+            done(out)
+        return out
+
+    def git_status(self):
+        r = self._repo()
+        if r is None:
+            return
+        if not r.is_repo():
+            self.toast("The project isn't in a Git repository: Git → Create a Repository")
+            return
+
+        def show(st):
+            lines = [f"On branch {r.branch()} in {r.root}", ""]
+            if not st:
+                lines.append("Nothing to commit: everything is as last committed.")
+            for p, s in sorted(st.items()):
+                try:
+                    rel = p.relative_to(r.root)
+                except ValueError:
+                    rel = p
+                lines.append(f"  {s.letter}  {rel}    ({s.description})")
+            self._git_page("Git Status", "\n".join(lines) + "\n")
+        self._git_run(r.status, show)
+
+    def git_diff(self, path: Path | None = None):
+        r = self._repo()
+        if r is None:
+            return
+        self._git_run(lambda: r.diff(path), lambda text: self._git_page(
+            f"Changes: {path.name}" if path else "Changes", text or "No changes since the last commit.\n", "diff"))
+
+    def git_log(self, path: Path | None = None):
+        r = self._repo()
+        if r is None:
+            return
+
+        def show(commits):
+            lines = [f"{c.hash}  {c.date}  {c.author:16}  {c.subject}" for c in commits]
+            self._git_page(f"History: {path.name}" if path else "History",
+                           "\n".join(lines) + "\n" if lines else "Nothing committed yet.\n")
+        self._git_run(lambda: r.log(path), show)
+
+    def git_do(self, what: str, path: Path | None = None):
+        r = self._repo()
+        if r is None:
+            return
+        name = path.name if path else "all files"
+        fn = {"add": lambda: r.add([path]), "add-all": r.add_all, "remove": lambda: r.remove([path])}[what]
+        msg = {"add": f"Added {name}", "add-all": "Added all the project's files",
+               "remove": f"{name} taken out of the repository (the file is kept)"}[what]
+        self._git_run(fn, lambda _o: self.toast(msg))
+
+    def git_file(self, spec: str):
+        """A file list menu command: "what|path"."""
+        what, _, p = spec.partition("|")
+        path = Path(p)
+        if what == "open":
+            self.open_file(path)
+        elif what == "diff":
+            self.git_diff(path)
+        elif what == "log":
+            self.git_log(path)
+        elif what == "commit":
+            self.git_commit_dialog(path)
+        else:
+            self.git_do(what, path)
+
+    def git_init(self):
+        from ..gitrepo import DEFAULT_IGNORE
+        r = self._repo()
+        if r is None:
+            return
+        if r.is_repo():
+            self.toast(f"The project is already in a repository ({r.root})")
+            return
+        self._git_run(lambda: r.init(self.project.name, self.settings.git_author, "",
+                                     self.settings.git_ignore or DEFAULT_IGNORE),
+                      lambda _o: self.toast("Made a Git repository for the project, with an ignore list"))
+
+    def git_ignore_list(self):
+        r = self._repo()
+        if r is None:
+            return
+        root = r.root or self.project.directory
+        path = root / ".gitignore"
+        if not path.exists():
+            from ..gitrepo import DEFAULT_IGNORE
+            import time as _t
+            path.write_text((self.settings.git_ignore or DEFAULT_IGNORE).replace("{project}", self.project.name)
+                            .replace("{now}", _t.strftime("%Y-%m-%d %H:%M"))
+                            .replace("{author}", self.settings.git_author).replace("{comment}", ""))
+        self.open_file(path)
+
+    def git_commit_dialog(self, path: Path | None = None):
+        r = self._repo()
+        if r is None:
+            return
+        if not r.is_repo():
+            self.toast("The project isn't in a Git repository: Git → Create a Repository")
+            return
+        for ed in self.editors():                  # commit what's on screen
+            if ed.modified and ed.path and isinstance(ed, SourceEditor):
+                self._save(ed)
+        try:
+            st = r.status()
+        except Exception as e:
+            self.toast(f"Git: {e}")
+            return
+        dlg = Adw.AlertDialog(heading=f"Commit {path.name}" if path else "Commit",
+                              body=("Changed: " + ", ".join(sorted(p.name for p in st))) if st and not path
+                              else ("" if st else "Nothing has changed since the last commit."))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        msg = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=6, bottom_margin=6, left_margin=6,
+                           css_classes=["card"])
+        msg.set_size_request(380, 90)
+        box.append(Gtk.Label(label="Message", xalign=0))
+        box.append(msg)
+        author = Gtk.Entry(text=self.settings.git_author, placeholder_text="git's user.name")
+        email = Gtk.Entry(text=self.settings.git_email, placeholder_text="git's user.email")
+        for label, w in (("Author", author), ("Email", email)):
+            box.append(Gtk.Label(label=label, xalign=0))
+            box.append(w)
+        add_first = Gtk.CheckButton(label="Add changed files first" if not path else "Add the file first",
+                                    active=self.settings.git_auto_add)
+        box.append(add_first)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Commit")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            b = msg.get_buffer()
+            text = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+            r.author, r.email = author.get_text().strip(), email.get_text().strip()
+            self._git_run(lambda: r.commit(text, [path] if path else None, add_first.get_active()),
+                          lambda h: self.toast(f"Committed {h}"))
+        dlg.choose(self, None, chosen)
+
+    def _file_menu(self, _g, _n, x, y):
+        """Right-click in the file list: open it, and Git's commands for it."""
+        row = self.file_list.get_row_at_y(int(y))
+        path = getattr(row, "path", None) if row else None
+        if path is None:
+            return
+        def item(label, what):
+            it = Gio.MenuItem.new(label, None)
+            it.set_action_and_target_value("win.git-file", GLib.Variant.new_string(f"{what}|{path}"))
+            return it
+        menu = Gio.Menu()
+        menu.append_item(item("Open", "open"))
+        if self._repo(quiet=True) is not None:
+            git = Gio.Menu()
+            for label, what in (("Add", "add"), ("Commit This File…", "commit"), ("Changes (diff)", "diff"),
+                                ("History (log)", "log"), ("Remove from the Repository", "remove")):
+                git.append_item(item(label, what))
+            menu.append_section("Git", git)
+        pop = Gtk.PopoverMenu.new_from_model(menu)
+        pop.set_parent(self.file_list)
+        rect = Gdk.Rectangle()
+        rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
+        pop.set_pointing_to(rect)
+        pop.connect("closed", lambda p: GLib.idle_add(p.unparent))
+        pop.popup()
+
+    # ================================================================== user tools
+    def refresh_user_tools(self):
+        """The User Tools menu, from Preferences."""
+        from ..usertools import UserTool
+        self.user_tools_menu.remove_all()
+        tools = [UserTool.from_dict(d) for d in self.settings.user_tools]
+        for i, t in enumerate(tools):
+            self.user_tools_menu.append(t.name or t.command, f"win.user-tool({i})")
+        self.user_tools_menu.append("Set Up User Tools…", "app.preferences")
+
+    def run_user_tool(self, i: int):
+        from ..usertools import Context, ToolError, UserTool, run
+        try:
+            tool = UserTool.from_dict(self.settings.user_tools[i])
+        except IndexError:
+            return
+        ed = self.current_editor()
+        if not (isinstance(ed, SourceEditor) and ed.path):
+            ed = self._last_source if self._last_source in self.editors() else ed
+        current = ed.path if ed is not None and getattr(ed, "path", None) else None
+        last = getattr(self, "last_build", None)
+        ctx = Context.make(self.project, current, last.prg if last and last.prg else None)
+        if not tool.capture:
+            try:
+                run(tool, ctx)
+                self.toast(f"Started {tool.name}")
+            except ToolError as e:
+                self.toast(str(e))
+            return
+        self.bottom_stack.set_visible_child_name("output")
+        self._set_log(f"Running {tool.name}…")
+
+        def work():
+            try:
+                ok, out = run(tool, ctx)
+                text = f"> {tool.name}\n{out}" if out else f"> {tool.name}\n(nothing printed)"
+            except ToolError as e:
+                ok, text = False, str(e)
+            GLib.idle_add(lambda: (self._set_log(text), self.toast(f"{tool.name} {'finished' if ok else 'failed'}"),
+                                   False)[2])
+        threading.Thread(target=work, daemon=True).start()
+
+    # ================================================================== UTF-8 check
+    def open_utf8_check(self):
+        from .utf8check_view import Utf8CheckView
+        for ed in self.editors():
+            if isinstance(ed, Utf8CheckView):
+                ed.refresh()
+                self.tab_view.set_selected_page(self.tab_view.get_page(ed))
+                return ed
+
+        def files(scope):
+            if scope == "project" and self.project:
+                return [f for f in self.project.all_files()
+                        if f.suffix.lower() in (".asm", ".s", ".a", ".inc", ".i", ".bas", ".pbas", ".txt")]
+            ed = self.current_editor()
+            if not (isinstance(ed, SourceEditor) and ed.path):
+                ed = self._last_source if self._last_source in self.editors() else None
+            return [ed.path] if ed is not None and ed.path else []
+
+        def editor_for(path, open_it=False):
+            for e in self.editors():
+                if isinstance(e, SourceEditor) and e.path and e.path.resolve() == Path(path).resolve():
+                    return e
+            return self.open_file(Path(path)) if open_it else None
+
+        def open_at(path, line, column):
+            ed = self.open_file(path)
+            if isinstance(ed, SourceEditor):
+                ed.goto_position(line, column - 1, 1)
+        return self._add_page(Utf8CheckView(files, editor_for, open_at))
 
     # ================================================================== printing
     def print_source(self, preview: bool = False):

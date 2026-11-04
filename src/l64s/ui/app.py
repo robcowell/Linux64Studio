@@ -249,9 +249,39 @@ class Application(Adw.Application):
             s.basic_uncompress_lowercase = uncompress_lower.get_active()
             s.basic_code_style = style_keys[codes.get_selected()]
             s.dark_mode = ["system", "light", "dark"][scheme.get_selected()]
+            s.user_tools = [t.to_dict() for t in tools_page.tools()]
+            s.git_author, s.git_email = git_author.get_text().strip(), git_email.get_text().strip()
+            s.git_auto_add = git_add.get_active()
+            ib = ignore_view.get_buffer()
+            ignore_text = ib.get_text(ib.get_start_iter(), ib.get_end_iter(), False)
+            s.git_ignore = "" if ignore_text.strip() == DEFAULT_IGNORE.strip() else ignore_text
             s.save()
             self._apply_colour_scheme()
+            if self.window and hasattr(self.window, "refresh_user_tools"):
+                self.window.refresh_user_tools()
         dlg.connect("closed", closed)
+        from .usertools_prefs import UserToolsPage
+        tools_page = UserToolsPage(s.user_tools)
+        dlg.add(tools_page)
+        from ..gitrepo import DEFAULT_IGNORE
+        gp = Adw.PreferencesPage(title="Git", icon_name="emblem-shared-symbolic")
+        gg = Adw.PreferencesGroup(title="Git", description="For the Git menu and the file list's Git commands.")
+        git_author = Adw.EntryRow(title="Author (empty: git's own user.name)", text=s.git_author)
+        git_email = Adw.EntryRow(title="Email (empty: git's own user.email)", text=s.git_email)
+        git_add = Adw.SwitchRow(title="Add changed files before committing", active=s.git_auto_add)
+        for w in (git_author, git_email, git_add):
+            gg.add(w)
+        gp.add(gg)
+        ig = Adw.PreferencesGroup(title="Ignore list for new repositories",
+                                  description="Files Git leaves alone. {now}, {author}, {comment} and {project} "
+                                              "are filled in when a repository is made.")
+        ignore_view = Gtk.TextView(monospace=True, top_margin=6, bottom_margin=6, left_margin=6,
+                                   css_classes=["card"])
+        ignore_view.set_size_request(-1, 160)
+        ignore_view.get_buffer().set_text(s.git_ignore or DEFAULT_IGNORE)
+        ig.add(ignore_view)
+        gp.add(ig)
+        dlg.add(gp)
         dlg.present(self.window)
 
 

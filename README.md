@@ -20,6 +20,12 @@ can be followed on Linux.
   A **Tasks** panel lists every TODO, FIXME and HACK in the project ([tasks](docs/dialect.md#tasks-todo)).
   `#region` … `#endregion` blocks fold away, as in CBM prg Studio ([folding](docs/dialect.md#folding-regions)).
   Source files can be **printed** (or previewed as a PDF) in their syntax colours ([printing](docs/dialect.md#printing)).
+  A **UTF-8 check** finds (and replaces) curly quotes, dashes and other non-ASCII characters pasted
+  into source ([utf-8](docs/dialect.md#utf-8-check)).
+  **Git**: create a repository with an ignore list, see each file's state in the file list, status,
+  changes and history, add and commit ([git](docs/dialect.md#git)).
+  A **User Tools** menu runs your own programs with arguments naming the project's files
+  ([user tools](docs/dialect.md#user-tools)).
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's
@@ -28,7 +34,9 @@ can be followed on Linux.
   **Morph** makes the frames that turn one sprite into another, and the **Explosion
   Generator** makes explosion animations. **Import from Image** cuts sprites out of a `.bmp`,
   `.png` or `.gif` sprite sheet or screenshot, hires or multicolour, and the **Scratch Pad** lays
-  sprites out side by side and in layers; the character editor's **Scratch Pad** builds graphics
+  sprites out side by side and in layers; both import characters and sprites **from a listing**
+  (BASIC DATA or byte lines) and **from memory** (the last build, the running program, a file, the
+  character ROM); and its **Scratch Pad** builds graphics
   from several characters, which the screen designer can stamp, and **Animation** plays a run of
   characters (or 2×2 blocks) looped or ping-pong. Screen **paths** turn points drawn on a screen into
   movement data (assembler or BASIC). The screen editor's **digitiser** gives the sprite
