@@ -21,6 +21,10 @@ can be followed on Linux.
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
   assembly: the BASIC goes at `$0801`, the assembly anywhere above it. See
   [docs/basic.md](docs/basic.md).
+* **Screen Code Builder**: build PRINT strings with colours, cursor moves, reverse and
+  Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
+  them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for
+  screen memory. See [docs/basic.md](docs/basic.md#screen-code-builder).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

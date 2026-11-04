@@ -21,6 +21,7 @@ from .debugger import DebuggerPanel, DebugSession  # noqa: E402
 from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
+from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
 
@@ -81,6 +82,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Open File…", "win.open-file")
         sec2.append("List BASIC Program (.prg)…", "win.list-prg")
         sec2.append("Renumber BASIC…", "win.renumber")
+        sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
@@ -136,7 +138,8 @@ class MainWindow(Adw.ApplicationWindow):
         tabs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.tab_view = Adw.TabView(vexpand=True)
         self.tab_view.connect("close-page", self._on_close_page)
-        self.tab_view.connect("notify::selected-page", lambda *_: self._update_title())
+        self.tab_view.connect("notify::selected-page", lambda *_: self._on_tab_selected())
+        self._last_source: SourceEditor | None = None
         tab_bar = Adw.TabBar(view=self.tab_view, autohide=False)
         tabs_box.append(tab_bar)
         self.empty = Adw.StatusPage(icon_name="applications-games-symbolic", title="Linux64Studio",
@@ -204,6 +207,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
+        add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -409,7 +413,8 @@ class MainWindow(Adw.ApplicationWindow):
                 "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic",
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
-                "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic"}.get(ed.kind)
+                "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
+                "screencodes": "insert-text-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -812,6 +817,40 @@ class MainWindow(Adw.ApplicationWindow):
         if isinstance(ed, SourceEditor):
             ed.set_pc_line(line)
             self._pc_editor = ed
+
+    # ================================================================== screen code builder
+    def _on_tab_selected(self):
+        ed = self.current_editor()
+        if isinstance(ed, SourceEditor):
+            self._last_source = ed
+        self._update_title()
+
+    def open_screen_code_builder(self):
+        for ed in self.editors():
+            if isinstance(ed, ScreenCodeBuilder):
+                self.tab_view.set_selected_page(self.tab_view.get_page(ed))
+                return ed
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        return self._add_page(ScreenCodeBuilder(kickass, self._insert_into_last_source))
+
+    def _insert_into_last_source(self, text: str) -> str | None:
+        ed = self._last_source
+        if ed is None or ed not in self.editors():
+            return None
+        # On a line of its own: after the cursor's line if the cursor is part-way along one.
+        buf = ed.buffer
+        it = buf.get_iter_at_mark(buf.get_insert())
+        if not it.starts_line():
+            it.forward_to_line_end()
+            text = "\n" + text.rstrip("\n")
+        elif not text.endswith("\n"):
+            text += "\n"
+        buf.begin_user_action()
+        buf.insert(it, text)
+        buf.end_user_action()
+        self.tab_view.set_selected_page(self.tab_view.get_page(ed))
+        ed.view.grab_focus()
+        return ed.title
 
     # ================================================================== music
     def _save_project_quietly(self):

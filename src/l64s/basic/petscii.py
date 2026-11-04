@@ -49,12 +49,33 @@ CONTROL_CODES: list[tuple[str, int, tuple[str, ...]]] = [
     ("pi", 0xFF, ("π",)),
 ]
 
+# Graphics typed with the Commodore or SHIFT key, named as VICE's petcat names them:
+# {cbm-a}, {shift-+} and so on (values checked against petcat). Shifted letters are just
+# upper-case letters in a string, so they aren't listed by name.
+CBM_KEYS = {
+    "a": 0xB0, "b": 0xBF, "c": 0xBC, "d": 0xAC, "e": 0xB1, "f": 0xBB, "g": 0xA5, "h": 0xB4, "i": 0xA2,
+    "j": 0xB5, "k": 0xA1, "l": 0xB6, "m": 0xA7, "n": 0xAA, "o": 0xB9, "p": 0xAF, "q": 0xAB, "r": 0xB2,
+    "s": 0xAE, "t": 0xA3, "u": 0xB8, "v": 0xBE, "w": 0xB3, "x": 0xBD, "y": 0xB7, "z": 0xAD,
+    "+": 0xA6, "-": 0xDC, "@": 0xA4, "*": 0xDF, "£": 0xA8,
+}
+SHIFT_KEYS = {
+    **{chr(ord("a") + i): 0xC1 + i for i in range(26)},
+    "+": 0xDB, "-": 0xDD, "@": 0xBA, "*": 0xC0, "£": 0xA9, "^": 0xDE,
+}
+
 NAME_TO_CODE: dict[str, int] = {}
 CODE_TO_NAME: dict[int, str] = {}
 for _name, _code, _aliases in CONTROL_CODES:
     CODE_TO_NAME[_code] = _name
     for n in (_name, *_aliases):
         NAME_TO_CODE[n] = _code
+for _k, _code in CBM_KEYS.items():
+    NAME_TO_CODE[f"cbm-{_k}"] = _code
+    CODE_TO_NAME.setdefault(_code, f"cbm-{_k}")
+for _k, _code in SHIFT_KEYS.items():
+    NAME_TO_CODE[f"shift-{_k}"] = _code
+    if not ("a" <= _k <= "z"):
+        CODE_TO_NAME.setdefault(_code, f"shift-{_k}")
 
 
 class ControlCodeError(ValueError):

@@ -32,6 +32,8 @@ Put these in braces inside strings. Case doesn't matter.
 | `$85`–`$8C` | `{f1}` … `{f8}` |
 | `$14` `$94` | `{delete}`/`{del}`, `{insert}`/`{inst}` |
 | `$0E` `$8E` | `{lower case}`/`{swlc}`, `{upper case}`/`{swuc}` |
+| Commodore-key graphics | `{cbm-a}` … `{cbm-z}`, `{cbm-+}` `{cbm--}` `{cbm-@}` `{cbm-*}` `{cbm-£}` |
+| SHIFT graphics | upper-case letters, or `{shift-a}` …; also `{shift-+}` `{shift--}` `{shift-@}` `{shift-*}` `{shift-£}` `{shift-^}` |
 | any byte | `{$93}` or `{147}` |
 | repeats | `{3 down}` or `{down*3}` |
 
@@ -68,3 +70,28 @@ BASIC loader, e.g. `10 sys (2064)`.
 A project's build list can hold `.bas` and `.asm` files. The BASIC program is placed at
 `$0801`, and the assembled code wherever its `*=` puts it. It's an error if they overlap.
 For example, `10 sys 49152` in `main.bas` with `*=$c000` code in `code.asm`.
+
+## Screen Code Builder
+
+**Screen Code Builder** in the main menu builds the strings that are awkward to type: colour
+changes, cursor moves, reverse video, and the graphics on the Commodore and SHIFT keys.
+
+* Type text, or click the **colour swatches**, the **keys** (CLR, HOME, cursor keys, RVS ON/OFF,
+  RETURN, DEL, INST, case switch, F1–F8) and the **graphics**, drawn from the C64's character
+  ROM (hover for the key, e.g. `CBM-A`). Everything is written in the BASIC notation above.
+* **On the C64** shows what `PRINT`ing it does on a real screen: colours, cursor moves, reverse,
+  clearing, deleting and inserting, scrolling, and the case switch. Set the border, background
+  and starting text colour to match your program. A block shows where the cursor ends up.
+* Get it as:
+  * a **BASIC PRINT statement**, with a line number if you like;
+  * **PETSCII bytes** to print with the KERNAL's `CHROUT` (`$FFD2`), ending with 0 if wanted;
+  * **screen codes** (and colour RAM bytes) for the rows it fills, to copy straight into
+    screen memory. Control codes aren't stored there; this is what they leave on the screen.
+
+  Byte output uses the project's syntax (`byte`, or `.byte` for Kick Assembler). **Insert into
+  Editor** puts it on its own line in the source file you last worked on.
+
+The preview follows the KERNAL's screen editor. It was checked against VICE, including the
+colour RAM under blank cells (clearing fills it with the current text colour) and the
+character set chosen in `$D018`. With `L64S_VICE_TESTS=1`, `tests/test_screencodes.py` runs that
+comparison itself.
