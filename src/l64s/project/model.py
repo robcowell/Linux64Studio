@@ -25,7 +25,8 @@ TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
-GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg"}
+GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
+            ".d64"}
 
 
 @dataclass
@@ -43,6 +44,14 @@ class Project:
     imported_from: str = ""           # original .cbmprj / .code-workspace, if any
     # Linked exports: graphics file (relative path) -> {export kind: .bin path ("" = off)}
     exports: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Disk image output: "" = off, else the .d64 to write (relative to the project directory)
+    disk_image: str = ""
+    disk_name: str = ""              # default: project name
+    disk_id: str = "00"
+    disk_file_name: str = ""         # name of the program on the disk; default: executable's name
+    # More files for the disk: [{"file": relative path, "name": name on disk, "type": prg/seq/usr}]
+    disk_extra_files: list[dict] = field(default_factory=list)
+    run_from_disk: bool = False      # autostart the .d64 instead of the .prg
 
     @property
     def directory(self) -> Path:
@@ -54,6 +63,9 @@ class Project:
     def output_path(self) -> Path:
         exe = self.executable or (self.name + ".prg")
         return (self.directory / self.output_dir / exe).resolve()
+
+    def disk_image_path(self) -> Path | None:
+        return (self.directory / self.disk_image).resolve() if self.disk_image else None
 
     def settings_path(self) -> Path:
         return self.path if self.path.suffix == ".l64proj" else self.path.with_suffix(".l64proj")

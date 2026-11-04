@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--step", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--load-address", type=lambda s: int(s, 0), default=0x0801)
+    ap.add_argument("--d64", help="also write a 1541 disk image containing the program")
+    ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
     a = ap.parse_args(argv)
     src = Path(a.input)
     try:
@@ -51,6 +53,9 @@ def main(argv: list[str] | None = None) -> int:
         out = Path(a.output) if a.output else src.with_suffix(".prg")
         out.write_bytes(res.prg())
         print(f"{out}: {len(res.lines)} lines, ${res.start:04X}-${res.end - 1:04X}")
+        if a.d64:
+            from ..asm.cli import _write_d64
+            return _write_d64(a.d64, a.disk_name, out, False)
         return 0
     except BasicErrors as e:
         _report("error", e.errors, a.input)

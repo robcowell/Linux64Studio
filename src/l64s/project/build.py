@@ -22,14 +22,56 @@ class BuildResult:
     log: str
     srcmap: dict[int, tuple[str, int]] = field(default_factory=dict)
     asm_result: Result | None = None
+    disk: Path | None = None          # the .d64 written, if the project makes one
+
+
+def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Diagnostic], str]:
+    """Write the project's .d64: the built program first, then any extra files."""
+    from ..disk.d64 import DiskError, build_disk, file_type_for
+    dest = project.disk_image_path()
+    if dest is None:
+        return None, [], ""
+    name = project.disk_file_name or prg.stem
+    files = [(name, prg.read_bytes(), "prg")]
+    for extra in project.disk_extra_files:
+        rel = extra.get("file", "")
+        src = (project.directory / rel).resolve()
+        try:
+            data = src.read_bytes()
+        except OSError as e:
+            return None, [Diagnostic("error", f"Disk image: can't read {rel}: {e.strerror}", None)], ""
+        files.append((extra.get("name") or src.stem, data, extra.get("type") or file_type_for(src)))
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        disk = build_disk(dest, project.disk_name or project.name, project.disk_id or "00", files)
+    except DiskError as e:
+        return None, [Diagnostic("error", f"Disk image: {e}", None)], ""
+    return dest, [], f"Wrote {dest} ({len(files)} file(s), {disk.blocks_free} blocks free)"
+
+
+def _with_disk(project: Project, res: BuildResult, only_file) -> BuildResult:
+    """Add the disk image to a successful whole-project build."""
+    if not res.ok or only_file or not project.disk_image or not res.prg:
+        return res
+    disk, diags, msg = write_disk_image(project, res.prg)
+    res.diagnostics += diags
+    if diags:
+        res.ok = False
+        res.log += "\n" + "\n".join(str(d) for d in diags)
+    else:
+        res.disk = disk
+        res.log += "\n" + msg
+    return res
 
 
 def build_project(project: Project, overrides: dict[str, str] | None = None,
                   only_file: Path | None = None, kickass_jar: str = "", java: str = "java") -> BuildResult:
     """Build the whole project, or (CBM prg Studio's "Build Program") just `only_file`."""
     if project.toolchain == TOOLCHAIN_KICKASS:
-        return _build_kickass(project, kickass_jar, java, only_file)
-    return _build_cbm(project, overrides, only_file)
+        res = _build_kickass(project, kickass_jar, java, only_file)
+    else:
+        res = _build_cbm(project, overrides, only_file)
+    return _with_disk(project, res, only_file)
 
 
 BASIC_EXTS = {".bas"}

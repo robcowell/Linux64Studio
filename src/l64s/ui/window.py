@@ -17,6 +17,7 @@ from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_pro
 from .charpad_editor import CharPadEditor  # noqa: E402
 from .charset_editor import CharsetEditor  # noqa: E402
 from .debugger import DebuggerPanel, DebugSession  # noqa: E402
+from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
@@ -57,6 +58,7 @@ class MainWindow(Adw.ApplicationWindow):
         new_menu.append("New Sprite Set…", "win.new-file::spt")
         new_menu.append("New Character Set…", "win.new-file::cst")
         new_menu.append("New Screen Design…", "win.new-file::sdd")
+        new_menu.append("New Disk Image…", "win.new-file::d64")
         hb.pack_start(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu, tooltip_text="New"))
         save_btn = Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Save (Ctrl+S)", action_name="win.save")
         hb.pack_start(save_btn)
@@ -270,7 +272,7 @@ class MainWindow(Adw.ApplicationWindow):
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
                   ("Binary", lambda f: f.suffix.lower() == ".bin"),
-                  ("Programs", lambda f: f.suffix.lower() == ".prg")]
+                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64"))]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
             if not members:
@@ -350,6 +352,11 @@ class MainWindow(Adw.ApplicationWindow):
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".prg":
                 return self.list_prg(path)
+            elif sfx == ".d64":
+                ed = DiskEditor(path)
+                ed.connect("run-disk", self._run_disk_editor)
+                ed.connect("list-basic", lambda _e, name, data: self.list_program_bytes(
+                    data, path.parent / f"{name.lower() or 'program'}.bas", f"{name} on {path.name}"))
             elif sfx == ".bin":
                 return self._open_bin(path)
             else:
@@ -385,7 +392,7 @@ class MainWindow(Adw.ApplicationWindow):
         page.set_tooltip(str(ed.path) if ed.path else ed.title)
         icon = {"source": "text-x-generic-symbolic", "sprites": "image-x-generic-symbolic",
                 "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic",
-                "charpad": "font-x-generic-symbolic"}.get(ed.kind)
+                "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -559,9 +566,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.toast("Open or create a project first")
             return
         dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file", "spt": "New sprite set",
-                                       "cst": "New character set", "sdd": "New screen design"}[kind])
+                                       "cst": "New character set", "sdd": "New screen design",
+                                       "d64": "New disk image"}[kind])
         default = {"asm": "gameNew.asm", "bas": "main.bas", "spt": "sprites.spt", "cst": "characters.cst",
-                   "sdd": "screens.sdd"}[kind]
+                   "sdd": "screens.sdd", "d64": "disk.d64"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
@@ -606,6 +614,11 @@ class MainWindow(Adw.ApplicationWindow):
                 cs = Charset()
                 cs.chars = rom_charset(True) or cs.chars
                 cs.save_cst(path)
+            elif kind == "d64":
+                from ..disk.d64 import D64
+                d = D64()
+                d.format(self.project.name[:16], "00")
+                d.save(path)
             elif kind == "sdd":
                 from ..gfx.screen import ScreenSet
                 ScreenSet().save_sdd(path)
@@ -666,12 +679,21 @@ class MainWindow(Adw.ApplicationWindow):
         if debug:
             self._start_debug(res)
         else:
-            try:
-                proc = vice.launch(res.prg, self.settings.emulator, res.labels, None, self.settings.emulator_args)
-                self._vice_procs.append(proc)
-                self.toast(f"Running {res.prg.name} in VICE")
-            except FileNotFoundError as e:
-                self.toast(str(e))
+            target = res.disk if (res.disk and self.project and self.project.run_from_disk) else res.prg
+            self._launch(target, res.labels)
+
+    def _launch(self, target: Path, labels: Path | None = None):
+        try:
+            proc = vice.launch(target, self.settings.emulator, labels, None, self.settings.emulator_args)
+            self._vice_procs.append(proc)
+            self.toast(f"Running {target.name} in VICE")
+        except FileNotFoundError as e:
+            self.toast(str(e))
+
+    def _run_disk_editor(self, ed: DiskEditor):
+        if ed.modified:
+            self._save(ed)
+        self._launch(ed.path)
 
     def _set_log(self, text: str):
         self.log.get_buffer().set_text(text)
@@ -740,7 +762,8 @@ class MainWindow(Adw.ApplicationWindow):
                 name = res.asm_result.names.get(key, key)
                 if "__m" not in key and not name.startswith("@") and value not in symbols:
                     symbols[value] = name
-        session = DebugSession(res.prg, res.labels, res.srcmap, symbols, self.settings.emulator,
+        start = res.disk if (res.disk and self.project and self.project.run_from_disk) else res.prg
+        session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
                                self.settings.emulator_args)
         self.debug = session
         self.debugger.attach(session)
@@ -793,25 +816,33 @@ class MainWindow(Adw.ApplicationWindow):
 
     def list_prg(self, prg: Path):
         """Detokenize a .prg into a new (unsaved) .bas file next to it."""
+        try:
+            data = prg.read_bytes()
+        except OSError as e:
+            self.toast(f"Couldn't read {prg.name}: {e.strerror}")
+            return None
+        return self.list_program_bytes(data, prg.with_suffix(".bas"), prg.name)
+
+    def list_program_bytes(self, data: bytes, dest: Path, label: str):
         from ..basic.tokenizer import BasicError, detokenize
         try:
-            text = detokenize(prg.read_bytes())
-        except (BasicError, OSError) as e:
-            self.toast(f"Couldn't list {prg.name}: {e}")
+            text = detokenize(data)
+        except BasicError as e:
+            self.toast(f"Couldn't list {label}: {e}")
             return None
         if not text:
-            self.toast(f"{prg.name} doesn't contain a BASIC program")
+            self.toast(f"{label} doesn't contain a BASIC program")
             return None
-        dest = prg.with_suffix(".bas")
+        base = dest
         n = 1
         while dest.exists() or str(dest.resolve()) in self.pages:
-            dest = prg.with_name(f"{prg.stem}_{n}.bas")
+            dest = base.with_name(f"{base.stem}_{n}.bas")
             n += 1
         ed = SourceEditor(dest, self.settings)
         ed.connect("breakpoints-changed", self._on_breakpoints_changed)
         ed.replace_text(text)
         self._add_page(ed)
-        self.toast(f"Listed {prg.name}. Save to keep it as {dest.name}")
+        self.toast(f"Listed {label}. Save to keep it as {dest.name}")
         return ed
 
     def renumber_dialog(self):
@@ -932,11 +963,78 @@ class MainWindow(Adw.ApplicationWindow):
             rebuild()
         rebuild()
 
+        # ---------- disk image page
+        dpage = Adw.PreferencesPage(title="Disk Image", icon_name="media-floppy-symbolic")
+        win.add(dpage)
+        dg = Adw.PreferencesGroup(title="1541 disk image (.d64)",
+                                  description="Written after every project build, with the program as its first "
+                                              "file. Files are laid out exactly as a real 1541 drive would.")
+        dpage.add(dg)
+        stem = Path(p.executable or p.name).stem
+        d_on = Adw.SwitchRow(title="Write a disk image", active=bool(p.disk_image))
+        d_path = Adw.EntryRow(title="Image file", text=p.disk_image or f"{stem}.d64")
+        d_name = Adw.EntryRow(title="Disk name (16 characters)", text=p.disk_name or p.name[:16])
+        d_id = Adw.EntryRow(title="Disk ID (2 characters)", text=p.disk_id or "00")
+        d_file = Adw.EntryRow(title="Program's name on the disk", text=p.disk_file_name or stem[:16])
+        d_run = Adw.SwitchRow(title="Run from the disk image",
+                              subtitle="Ctrl+F5 and debugging autostart the .d64 instead of the .prg",
+                              active=p.run_from_disk)
+        for w in (d_on, d_path, d_name, d_id, d_file, d_run):
+            dg.add(w)
+        xg = Adw.PreferencesGroup(title="More files on the disk",
+                                  description="Added after the program: other programs, data files (SEQ) and so on.")
+        dpage.add(xg)
+        extras = [dict(x) for x in p.disk_extra_files]
+        xrows: list = []
+
+        def rebuild_extras():
+            for r in xrows:
+                xg.remove(r)
+            xrows.clear()
+            for i, x in enumerate(extras):
+                r = Adw.ActionRow(title=x.get("name", ""), subtitle=f"{x.get('file', '')} · {x.get('type', 'prg').upper()}")
+                rm = Gtk.Button(icon_name="list-remove-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"])
+                rm.connect("clicked", lambda _b, k=i: (extras.pop(k), rebuild_extras()))
+                r.add_suffix(rm)
+                xg.add(r)
+                xrows.append(r)
+            add = Adw.ButtonRow(title="Add a file…") if hasattr(Adw, "ButtonRow") else Adw.ActionRow(
+                title="Add a file…", activatable=True)
+            add.connect("activated", choose_extra)
+            xg.add(add)
+            xrows.append(add)
+
+        def choose_extra(*_):
+            from ..disk.d64 import file_type_for
+            fd = Gtk.FileDialog(title="Add a file to the disk image")
+            fd.set_initial_folder(Gio.File.new_for_path(str(p.directory)))
+
+            def done(d, res):
+                try:
+                    src = Path(d.open_finish(res).get_path())
+                except GLib.Error:
+                    return
+                try:
+                    rel = str(src.relative_to(p.directory))
+                except ValueError:
+                    rel = str(src)
+                kind = file_type_for(src) if src.suffix.lower() != ".bin" else "prg"
+                extras.append({"file": rel, "name": src.stem[:16], "type": kind})
+                rebuild_extras()
+            fd.open(self, None, done)
+        rebuild_extras()
+
         def closed(*_):
             p.executable = exe.get_text().strip() or p.executable
             p.toolchain = TOOLCHAIN_CBM if tool.get_selected() == 0 else TOOLCHAIN_KICKASS
             p.main_file = main.get_text().strip()
             p.build_list = list(order)
+            p.disk_image = d_path.get_text().strip() if d_on.get_active() else ""
+            p.disk_name = d_name.get_text().strip()[:16]
+            p.disk_id = (d_id.get_text().strip() or "00")[:2]
+            p.disk_file_name = d_file.get_text().strip()[:16]
+            p.run_from_disk = d_run.get_active()
+            p.disk_extra_files = extras
             try:
                 p.save()
             except OSError as e:

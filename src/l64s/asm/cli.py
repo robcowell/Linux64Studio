@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--list", dest="listing", help="write a listing file")
     ap.add_argument("--srcmap", help="write an address->source map (JSON)")
     ap.add_argument("--raw", action="store_true", help="write a raw binary without the 2-byte load address")
+    ap.add_argument("--d64", help="also write a 1541 disk image containing the program")
+    ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
     ap.add_argument("--illegal", action="store_true", help="allow undocumented 6510 opcodes")
     ap.add_argument("--case-sensitive", action="store_true", help="treat labels as case-sensitive")
     ap.add_argument("--text", choices=["screen", "petscii"], default="screen", help="TEXT directive encoding")
@@ -56,6 +58,21 @@ def main(argv: list[str] | None = None) -> int:
     if not a.quiet and result.start is not None:
         print(f"{out}: ${result.start:04X}-${result.end - 1:04X} ({result.end - result.start} bytes, "
               f"{result.passes} passes)")
+    if a.d64:
+        return _write_d64(a.d64, a.disk_name, out, a.quiet)
+    return 0
+
+
+def _write_d64(image: str, header: str | None, prg: Path, quiet: bool) -> int:
+    from ..disk.d64 import DiskError, build_disk
+    name, _, disk_id = (header or prg.stem).partition(",")
+    try:
+        disk = build_disk(Path(image), name[:16], disk_id or "00", [(prg.stem[:16], prg.read_bytes(), "prg")])
+    except DiskError as e:
+        print(f"l64asm: {e}", file=sys.stderr)
+        return 1
+    if not quiet:
+        print(f"{image}: {disk.blocks_free} blocks free")
     return 0
 
 
