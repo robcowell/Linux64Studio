@@ -111,5 +111,5 @@ file. Linux64Studio uses the same keys.
 
 ## Not implemented (yet)
 
-* CBM prg Studio's BASIC editor and tokenizer, cartridge (`.crt`) and disk image (`.d64`) output
+* Cartridge (`.crt`) and disk image (`.d64`) output, and CBM prg Studio's label-based "pBASIC"
 * `GenerateTo`/`Watch` are accepted and ignored with a warning

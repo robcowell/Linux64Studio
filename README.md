@@ -16,6 +16,11 @@ can be followed on Linux.
 * **Linked exports**: saving a graphics file can rewrite its `.bin` exports, so you don't have
   to export by hand after every change. A link is switched on automatically only when the
   `.bin` already matches the source, so unrelated files are never overwritten.
+* **BASIC V2**: `.bas` files with highlighting, a tokenizer that crunches exactly like the
+  C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, renumbering that updates
+  GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
+  assembly: the BASIC goes at `$0801`, the assembly anywhere above it. See
+  [docs/basic.md](docs/basic.md).
 * **Run and debug in VICE**: breakpoints, step into/over/out, registers, disassembly
   with labels, memory view, and the current source line highlighted. Uses VICE's
   binary monitor.
@@ -50,6 +55,9 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 ```sh
 .venv/bin/l64asm chapter17.cbmprj                    # build a CBM prg Studio project
 .venv/bin/l64asm gameMain.asm -o game.prg -l game.vs --list game.lst
+.venv/bin/l64bas game.bas                      # tokenize BASIC -> game.prg
+.venv/bin/l64bas --list game.prg               # list a program as BASIC source
+.venv/bin/l64bas --renumber game.bas --start 100 --step 10
 ```
 
 ## Retro Game Dev, Volume 2

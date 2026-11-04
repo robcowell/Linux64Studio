@@ -32,13 +32,57 @@ def build_project(project: Project, overrides: dict[str, str] | None = None,
     return _build_cbm(project, overrides, only_file)
 
 
+BASIC_EXTS = {".bas"}
+
+
+def _read_source(path: Path, overrides: dict[str, str] | None) -> str:
+    for k, v in (overrides or {}).items():
+        if Path(k).resolve() == path.resolve():
+            return v
+    data = path.read_bytes()
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp1252")
+
+
+def _tokenize_basic(files: list[Path], overrides) -> tuple[object | None, list[Diagnostic]]:
+    """Tokenize the project's BASIC files. Returns (TokenizeResult or None, diagnostics)."""
+    from ..basic.tokenizer import BasicErrors, tokenize_files
+    diags: list[Diagnostic] = []
+    sources = []
+    for p in files:
+        try:
+            sources.append((str(p), _read_source(p, overrides)))
+        except OSError as e:
+            diags.append(Diagnostic("error", f"Can't read {p}: {e.strerror}", None))
+    if diags:
+        return None, diags
+
+    def loc(err):
+        return SourceLoc(err.file, err.line) if err.file and err.line else None
+    try:
+        res = tokenize_files(sources)
+    except BasicErrors as e:
+        return None, [Diagnostic("error", err.message, loc(err)) for err in e.errors]
+    return res, [Diagnostic("warning", w.message, loc(w)) for w in res.warnings]
+
+
 def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
     files = [only_file] if only_file else project.build_paths()
     if not files:
         d = Diagnostic("error", "The project has no files in its build list", None)
         return BuildResult(False, None, None, [d], str(d))
+    basic_files = [Path(f) for f in files if Path(f).suffix.lower() in BASIC_EXTS]
+    asm_files = [f for f in files if Path(f).suffix.lower() not in BASIC_EXTS]
+    basic, basic_diags = _tokenize_basic(basic_files, overrides) if basic_files else (None, [])
     opts = Options(padding_byte=project.padding_byte)
-    result = Assembler(opts).assemble_files(files, overrides)
+    result = Assembler(opts).assemble_files(asm_files, overrides)
+    result.diagnostics[:0] = basic_diags
+    if basic_files and basic is None:
+        result.ok = False
+    elif basic is not None:
+        _merge_basic(result, basic)
     if only_file:
         out = Path(only_file).with_suffix(".prg")
     else:
@@ -58,6 +102,31 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
     return BuildResult(result.ok, out if result.ok else None, labels if result.ok else None,
                        result.diagnostics, "\n".join(log),
                        srcmap=source_map(result) if result.ok else {}, asm_result=result)
+
+
+def _merge_basic(result: Result, basic) -> None:
+    """Put the tokenized BASIC program at its load address, under any assembled code."""
+    lo, hi = basic.start, basic.end
+    for a in range(lo, hi):
+        if result.used[a]:
+            result.diagnostics.append(Diagnostic(
+                "error", f"Assembly code at ${a:04X} overlaps the BASIC program (${lo:04X}-${hi - 1:04X}). "
+                         f"Start the code after the BASIC program, e.g. *=${(hi + 0xFF) & 0xFF00:04X}", None))
+            result.ok = False
+            return
+    result.memory[lo:hi] = basic.program
+    result.used[lo:hi] = b"\x01" * (hi - lo)
+    result.start = lo if result.start is None else min(result.start, lo)
+    result.end = hi if result.end is None else max(result.end, hi)
+    # Debugger/listing: map each BASIC line's bytes to its source line.
+    from ..asm.assembler import ListingEntry
+    addr = lo
+    for ln in basic.lines:
+        size = 5 + len(ln.data)
+        result.listing.insert(0, ListingEntry(addr, basic.program[addr - lo:addr - lo + size],
+                                              SourceLoc(ln.file or "", ln.source_line), None,
+                                              f"{ln.number} (BASIC)"))
+        addr += size
 
 
 # Kick Assembler error lines look like:  "Error: Unknown symbol 'foo'" ... "at line 12, column 5 in gameMain.asm"

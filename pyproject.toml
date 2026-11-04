@@ -7,6 +7,7 @@ dependencies = []
 
 [project.scripts]
 l64asm = "l64s.asm.cli:main"
+l64bas = "l64s.basic.cli:main"
 linux64studio = "l64s.ui.app:main"
 
 [build-system]

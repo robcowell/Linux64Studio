@@ -48,6 +48,10 @@ class EditorPage(Gtk.Box):
         self._modified = False
 
     @property
+    def is_basic(self) -> bool:
+        return bool(self.path) and self.path.suffix.lower() == ".bas"
+
+    @property
     def title(self) -> str:
         return self.path.name if self.path else "Untitled"
 
@@ -82,7 +86,8 @@ class SourceEditor(EditorPage):
                                        auto_indent=True, show_line_marks=True, smart_backspace=True)
             lm = GtkSource.LanguageManager.get_default()
             lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
-            lang = lm.get_language("cbmasm")
+            is_basic = bool(path) and path.suffix.lower() == ".bas"
+            lang = lm.get_language("cbmbasic" if is_basic else "cbmasm")
             if lang:
                 self.buffer.set_language(lang)
             self._setup_marks()
@@ -175,6 +180,15 @@ class SourceEditor(EditorPage):
             pass
         self.path.write_text(text, newline="")
         self.buffer.set_modified(False)
+
+    def replace_text(self, text: str):
+        """Replace the whole buffer as one undoable change."""
+        # delete + insert (not set_text, which can't be undone) inside one user action
+        self.buffer.begin_user_action()
+        self.buffer.delete(self.buffer.get_start_iter(), self.buffer.get_end_iter())
+        self.buffer.insert(self.buffer.get_start_iter(), text)
+        self.buffer.end_user_action()
+        self.buffer.set_modified(True)
 
     def reload(self):
         if self.path and self.path.exists():
@@ -280,6 +294,8 @@ class SourceEditor(EditorPage):
         while end.get_char().isalnum() or end.get_char() == "_":
             end.forward_char()
         word = self.buffer.get_text(start, end, False).lower()
+        if self.is_basic:
+            return False
         help_text = DIRECTIVE_HELP.get(word)
         if help_text:
             tooltip.set_text(help_text)

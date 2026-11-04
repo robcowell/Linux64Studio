@@ -53,6 +53,7 @@ class MainWindow(Adw.ApplicationWindow):
         new_menu = Gio.Menu()
         new_menu.append("New Project…", "win.new-project")
         new_menu.append("New Source File…", "win.new-file::asm")
+        new_menu.append("New BASIC File…", "win.new-file::bas")
         new_menu.append("New Sprite Set…", "win.new-file::spt")
         new_menu.append("New Character Set…", "win.new-file::cst")
         new_menu.append("New Screen Design…", "win.new-file::sdd")
@@ -74,6 +75,8 @@ class MainWindow(Adw.ApplicationWindow):
         sec2 = Gio.Menu()
         sec2.append("Project Properties…", "win.project-properties")
         sec2.append("Open File…", "win.open-file")
+        sec2.append("List BASIC Program (.prg)…", "win.list-prg")
+        sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Save All", "win.save-all")
         sec2.append("Close Project", "win.close-project")
         menu.append_section(None, sec2)
@@ -193,6 +196,8 @@ class MainWindow(Adw.ApplicationWindow):
         add("debug-out", lambda *_: self.debugger.do("out"))
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
+        add("renumber", lambda *_: self.renumber_dialog())
+        add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
     def _refresh_recent(self):
@@ -264,7 +269,8 @@ class MainWindow(Adw.ApplicationWindow):
         files = p.all_files()
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
-                  ("Binary", lambda f: f.suffix.lower() == ".bin")]
+                  ("Binary", lambda f: f.suffix.lower() == ".bin"),
+                  ("Programs", lambda f: f.suffix.lower() == ".prg")]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
             if not members:
@@ -342,6 +348,8 @@ class MainWindow(Adw.ApplicationWindow):
                             if f.suffix.lower() in (".cst",) or f.name.lower().startswith("char") and f.suffix == ".bin"]
                 charsets.sort(key=lambda f: (f.parent != path.parent, f.suffix != ".cst"))
                 ed = ScreenEditor(path, charsets)
+            elif sfx == ".prg":
+                return self.list_prg(path)
             elif sfx == ".bin":
                 return self._open_bin(path)
             else:
@@ -510,8 +518,8 @@ class MainWindow(Adw.ApplicationWindow):
         loc = Adw.ActionRow(title="Location", subtitle=str(Path.home() / "c64"))
         pick = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
         loc.add_suffix(pick)
-        tool = Adw.ComboRow(title="Assembler", model=Gtk.StringList.new(
-            ["Built-in (CBM prg Studio syntax)", "Kick Assembler"]))
+        tool = Adw.ComboRow(title="Type", model=Gtk.StringList.new(
+            ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2"]))
         grp.add(name)
         grp.add(loc)
         grp.add(tool)
@@ -538,8 +546,9 @@ class MainWindow(Adw.ApplicationWindow):
         def create(*_):
             n = name.get_text().strip() or "mygame"
             directory = Path(loc.get_subtitle()) / n
-            tc = TOOLCHAIN_CBM if tool.get_selected() == 0 else TOOLCHAIN_KICKASS
-            proj = new_project(directory, n, tc)
+            sel = tool.get_selected()
+            tc = TOOLCHAIN_KICKASS if sel == 1 else TOOLCHAIN_CBM
+            proj = new_project(directory, n, tc, basic=sel == 2)
             win.close()
             self.open_project(proj.path)
         btn.connect("clicked", create)
@@ -549,13 +558,14 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project:
             self.toast("Open or create a project first")
             return
-        dlg = Adw.AlertDialog(heading={"asm": "New source file", "spt": "New sprite set", "cst": "New character set",
-                                       "sdd": "New screen design"}[kind])
-        default = {"asm": "gameNew.asm", "spt": "sprites.spt", "cst": "characters.cst", "sdd": "screens.sdd"}[kind]
+        dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file", "spt": "New sprite set",
+                                       "cst": "New character set", "sdd": "New screen design"}[kind])
+        default = {"asm": "gameNew.asm", "bas": "main.bas", "spt": "sprites.spt", "cst": "characters.cst",
+                   "sdd": "screens.sdd"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
-        if kind == "asm" and self.project.toolchain == TOOLCHAIN_CBM:
+        if kind in ("asm", "bas") and self.project.toolchain == TOOLCHAIN_CBM:
             add_build = Gtk.CheckButton(label="Add to the build list (before the last file)", active=True)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             box.append(entry)
@@ -579,8 +589,11 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast(f"{fname} already exists")
                 self.open_file(path)
                 return
-            if kind == "asm":
-                path.write_text(f";===============================================================================\n; {path.stem}\n\n")
+            if kind in ("asm", "bas"):
+                if kind == "asm":
+                    path.write_text(f";===============================================================================\n; {path.stem}\n\n")
+                else:
+                    path.write_text(f"10 rem {path.stem}\n")
                 if add_build and add_build.get_active():
                     bl = self.project.build_list
                     bl.insert(max(0, len(bl) - 1), fname)
@@ -758,6 +771,88 @@ class MainWindow(Adw.ApplicationWindow):
         if isinstance(ed, SourceEditor):
             ed.set_pc_line(line)
             self._pc_editor = ed
+
+    # ================================================================== BASIC
+    def choose_prg_to_list(self):
+        dlg = Gtk.FileDialog(title="List BASIC Program")
+        f = Gtk.FileFilter(name="C64 programs (.prg)")
+        f.add_pattern("*.prg")
+        f.add_pattern("*.PRG")
+        store = Gio.ListStore.new(Gtk.FileFilter)
+        store.append(f)
+        dlg.set_filters(store)
+        if self.project:
+            dlg.set_initial_folder(Gio.File.new_for_path(str(self.project.directory)))
+
+        def done(d, res):
+            try:
+                self.list_prg(Path(d.open_finish(res).get_path()))
+            except GLib.Error:
+                pass
+        dlg.open(self, None, done)
+
+    def list_prg(self, prg: Path):
+        """Detokenize a .prg into a new (unsaved) .bas file next to it."""
+        from ..basic.tokenizer import BasicError, detokenize
+        try:
+            text = detokenize(prg.read_bytes())
+        except (BasicError, OSError) as e:
+            self.toast(f"Couldn't list {prg.name}: {e}")
+            return None
+        if not text:
+            self.toast(f"{prg.name} doesn't contain a BASIC program")
+            return None
+        dest = prg.with_suffix(".bas")
+        n = 1
+        while dest.exists() or str(dest.resolve()) in self.pages:
+            dest = prg.with_name(f"{prg.stem}_{n}.bas")
+            n += 1
+        ed = SourceEditor(dest, self.settings)
+        ed.connect("breakpoints-changed", self._on_breakpoints_changed)
+        ed.replace_text(text)
+        self._add_page(ed)
+        self.toast(f"Listed {prg.name}. Save to keep it as {dest.name}")
+        return ed
+
+    def renumber_dialog(self):
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor) or not ed.is_basic:
+            self.toast("Renumbering works on a BASIC (.bas) file")
+            return
+        dlg = Adw.AlertDialog(heading="Renumber BASIC program",
+                              body="GOTO, GOSUB, THEN, ON…GOTO/GOSUB, RUN and LIST line numbers are updated too.")
+        grid = Gtk.Grid(row_spacing=6, column_spacing=8, halign=Gtk.Align.CENTER)
+        start = Gtk.SpinButton.new_with_range(0, 63999, 1)
+        start.set_value(10)
+        step = Gtk.SpinButton.new_with_range(1, 1000, 1)
+        step.set_value(10)
+        grid.attach(Gtk.Label(label="Start at", xalign=0), 0, 0, 1, 1)
+        grid.attach(start, 1, 0, 1, 1)
+        grid.attach(Gtk.Label(label="Step", xalign=0), 0, 1, 1, 1)
+        grid.attach(step, 1, 1, 1, 1)
+        dlg.set_extra_child(grid)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", "Renumber")
+        dlg.set_default_response("go")
+        dlg.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "go":
+                return
+            from ..basic.renumber import renumber
+            from ..basic.tokenizer import BasicErrors
+            try:
+                text, warnings = renumber(ed.get_text(), int(start.get_value()), int(step.get_value()))
+            except BasicErrors as e:
+                self.toast(e.errors[0].message)
+                return
+            ed.replace_text(text)
+            if warnings:
+                self.toast(f"Renumbered. {len(warnings)} reference(s) point at missing lines; "
+                           f"first: {warnings[0].message}")
+            else:
+                self.toast("Renumbered (Ctrl+Z to undo)")
+        dlg.choose(self, None, chosen)
 
     # ================================================================== misc dialogs
     def _goto_line_dialog(self):

@@ -25,7 +25,7 @@ TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
-GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm"}
+GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg"}
 
 
 @dataclass
@@ -118,7 +118,7 @@ def load_project(path: str | Path) -> Project:
                        executable=c.executable, padding_byte=c.padding_byte, imported_from=path.name)
     if sfx == ".code-workspace":
         return _load_vscode_workspace(path)
-    if sfx in (".asm", ".s"):
+    if sfx in (".asm", ".s", ".bas"):
         return Project(path=path, name=path.stem, build_list=[path.name], executable=path.stem + ".prg")
     raise ValueError(f"Don't know how to open {path.name}")
 
@@ -140,14 +140,20 @@ def _load_vscode_workspace(path: Path) -> Project:
     )
 
 
-def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM) -> Project:
-    """Create a new project with a starter gameMain.asm that builds and runs."""
+def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basic: bool = False) -> Project:
+    """Create a new project with a starter program that builds and runs."""
     directory.mkdir(parents=True, exist_ok=True)
-    main = directory / "gameMain.asm"
+    if basic:
+        main_name, starter = "main.bas", STARTER_BASIC
+        toolchain = TOOLCHAIN_CBM
+    else:
+        main_name = "gameMain.asm"
+        starter = STARTER_CBM if toolchain == TOOLCHAIN_CBM else STARTER_KICKASS
+    main = directory / main_name
     if not main.exists():
-        main.write_text(STARTER_CBM if toolchain == TOOLCHAIN_CBM else STARTER_KICKASS)
+        main.write_text(starter)
     proj = Project(path=directory / f"{name}.l64proj", name=name, toolchain=toolchain,
-                   build_list=["gameMain.asm"], main_file="gameMain.asm", executable=f"{name}.prg")
+                   build_list=[main_name], main_file=main_name, executable=f"{name}.prg")
     proj.save()
     return proj
 
@@ -174,6 +180,13 @@ BGCOL0  = $D021
 gMLoop
         inc EXTCOL
         jmp gMLoop
+"""
+
+STARTER_BASIC = """\
+10 rem *** hello from linux64studio ***
+20 print "{clear}{white}hello, world!"
+30 for i=0 to 15:poke 53280,i:for d=1 to 100:next d,i
+40 goto 30
 """
 
 STARTER_KICKASS = """\

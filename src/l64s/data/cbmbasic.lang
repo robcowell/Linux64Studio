@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GtkSourceView 5 language definition for Commodore BASIC V2 -->
+<language id="cbmbasic" name="Commodore BASIC V2" version="2.0" _section="Source">
+  <metadata>
+    <property name="globs">*.bas</property>
+    <property name="line-comment-start">rem </property>
+  </metadata>
+
+  <styles>
+    <style id="line-number" name="Line number" map-to="def:special-constant"/>
+    <style id="keyword" name="Keyword" map-to="def:keyword"/>
+    <style id="function" name="Function" map-to="def:builtin"/>
+    <style id="string" name="String" map-to="def:string"/>
+    <style id="control" name="Control code" map-to="def:special-char"/>
+    <style id="comment" name="REM" map-to="def:comment"/>
+    <style id="number" name="Number" map-to="def:number"/>
+    <style id="data" name="DATA" map-to="def:preprocessor"/>
+  </styles>
+
+  <default-regex-options case-sensitive="false"/>
+
+  <definitions>
+    <context id="control-code" style-ref="control">
+      <match>\{[^}]*\}</match>
+    </context>
+
+    <context id="string" style-ref="string" end-at-line-end="true">
+      <start>"</start>
+      <end>"</end>
+      <include>
+        <context ref="control-code"/>
+      </include>
+    </context>
+
+    <context id="rem" style-ref="comment" end-at-line-end="true">
+      <start>rem</start>
+    </context>
+
+    <context id="data" end-at-line-end="true">
+      <start>(data)</start>
+      <end>:</end>
+      <include>
+        <context sub-pattern="1" where="start" style-ref="keyword"/>
+        <context ref="string"/>
+        <context id="data-body" style-ref="data">
+          <match>[^":]+</match>
+        </context>
+      </include>
+    </context>
+
+    <context id="line-number" style-ref="line-number">
+      <match>^\s*[0-9]+</match>
+    </context>
+
+    <!-- No word boundaries: like the C64 itself, keywords are found inside other words. -->
+    <context id="keywords" style-ref="keyword">
+      <match>(input#|print#|restore|gosub|return|verify|print|input|goto|then|step|next|stop|wait|load|save|poke|cont|list|open|close|end|for|dim|read|let|run|def|clr|cmd|sys|get|new|not|and|go|if|on|to|or|fn)</match>
+    </context>
+
+    <context id="functions" style-ref="function">
+      <match>(right\$|left\$|mid\$|str\$|chr\$|peek|tab\(|spc\(|sgn|int|abs|usr|fre|pos|sqr|rnd|log|exp|cos|sin|tan|atn|len|val|asc)</match>
+    </context>
+
+    <context id="number" style-ref="number">
+      <match>[0-9]*\.?[0-9]+(e[-+]?[0-9]+)?</match>
+    </context>
+
+    <context id="cbmbasic" class="no-spell-check">
+      <include>
+        <context ref="line-number"/>
+        <context ref="string"/>
+        <context ref="rem"/>
+        <context ref="data"/>
+        <context ref="control-code"/>
+        <context ref="functions"/>
+        <context ref="keywords"/>
+        <context ref="number"/>
+      </include>
+    </context>
+  </definitions>
+</language>
