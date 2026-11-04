@@ -65,7 +65,8 @@ can be followed on Linux.
   your program and the character ROM. **Read from VICE** shows the layout a running program has
   actually set. See [docs/memory.md](docs/memory.md#memory-manager).
 * **Screen Code Builder**: build PRINT strings with colours, cursor moves, reverse and
-  Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
+  Commodore/SHIFT graphics by clicking (on a **virtual C64 keyboard** that types what the
+  KERNAL would, or a key map and code list), see exactly what they do on a C64 screen, and insert
   them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for
   screen memory. See [docs/basic.md](docs/basic.md#screen-code-builder).
 * **Screen Calculator**: click a cell to get its screen and colour memory addresses, a source

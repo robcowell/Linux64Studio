@@ -128,9 +128,20 @@ For example, `10 sys 49152` in `main.bas` with `*=$c000` code in `code.asm`.
 **Screen Code Builder** in the main menu builds the strings that are awkward to type: colour
 changes, cursor moves, reverse video, and the graphics on the Commodore and SHIFT keys.
 
-* Type text, or click the **colour swatches**, the **keys** (CLR, HOME, cursor keys, RVS ON/OFF,
-  RETURN, DEL, INST, case switch, F1–F8) and the **graphics**, drawn from the C64's character
-  ROM (hover for the key, e.g. `CBM-A`). Everything is written in the BASIC notation above.
+* Type text, or use one of the three tabs, as in CBM prg Studio:
+  * **Virtual Keyboard**: a C64 keyboard to click. Each key types what it would on a C64 (the
+    KERNAL's own decode tables): its face shows the Commodore and SHIFT graphics, and on 1–8 the
+    colours CTRL and C= give. Click SHIFT, C= or CTRL for the next key, or double-click one to lock
+    it; SHIFT LOCK locks SHIFT; SHIFT with C= switches the character set. Hover over a key to see
+    all it types. You can type on it too: letters, digits and punctuation, the cursor keys,
+    Home (CLR/HOME), Backspace (INST/DEL), F1–F8, with Tab as CTRL and Ctrl as C=, as in CBM prg
+    Studio (Tab+8 is yellow, Ctrl+A is `{cbm-a}`).
+  * **Key Map**: the **colour swatches**, the **keys** (CLR, HOME, cursor keys, RVS ON/OFF,
+    RETURN, DEL, INST, case switch, F1–F8) and the **graphics**, drawn from the C64's character
+    ROM (hover for the key, e.g. `CBM-A`).
+  * **Key Codes**: every named code with the keys that type it and its value; double-click one.
+
+  Everything is written in the BASIC notation above.
 * **On the C64** shows what `PRINT`ing it does on a real screen: colours, cursor moves, reverse,
   clearing, deleting and inserting, scrolling, and the case switch. Set the border, background
   and starting text colour to match your program. A block shows where the cursor ends up.

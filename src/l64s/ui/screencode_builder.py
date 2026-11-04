@@ -15,6 +15,7 @@ from ..gfx.charset import rom_charset  # noqa: E402
 from ..gfx.palette import COLOUR_NAMES  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 from .render import Bitmap, draw_char_into, paint_scaled  # noqa: E402
+from .c64_keyboard import C64Keyboard  # noqa: E402
 from .widgets import ColourButton, set_rgb  # noqa: E402
 
 CONTROLS = [("CLR", "clear"), ("HOME", "home"), ("↑", "up"), ("↓", "down"), ("←", "left"), ("→", "right"),
@@ -159,7 +160,22 @@ class ScreenCodeBuilder(EditorPage):
         self.text.get_buffer().connect("changed", lambda *_: self._update())
         left.append(self.text)
 
-        left.append(Gtk.Label(label="<b>Colours</b>", use_markup=True, xalign=0))
+        # three ways to add codes, as CBM prg Studio's tabs: the keyboard, a key map, and a list
+        stack = Gtk.Stack()
+        left.append(Gtk.StackSwitcher(stack=stack, halign=Gtk.Align.START))
+        left.append(stack)
+        kb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.keyboard = C64Keyboard()
+        self.keyboard.connect("typed", self._typed)
+        kb.append(self.keyboard)
+        kb.append(Gtk.Label(label="Click SHIFT, C= or CTRL for the next key, double-click to lock it. Or type: "
+                                  "Tab is CTRL and Ctrl is C=, as in CBM prg Studio. Hover over a key to see "
+                                  "what it types.", xalign=0, wrap=True, css_classes=["dim-label", "caption"]))
+        stack.add_titled(kb, "keyboard", "Virtual Keyboard")
+        keymap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        stack.add_titled(keymap, "keymap", "Key Map")
+        stack.add_titled(self._code_list(), "codes", "Key Codes")
+        keymap.append(Gtk.Label(label="<b>Colours</b>", use_markup=True, xalign=0))
         colours = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=16, min_children_per_line=8,
                               homogeneous=True)
         for c in range(16):
@@ -169,20 +185,21 @@ class ScreenCodeBuilder(EditorPage):
             b.set_child(da)
             b.connect("clicked", lambda _b, col=c: self.insert(notation(COLOUR_TO_CODE[col])))
             colours.append(b)
-        left.append(colours)
+        keymap.append(colours)
 
-        left.append(Gtk.Label(label="<b>Keys</b>", use_markup=True, xalign=0))
+        keymap.append(Gtk.Label(label="<b>Keys</b>", use_markup=True, xalign=0))
         keys = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=13, min_children_per_line=5)
         for label, name in CONTROLS + [(f"F{n}", f"f{n}") for n in range(1, 9)]:
             b = Gtk.Button(label=label, tooltip_text="{" + name + "}")
             b.connect("clicked", lambda _b, n=name: self.insert("{" + n + "}"))
             keys.append(b)
-        left.append(keys)
+        keymap.append(keys)
 
-        left.append(Gtk.Label(label="<b>Graphics</b>  Commodore key (top) and SHIFT (bottom)", use_markup=True, xalign=0))
+        keymap.append(Gtk.Label(label="<b>Graphics</b>  Commodore key (top) and SHIFT (bottom)", use_markup=True,
+                                xalign=0))
         self.glyphs = GlyphPalette()
         self.glyphs.connect("picked", lambda _g, code: self.insert(notation(code)))
-        left.append(self.glyphs)
+        keymap.append(self.glyphs)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=4, margin_end=8, margin_top=8,
                         margin_bottom=8)
@@ -242,6 +259,35 @@ class ScreenCodeBuilder(EditorPage):
     def title(self) -> str:
         return "Screen Code Builder"
 
+    def _code_list(self):
+        """Every named code, with how it's typed; double-click (or Enter) to add one."""
+        from ..basic.keyboard import LABELS, keys_for
+        from ..basic.petscii import CODE_TO_NAME
+        lb = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.SINGLE)
+        for code in sorted(CODE_TO_NAME):
+            ways = ", ".join(f"{m.upper() + '+' if m else ''}{LABELS[k].split()[0]}" for k, m in keys_for(code)[:2])
+            row = Gtk.ListBoxRow()
+            row.code = code
+            box = Gtk.Box(spacing=12, margin_start=8, margin_end=8, margin_top=3, margin_bottom=3)
+            box.append(Gtk.Label(label="{" + CODE_TO_NAME[code] + "}", xalign=0, hexpand=True,
+                                 css_classes=["monospace"]))
+            box.append(Gtk.Label(label=ways, css_classes=["dim-label"]))
+            box.append(Gtk.Label(label=f"${code:02X}  {code}", width_chars=8, xalign=1, css_classes=["monospace"]))
+            row.set_child(box)
+            lb.append(row)
+        lb.connect("row-activated", lambda _l, row: self.insert(notation(row.code)))
+        return Gtk.ScrolledWindow(child=lb, min_content_height=240, vexpand=True)
+
+    def _typed(self, _kb, code: int):
+        from ..basic.keyboard import TOGGLE_CASE
+        from ..basic.petscii import petscii_to_text
+        if code == TOGGLE_CASE:              # SHIFT + C=: switch to the other character set
+            lower = self.preview.screen.lowercase if self.preview.screen else self.lower.get_active()
+            self.insert("{upper case}" if lower else "{lower case}")
+        else:
+            self.insert(petscii_to_text(code, True))
+        self.keyboard.grab_focus()
+
     # ---------------------------------------------------------------- editing
     def insert(self, text: str):
         buf = self.text.get_buffer()
@@ -263,6 +309,9 @@ class ScreenCodeBuilder(EditorPage):
             screen = simulate_print(petscii, self.start_colour.colour, self.lower.get_active())
             self.preview.screen = screen
             self.glyphs.lowercase = screen.lowercase
+            if self.keyboard.lowercase != screen.lowercase:
+                self.keyboard.lowercase = screen.lowercase
+                self.keyboard.queue_draw()
             label = self.label.get_text().strip()
             if fmt == "basic":
                 n = int(self.line_no.get_value())
