@@ -28,7 +28,8 @@ def main(argv: list[str] | None = None) -> int:
                                                   "ocean, easyflash) next to the .prg")
     ap.add_argument("--illegal", action="store_true", help="allow undocumented 6510 opcodes")
     ap.add_argument("--case-sensitive", action="store_true", help="treat labels as case-sensitive")
-    ap.add_argument("--text", choices=["screen", "petscii"], default="screen", help="TEXT directive encoding")
+    ap.add_argument("--text", choices=["auto", "screen", "petscii"], default="auto",
+                    help="TEXT encoding: auto (\"...\" PETSCII, '...' screen codes, as CBM prg Studio), or force one")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args(argv)
 

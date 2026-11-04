@@ -22,7 +22,7 @@ class Options:
     case_sensitive: bool = False  # CBM prg Studio labels are case-insensitive
     # Zero-page addressing for forward-referenced symbols whose final value is < $100.
     forward_zp: bool = True
-    text_encoding: str = "screen"  # "screen" or "petscii" for the TEXT directive
+    text_encoding: str = "auto"    # TEXT: "auto" ("..." PETSCII, '...' screen codes), "screen" or "petscii"
     padding_byte: int = 0
 
 
@@ -374,9 +374,12 @@ class Assembler:
                     emit(out, s)
                 elif k == "text":
                     out = []
-                    conv = char_to_petscii if opt.text_encoding == "petscii" else char_to_screencode
                     for a in s.args:
                         if len(a) >= 2 and a[0] in "'\"" and a[-1] == a[0]:
+                            # as CBM prg Studio: "double quotes" give PETSCII, 'single quotes' screen codes
+                            petscii = (opt.text_encoding == "petscii"
+                                       or (opt.text_encoding == "auto" and a[0] == '"'))
+                            conv = char_to_petscii if petscii else char_to_screencode
                             out.extend(conv(c) for c in a[1:-1])
                         else:
                             out.append(self._value(evaluate, a, final) & 0xFF)

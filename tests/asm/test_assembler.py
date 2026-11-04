@@ -235,3 +235,10 @@ def test_conditional_assembly():
 def test_comments():
     b = code(" nop ; comment\n nop // c comment\n /* block\n brk */ nop\n text 'a;b'")
     assert b.hex() == "eaeaea" + "013b02"
+
+
+def test_text_quotes_choose_the_encoding():
+    assert code(" text 'ab'").hex() == "0102"                 # screen codes
+    assert code(' text "ab"').hex() == "4142"                 # PETSCII
+    assert code(' text "a", \'a\', 5').hex() == "410105"
+    assert code(' text "ab"', text_encoding="screen").hex() == "0102"
