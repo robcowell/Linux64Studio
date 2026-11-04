@@ -208,7 +208,9 @@ class SourceEditor(EditorPage):
             end = it.copy()
             end.forward_to_line_end()
             self.buffer.select_range(it, end)
-        GLib.idle_add(lambda: (self.view.scroll_to_iter(it, 0.2, True, 0, 0.4), False)[1])
+        # scroll later, once the view has its size; to a mark, which (unlike an iterator) stays valid
+        # if the text changes before then
+        GLib.idle_add(lambda: (self.view.scroll_to_mark(self.buffer.get_insert(), 0.2, True, 0, 0.4), False)[1])
         self.view.grab_focus()
 
     def current_line(self) -> int:
