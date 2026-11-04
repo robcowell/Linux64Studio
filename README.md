@@ -68,6 +68,9 @@ can be followed on Linux.
   file or selection, from the assembled code (real zero page/absolute modes, macros counted
   where they're used), with filters, a footprint, charts, metrics, and text/HTML export. See
   [docs/binary.md](docs/binary.md#source-analyser).
+* **Statistics (BASIC)**: the variables a BASIC program sets and where, the names that are
+  really the same variable (only two characters count), names the C64 reads as keywords
+  (`score` is `SC OR E`), and jumps to missing lines. See [docs/basic.md](docs/basic.md#statistics).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

@@ -196,3 +196,33 @@ the last source file you used, if it's the same kind (BASIC or assembler).
 outputs, and that they tokenise and assemble. With `L64S_VICE_TESTS=1` it runs them in VICE: the
 BASIC program PRINTs the string, and the PETSCII text is printed with CHROUT, and the screen
 shows the message exactly.
+
+## Statistics
+
+**Menu → Statistics (BASIC)** breaks down the BASIC file you're editing, as CBM prg Studio's tool
+does. At the top: how many lines it has, where it sits in memory, its size, and how much of
+the 38911 bytes of BASIC memory is left. Then:
+
+* **Variables**: each variable the program sets, with its type and the line it's first set on,
+  and how (`=`, `for`, `input`, `read`, `get`, `dim`). As in CBM prg Studio, only variables that
+  are given a value are listed here. Only the first two characters of a name count on the C64,
+  so each one also shows the name the C64 really uses (`LI%` for `lives%`).
+* **Duplicate Variables**: different names that are the same variable: `score` and `scale`
+  are both `SC`.
+* **Used but never set**: names that are read but never given a value. On the C64 they're 0
+  (or empty), which usually means a typing mistake.
+* **Problems**:
+  * Names with a keyword inside, which the C64 reads as that keyword: `score` is `SC OR E`,
+    `hiscore` is `HISC OR E`, and `points` is `PO INT S`. A keyword at the start of a word isn't
+    listed, because that's how crunched code is written (`FORT=1TO10`).
+  * GOTO, GOSUB, THEN, ON … GOTO, RUN and LIST to lines that don't exist.
+  * Setting the system variables `ST` or `TI`. `TI$` can be set.
+
+Click an entry to go to its line. **Refresh** reads the file again (for example after editing
+it). **Copy Report** and **Export…** give the whole breakdown as text.
+
+The program is read the way the C64 reads it: it's tokenised first, so keywords are found where
+the ROM finds them, and strings, REM, DATA and `DEF FN` parameters aren't variables.
+`tests/test_basic_stats.py` checks each part. Its VICE test (`L64S_VICE_TESTS=1`) confirms the
+facts on a C64: `scale` and `sc` are the same variable, `score=5` gives `?SYNTAX ERROR`, and so
+does `ti=5`.

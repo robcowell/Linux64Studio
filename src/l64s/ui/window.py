@@ -23,6 +23,7 @@ from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
 from .analyser_view import SourceAnalyser  # noqa: E402
+from .basic_stats_view import BasicStatistics  # noqa: E402
 from .datagen_view import DataGenerator  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_manager import MemoryManager  # noqa: E402
@@ -101,6 +102,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Data Generator", "win.data-generator")
         sec2.append("String Formatter", "win.string-formatter")
         sec2.append("Source Analyser", "win.source-analyser")
+        sec2.append("Statistics (BASIC)", "win.basic-statistics")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Snapshots", "win.snapshots")
@@ -238,6 +240,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("data-generator", lambda *_: self.open_data_generator())
         add("string-formatter", lambda *_: self.open_string_formatter())
         add("source-analyser", lambda *_: self.open_source_analyser())
+        add("basic-statistics", lambda *_: self.open_basic_statistics())
         add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
@@ -456,7 +459,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -937,6 +940,14 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project:
             tool.set_scope("file")
         return tool
+
+    def open_basic_statistics(self) -> BasicStatistics:
+        tool = next((ed for ed in self.editors() if isinstance(ed, BasicStatistics)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            tool.refresh()
+            return tool
+        return self._add_page(BasicStatistics(self._last_source_editor, self._open_source_line))
 
     def analyse_from_editor(self):
         """The editor's right-click Analyse: the selected lines, or else the whole file."""
