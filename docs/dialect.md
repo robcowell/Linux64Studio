@@ -89,6 +89,16 @@ doesn't, so in a Kick Assembler source write them as comments, `// #region` and 
 which fold just the same (Fold Selection does this in a Kick Assembler project). `; #region`, and
 in BASIC `rem #region`, work too.
 
+### Printing
+
+**Print…** in the main menu prints the source file being edited (assembler or BASIC), as CBM prg
+Studio's File → Print does: in its syntax colours, with a header (the file name, "Page 1 of 6")
+and a footer (its folder and the date). The print dialog's **Source** tab turns line numbers (on
+for assembler, off for BASIC, which has its own), the colours, line wrapping and the header and
+footer on or off; the dialog itself chooses the printer, or a PDF file. Folded regions are printed
+in full, and a dark editor theme prints in a light one. **Print Preview…** makes the pages as a PDF
+and opens it in your PDF viewer.
+
 ### Tasks (TODO)
 
 The **Tasks** tab under the editor lists the TODOs in every file of the project, open or not, as

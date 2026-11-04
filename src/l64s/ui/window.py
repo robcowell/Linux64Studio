@@ -117,6 +117,8 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("SID Designer", "win.sid-designer")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
+        sec2.append("Print…", "win.print")
+        sec2.append("Print Preview…", "win.print-preview")
         sec2.append("Save All", "win.save-all")
         sec2.append("Close Project", "win.close-project")
         menu.append_section(None, sec2)
@@ -244,6 +246,8 @@ class MainWindow(Adw.ApplicationWindow):
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
         add("reformat-basic", lambda *_: self.reformat_dialog())
+        add("print", lambda *_: self.print_source())
+        add("print-preview", lambda *_: self.print_source(preview=True))
         add("basic-compress", lambda *_: self.basic_keywords("abbreviate"))
         add("basic-uncompress", lambda *_: self.basic_keywords(
             "full" if self.settings.basic_uncompress_lowercase else "FULL"))
@@ -1564,6 +1568,26 @@ class MainWindow(Adw.ApplicationWindow):
         ed = self.open_file(path)
         if isinstance(ed, SourceEditor):
             ed.goto_line(line, select=False)
+
+    # ================================================================== printing
+    def print_source(self, preview: bool = False):
+        """File → Print / Print Preview for the source file being edited."""
+        from .printing import SourcePrinter
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor):
+            ed = self._last_source if self._last_source in self.editors() else None
+        if not isinstance(ed, SourceEditor):
+            self.toast("Open a source file to print")
+            return
+        printer = SourcePrinter(ed, self.settings)
+        if preview:
+            pdf = printer.preview()
+            self.toast(f"Print preview: {pdf}" if pdf else "Couldn't make the print preview")
+            return
+        from gi.repository import Gtk as _Gtk
+        res = printer.print_(self)
+        if res == _Gtk.PrintOperationResult.ERROR:
+            self.toast("Printing failed")
 
     # ================================================================== reformatting BASIC
     def _basic_editor(self):
