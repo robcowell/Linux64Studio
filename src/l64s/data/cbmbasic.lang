@@ -36,6 +36,7 @@
 
     <context id="rem" style-ref="comment" end-at-line-end="true">
       <start>rem</start>
+      <include><context ref="def:in-comment"/></include>
     </context>
 
     <context id="data" end-at-line-end="true">

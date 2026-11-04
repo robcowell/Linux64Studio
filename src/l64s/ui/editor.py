@@ -311,6 +311,7 @@ class SourceEditor(EditorPage):
             sub.append(label, f"editor.convert::{base}")
         menu = Gio.Menu()
         menu.append("Go to Definition", "win.goto-definition")
+        menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
         menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
         if self.is_pbasic:

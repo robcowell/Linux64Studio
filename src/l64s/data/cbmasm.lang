@@ -8,6 +8,7 @@
 
   <styles>
     <style id="comment" name="Comment" map-to="def:comment"/>
+    <style id="todo" name="TODO" map-to="def:note"/>
     <style id="mnemonic" name="Mnemonic" map-to="def:keyword"/>
     <style id="directive" name="Directive" map-to="def:preprocessor"/>
     <style id="number" name="Number" map-to="def:number"/>
@@ -24,10 +25,19 @@
   <definitions>
     <context id="line-comment" style-ref="comment" end-at-line-end="true">
       <start>;|//</start>
+      <include><context ref="def:in-comment"/></include>
     </context>
     <context id="block-comment" style-ref="comment">
       <start>/\*</start>
       <end>\*/</end>
+      <include><context ref="def:in-comment"/></include>
+    </context>
+    <!-- CBM prg Studio's todo directive: the line is a task, not code -->
+    <context id="todo-line" style-ref="comment" end-at-line-end="true">
+      <start>^\s*(todo)\b</start>
+      <include>
+        <context sub-pattern="1" where="start" style-ref="todo"/>
+      </include>
     </context>
     <context id="string-sq" style-ref="string" end-at-line-end="true">
       <start>'</start>
@@ -100,6 +110,7 @@
 
     <context id="cbmasm" class="no-spell-check">
       <include>
+        <context ref="todo-line"/>
         <context ref="line-comment"/>
         <context ref="block-comment"/>
         <context ref="string-sq"/>

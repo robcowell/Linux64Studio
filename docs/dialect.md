@@ -74,6 +74,21 @@ under the label they follow); labels are any case. Kick Assembler: `name:`, `.co
 case-sensitive. Every label in the 12 Vol 1 chapters, and every label in Kick Assembler's debug
 dump of a Kick Assembler game, is found at the line that defines it (`tests/test_symindex.py`).
 
+### Tasks (TODO)
+
+The **Tasks** tab under the editor lists the TODOs in every file of the project, open or not, as
+CBM prg Studio's Tasks window does. A task is CBM prg Studio's `todo` directive on a line of its
+own (`todo add bounds checking`, which the assembler skips), or a comment containing TODO, FIXME
+or HACK (`; TODO …`, `// FIXME: …`, `/* HACK */`), so Kick Assembler sources have tasks too. In
+BASIC it's a REM (`100 rem todo speed this up`). Search the list, or tick **Current file only**;
+double-click a task to open its line. The tab's badge shows how many there are. The list follows
+your edits (unsaved ones too) every couple of seconds.
+
+**Add TODO…** (main menu, or right-click in the editor) puts one above the cursor's line: the
+`todo` directive in CBM prg Studio projects, a `// TODO` comment in Kick Assembler ones, and in
+BASIC a `rem todo` line between two line numbers (or on the end of the line when there's no
+number free).
+
 ### `Operator Calc` / `Operator HiLo`
 
 This sets how tightly `<` and `>` bind, from that line onwards:
@@ -132,6 +147,7 @@ Undocumented 6510 opcodes (`lax`, `sax`, `dcp`, …) are available with `l64asm 
 | `debugstartaddress label` | the debugger starts the program here |
 | `generateto file.prg[,disk.d64[,diskname][,append]]` | the program's file name, and a disk image it's written to. `.p00` writes a PC64 file; `null` writes nothing |
 | `checksum` | accepted and ignored |
+| `todo text` | a task for the Tasks panel (see below); the line isn't code |
 | `Operator Calc` / `Operator HiLo` | see above **verified** |
 
 ### Macros

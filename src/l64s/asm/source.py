@@ -23,8 +23,9 @@ DIRECTIVES = {
     # also from CBM prg Studio's directive list
     "bits", "bytes", "words", "dcw", "null", "ptext", "long", "longs", "func", "funcw", "random", "randomw",
     "relocate", "noloadaddr", "saveblock", "padbyte", "target", "charmap", "charset", "zpopt", "warning",
-    "debug", "export", "breakpoint", "debugstartaddress", "checksum", "repeat", "endrepeat",
+    "debug", "export", "breakpoint", "debugstartaddress", "checksum", "repeat", "endrepeat", "todo",
 }
+_TODO_RE = re.compile(r"\s*todo(\s|:|$)", re.I)
 
 LABEL_RE = re.compile(r"[@A-Za-z_][A-Za-z0-9_.@]*\$?")   # a trailing $ makes a label project-wide
 
@@ -302,8 +303,11 @@ class SourceLoader:
         out: list[Line] = []
         in_block = False
         for n, raw in enumerate(text.splitlines(), start=1):
-            code, in_block = strip_comment(raw.rstrip("\r\n"), in_block)
             loc = SourceLoc(str(path), n)
+            if not in_block and _TODO_RE.match(raw):
+                out.append(Line("", loc, raw=raw))      # TODO: a task for the Tasks list; not code
+                continue
+            code, in_block = strip_comment(raw.rstrip("\r\n"), in_block)
             label, rest = split_label(code, self.kw)
             word, args = first_word(rest)
             if word.lower() == "incasm":

@@ -17,6 +17,7 @@ can be followed on Linux.
   defined), instructions and directives; **Go to Definition** (F12 or Ctrl+click, Alt+Left back)
   works for both assembler dialects, include lines and BASIC line numbers
   ([details](docs/dialect.md#auto-complete-and-go-to-definition-in-the-editor)).
+  A **Tasks** panel lists every TODO, FIXME and HACK in the project ([tasks](docs/dialect.md#tasks-todo)).
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's

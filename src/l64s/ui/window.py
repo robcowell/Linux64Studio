@@ -96,6 +96,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2 = Gio.Menu()
         sec2.append("Project Properties…", "win.project-properties")
         sec2.append("Open File…", "win.open-file")
+        sec2.append("Add TODO…", "win.add-todo")
         sec2.append("List BASIC Program (.prg)…", "win.list-prg")
         sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Screen Code Builder", "win.screen-codes")
@@ -200,6 +201,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.debugger = DebuggerPanel()
         self.debugger.connect("show-source", self._on_show_source)
         self.bottom_stack.add_titled_with_icon(self.debugger, "debugger", "Debugger", "system-run-symbolic")
+        from .tasks_panel import TasksPanel
+        self.tasks_panel = TasksPanel(self._open_task, lambda: getattr(self.current_editor(), "path", None))
+        self.tasks_page = self.bottom_stack.add_titled_with_icon(self.tasks_panel, "tasks", "Tasks",
+                                                                 "object-select-symbolic")
+        GLib.timeout_add_seconds(2, self._tick_tasks)
         bottom.append(self.bottom_stack)
         bottom.set_vexpand(True)
         right.set_end_child(bottom)
@@ -237,6 +243,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
         add("goto-definition", lambda *_: self.goto_definition())
+        add("add-todo", lambda *_: self.add_todo())
         add("go-back", lambda *_: self.go_back())
         add("pbasic-create-label", lambda *_: self.pbasic_create_label())
         add("pbasic-remove-numbers", lambda *_: self.pbasic_remove_numbers())
@@ -507,6 +514,7 @@ class MainWindow(Adw.ApplicationWindow):
             return False
         if extra:
             self.toast(f"Saved {ed.title} and updated {', '.join(p.name for p in extra)}")
+        GLib.idle_add(lambda: (self.refresh_tasks(), False)[1])
         return True
 
     def save_all(self):
@@ -756,6 +764,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_done(self, res: BuildResult, run: bool, debug: bool):
         self.last_build = res
+        self.refresh_tasks()
         self._set_log(res.log)
         self._show_diagnostics(res)
         if self.settings.pbasic_preview:
@@ -1332,6 +1341,77 @@ class MainWindow(Adw.ApplicationWindow):
                            f"first: {warnings[0].message}")
             else:
                 self.toast("Renumbered (Ctrl+Z to undo)")
+        dlg.choose(self, None, chosen)
+
+    # ================================================================== tasks
+    def refresh_tasks(self):
+        """Rescan the project's files (and open editors, as they are now) for TODOs."""
+        from ..tasks import SOURCE_EXTS, TaskList
+        if getattr(self, "_tasks", None) is None:
+            self._tasks = TaskList()
+        files = [f for f in (self.project.all_files() if self.project else []) if f.suffix.lower() in SOURCE_EXTS]
+        seen = {f.resolve() for f in files}
+        for e in self.editors():
+            if isinstance(e, SourceEditor) and e.path and e.path.suffix.lower() in SOURCE_EXTS \
+                    and e.path.resolve() not in seen:
+                files.append(e.path)
+        overrides = {str(e.path): e.get_text() for e in self.editors()
+                     if isinstance(e, SourceEditor) and e.path and e.modified}
+        tasks = self._tasks.update(files, overrides)
+        self.tasks_panel.set_tasks(tasks, self.project.directory if self.project else None)
+        self.tasks_page.set_badge_number(len(tasks))
+
+    def _tick_tasks(self):
+        if self.get_visible():
+            try:
+                self.refresh_tasks()
+            except Exception:  # never let the scanner stop the timer
+                pass
+        return True
+
+    def _open_task(self, task):
+        ed = self.open_file(Path(task.file))
+        if isinstance(ed, SourceEditor):
+            ed.goto_line(task.line)
+
+    def add_todo(self):
+        """Edit → Add TODO: a task above the cursor's line, as the file's language writes one."""
+        from ..tasks import basic_todo, todo_line
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor):
+            self.toast("Open a source file to add a TODO to")
+            return
+        dlg = Adw.AlertDialog(heading="Add TODO", body="A task, shown in the Tasks panel until you remove it.")
+        entry = Gtk.Entry(placeholder_text="What needs doing", activates_default=True)
+        dlg.set_extra_child(entry)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Add")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            text = entry.get_text().strip()
+            line_no = ed.current_line()
+            if ed.is_basic and not ed.is_pbasic:
+                new, at = basic_todo(ed.get_text(), line_no, text)
+                ed.replace_text(new)
+                ed.goto_line(at)
+            else:
+                buf = ed.buffer
+                ok, it = buf.get_iter_at_line(line_no - 1)
+                end = it.copy()
+                if not end.ends_line():
+                    end.forward_to_line_end()
+                current = buf.get_text(it, end, False)
+                kind = "pbasic" if ed.is_pbasic else \
+                    "kick" if self.project and self.project.toolchain == TOOLCHAIN_KICKASS else "cbm"
+                buf.begin_user_action()
+                buf.insert(it, todo_line(current, text, kind) + "\n")
+                buf.end_user_action()
+                ed.goto_line(line_no)
+            self.refresh_tasks()
         dlg.choose(self, None, chosen)
 
     # ================================================================== definitions
