@@ -45,6 +45,10 @@ can be followed on Linux.
   Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
   them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for
   screen memory. See [docs/basic.md](docs/basic.md#screen-code-builder).
+* **Screen Calculator**: click a cell to get its screen and colour memory addresses, a source
+  expression, BASIC POKEs, assembler, and the sprite X/Y over it; or find the cell at an address
+  or under a sprite. The screen base can come from VICE or the Memory Manager. See
+  [docs/memory.md](docs/memory.md#screen-calculator).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

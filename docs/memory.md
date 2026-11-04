@@ -96,3 +96,28 @@ from a snapshot of memory, without stopping it. Use it to see why something isn'
 These were checked against VICE: reading chapter 17 gives bank 0, screen `$0400`, characters
 `$3800` and sprite pointer 192 (data at `$3000`), and the generated setup code sets the layout it
 describes (`tests/test_vicmem.py`, with `L64S_VICE_TESTS=1`).
+
+# Screen Calculator
+
+**Menu → Screen Calculator** works out where a character cell is in memory, as CBM prg Studio's
+tool does. Click a cell on the 40×25 screen, or type its row (0-24) and column (0-39). The
+results, each with a Copy button, are:
+
+* **Screen address** and **Colour address**, in hex and decimal: base + row × 40 + column.
+* **Offset** from the start of the screen.
+* **Expression**, such as `$0400 + 12*40 + 20`, to paste into your source.
+* **BASIC**: `poke 1524,1 : poke 55796,1`, and **Assembler**: `lda`/`sta` for the character
+  and its colour. The character (a screen code) and colour come from the boxes beside the row
+  and column. These three lines can also be inserted into the last source file you used.
+* **Sprite X, Y** that puts a sprite's top-left corner on the cell's top-left (X = 24 + 8 ×
+  column, Y = 50 + 8 × row). For X above 255, the result says to set the sprite's bit in $D010.
+
+The screen base is `$0400` (the C64's default) unless you change it. **From…** reads it from the
+running program in VICE (its `$DD00` bank and `$D018`), or from the layout planned in the Memory
+Manager. You can also type it in. Colour RAM is always at `$D800` on the C64, but that can be
+typed in too. Numbers can be `$hex`, `%binary` or decimal (here bare digits are decimal, so
+`1064` is `$0428`).
+
+**Find the cell** goes the other way. Type an address in screen memory or colour RAM, or a
+sprite position, to select the cell it falls in. A sprite position in the border says so.
+`tests/test_screencalc.py` checks the arithmetic, and assembles the generated lines.
