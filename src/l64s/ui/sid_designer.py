@@ -18,6 +18,7 @@ from ..sid.designer import (ATTACK_MS, DECAY_MS, EXTENSION, NOTE_NAMES, WAVEFORM
                             WHITE_SEMITONES, BLACK_KEYS, CodeOptions, Sound, generate, key_semitone,
                             note_name, register_hz, semitone_note)
 from ..sid.live import LiveError, LiveSid  # noqa: E402
+from ..sid.midi import MidiInput, MidiUnavailable, MidiVoices, describe, input_names, note_label, pick_device  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 KEY_LABELS = {"Tab": "Tab", "bracketleft": "[", "bracketright": "]", "Return": "Ret", "minus": "-", "equal": "=",
@@ -125,7 +126,10 @@ class SidDesigner(EditorPage):
         self.live: LiveSid | None = None
         self._starting = False
         self._loading = False
-        self.connect("unrealize", lambda *_: self._stop_live())
+        channels = list(getattr(settings, "sid_midi_channels", None) or [1, 2, 3])[:3]
+        self.midi = MidiVoices([c - 1 if 1 <= c <= 16 else -1 for c in channels + [1, 2, 3][len(channels):]])
+        self.midi_in = MidiInput(lambda msg: GLib.idle_add(self._on_midi, msg))
+        self.connect("unrealize", lambda *_: (self._stop_live(), self.midi_in.close()))
 
         bar = Gtk.Box(spacing=6, margin_start=8, margin_end=8, margin_top=6, margin_bottom=6)
         for icon, tip, cb in (("document-open-symbolic", "Load settings…", self._load_dialog),
@@ -139,6 +143,9 @@ class SidDesigner(EditorPage):
         silence = Gtk.Button(label="Silence", tooltip_text="Gate off all voices")
         silence.connect("clicked", lambda *_: self._silence())
         bar.append(silence)
+        self.midi_btn = Gtk.ToggleButton(label="MIDI", tooltip_text="Play the voices from a MIDI keyboard")
+        self.midi_btn.connect("toggled", lambda b: self.midi_revealer.set_reveal_child(b.get_active()))
+        bar.append(self.midi_btn)
         bar.append(Gtk.Label(label="SID", margin_start=12))
         self.model = Gtk.DropDown.new_from_strings(["6581", "8580"])
         self.model.set_tooltip_text("The SID chip VICE plays the sound with")
@@ -170,6 +177,9 @@ class SidDesigner(EditorPage):
         prow.append(Gtk.ScrolledWindow(child=self.piano, hexpand=True, vscrollbar_policy=Gtk.PolicyType.NEVER))
         self.piano_revealer.set_child(prow)
         self.append(self.piano_revealer)
+        self.midi_revealer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.midi_revealer.set_child(self._midi_row())
+        self.append(self.midi_revealer)
 
         self.stack.add_titled_with_icon(self._sound_page(), "sound", "Voices & Filter", "audio-x-generic-symbolic")
         self.stack.add_titled_with_icon(self._code_page(), "code", "Code Generation", "text-x-generic-symbolic")
@@ -185,6 +195,7 @@ class SidDesigner(EditorPage):
         self._load_widgets()
         if path:
             self.load_file(path)
+        self._detect_midi(quiet=True)
 
     @property
     def title(self) -> str:
@@ -501,17 +512,24 @@ class SidDesigner(EditorPage):
     def _registers(self, gates=None) -> bytes:
         s = self.sound
         g = list(gates if gates is not None else self._gates())
-        if self.piano_note:
-            voice, note, octave = self.piano_note
+        played = self._played()
+        if played:
             s = copy.deepcopy(s)
-            s.voices[voice].note, s.voices[voice].octave, s.voices[voice].frequency = note, octave, None
+            for voice, (note, octave) in played.items():
+                s.voices[voice].note, s.voices[voice].octave, s.voices[voice].frequency = note, octave, None
         return s.registers(tuple(g))
 
-    def _gates(self) -> list[bool]:
-        g = [self.gates[i] or i in self.held for i in range(3)]
+    def _played(self) -> dict[int, tuple[int, int]]:
+        """The notes being played from MIDI or the piano, by voice (the piano wins)."""
+        out = {v: n for v in range(3) if (n := self.midi.playing(v))}
         if self.piano_note:
-            g[self.piano_note[0]] = True
-        return g
+            voice, note, octave = self.piano_note
+            out[voice] = (note, octave)
+        return out
+
+    def _gates(self) -> list[bool]:
+        played = self._played()
+        return [self.gates[i] or i in self.held or i in played for i in range(3)]
 
     def _send(self, retrigger: int | None = None):
         live = self.live
@@ -573,6 +591,7 @@ class SidDesigner(EditorPage):
     def _silence(self):
         self.held.clear()
         self.piano_note = None
+        self.midi.all_off()
         self._loading = True
         for i, w in enumerate(self.vw):
             w["play"].set_active(False)
@@ -608,6 +627,140 @@ class SidDesigner(EditorPage):
     def _piano_off(self):
         self.piano_note = None
         self._send()
+
+    # ================================================================== MIDI
+    def _midi_row(self):
+        row = Gtk.Box(spacing=8, margin_start=8, margin_end=8, margin_bottom=6)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        line = Gtk.Box(spacing=6)
+        line.append(Gtk.Label(label="Input"))
+        self.midi_names = Gtk.StringList()
+        self.midi_device = Gtk.DropDown(model=self.midi_names, hexpand=True)
+        self.midi_device.set_size_request(220, -1)
+        self.midi_device.connect("notify::selected", lambda *_: self._choose_device())
+        line.append(self.midi_device)
+        detect = Gtk.Button(label="Detect Device", tooltip_text="Look again for MIDI inputs (after plugging one in)")
+        detect.connect("clicked", lambda *_: self._detect_midi())
+        line.append(detect)
+        col.append(line)
+        chans = Gtk.Box(spacing=6)
+        self.midi_spins = []
+        for v in range(3):
+            chans.append(Gtk.Label(label=f"Voice {v + 1} channel", margin_start=0 if v == 0 else 8))
+            spin = Gtk.SpinButton.new_with_range(0, 16, 1)
+            spin.set_value(self.midi.channels[v] + 1)
+            spin.set_tooltip_text("The MIDI channel this voice plays (0 = not from MIDI)")
+            spin.connect("output", self._channel_text)
+            spin.connect("value-changed", lambda *_: self._channels_changed())
+            self.midi_spins.append(spin)
+            chans.append(spin)
+        col.append(chans)
+        row.append(col)
+        mon = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True, css_classes=["card"])
+        mon.append(Gtk.Label(label="<b>MIDI monitor</b>", use_markup=True, xalign=0, margin_start=8, margin_top=4))
+        self.midi_last = Gtk.Label(label="No messages yet", xalign=0, margin_start=8, css_classes=["monospace"],
+                                   selectable=True)
+        mon.append(self.midi_last)
+        self.midi_map = Gtk.Label(xalign=0, margin_start=8, margin_bottom=4, css_classes=["dim-label"])
+        mon.append(self.midi_map)
+        row.append(mon)
+        self.midi_map.set_text(self.midi.mapping_text())
+        return row
+
+    @staticmethod
+    def _channel_text(spin):
+        v = spin.get_value_as_int()
+        spin.set_text("Off" if v == 0 else str(v))
+        return True
+
+    def _channels_changed(self):
+        self.midi.channels = [s.get_value_as_int() - 1 for s in self.midi_spins]
+        self.midi.all_off()
+        self.midi_map.set_text(self.midi.mapping_text())
+        self._send()
+        if self.settings is not None:
+            self.settings.sid_midi_channels = [s.get_value_as_int() for s in self.midi_spins]
+            try:
+                self.settings.save()
+            except OSError:
+                pass
+
+    def _detect_midi(self, quiet: bool = False):
+        """List the MIDI inputs and open one, as CBM prg Studio's Detect Device does."""
+        try:
+            names = input_names()
+        except MidiUnavailable as e:
+            if not quiet:
+                self.status.set_text(str(e))
+            self._midi_names_set([])
+            return
+        self._midi_names_set(names)
+        wanted = getattr(self.settings, "sid_midi_device", "") if self.settings else ""
+        name = wanted if wanted in names else pick_device(names)
+        if name is None:
+            self.midi_in.close()
+            if not quiet:
+                self.status.set_text("No MIDI device found (only ALSA's Midi Through port): plug one in and press "
+                                     "Detect Device")
+            return
+        self._loading_midi = True
+        self.midi_device.set_selected(names.index(name))
+        self._loading_midi = False
+        self._open_midi(name, quiet)
+
+    def _midi_names_set(self, names):
+        self._loading_midi = True
+        self.midi_names.splice(0, self.midi_names.get_n_items(), names)
+        self._loading_midi = False
+
+    def _choose_device(self):
+        if getattr(self, "_loading_midi", False):
+            return
+        item = self.midi_device.get_selected_item()
+        if item is not None:
+            self._open_midi(item.get_string())
+
+    def _open_midi(self, name: str, quiet: bool = False):
+        if self.midi_in.is_open and self.midi_in.name == name:
+            if not quiet:
+                self.status.set_text(f"MIDI: listening to {name}")
+            return
+        self._release_midi()
+        try:
+            self.midi_in.open(name)
+        except MidiUnavailable as e:
+            self.status.set_text(str(e))
+            return
+        if self.settings is not None and getattr(self.settings, "sid_midi_device", None) != name:
+            self.settings.sid_midi_device = name
+            try:
+                self.settings.save()
+            except OSError:
+                pass
+        self.midi_last.set_text(f"Listening to {name}")
+        if not quiet:
+            self.status.set_text(f"MIDI: listening to {name}")
+        else:
+            self.midi_btn.set_active(True)          # a device was there when the designer opened: show the monitor
+
+    def _release_midi(self):
+        if self.midi.all_off():
+            self._send()
+
+    def _on_midi(self, msg):
+        if not self.get_realized():
+            return False
+        self.midi_last.set_text(describe(msg))
+        for ch in self.midi.handle(msg):
+            if ch.note is not None and ch.retrigger:
+                if not self.sound.voices[ch.voice].has_waveform:
+                    self.status.set_text(f"Voice {ch.voice + 1} has no waveform, so it makes no sound: tick one")
+                else:
+                    self.status.set_text(f"MIDI: voice {ch.voice + 1} plays {note_label(12 * (ch.note[1] + 1) + ch.note[0])}")
+                self._ensure_live(lambda v=ch.voice: self._send(retrigger=v))
+            else:
+                self._send()
+        return False
 
     # ================================================================== keys
     def _typing(self) -> bool:

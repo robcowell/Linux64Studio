@@ -19,6 +19,8 @@ class Settings:
     kickass_jar: str = ""
     goattracker_dir: str = ""     # folder with goattrk2, sidmonkey, gt2reloc, ins2snd2 ("" = find them)
     vsid: str = "vsid"            # VICE's SID player
+    sid_midi_channels: list[int] = field(default_factory=lambda: [1, 2, 3])   # per SID voice, 1-16 (0 = off)
+    sid_midi_device: str = ""     # the MIDI input the SID Designer last used
     java: str = "java"
     font: str = "Monospace 11"
     tab_width: int = 8

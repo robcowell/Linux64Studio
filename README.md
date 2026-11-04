@@ -68,7 +68,7 @@ can be followed on Linux.
   open in those editors and are packed with GoatTracker's `gt2reloc` before every build, at the
   address you choose, with ready-to-paste player code. The **SID Designer** (CBM prg Studio's
   SID tool) sets up the three voices and the filter, plays them live through VICE's reSID, with
-  a two-octave keyboard, and generates BASIC POKEs or assembler. See [docs/music.md](docs/music.md).
+  a two-octave keyboard or a MIDI keyboard, and generates BASIC POKEs or assembler. See [docs/music.md](docs/music.md).
 * **Run and debug in VICE**: breakpoints, step into/over/out, disassembly with labels,
   and the current source line highlighted. You can **edit registers and flags** and **edit
   memory** in a hex editor (type over bytes, go to an address or label, write byte lists or
@@ -79,6 +79,7 @@ can be followed on Linux.
 
 ```sh
 sudo apt install vice gir1.2-gtksource-5 gir1.2-adw-1 python3-gi python3-gi-cairo
+sudo apt install python3-mido python3-rtmidi   # optional: MIDI keyboards in the SID Designer
 uv venv --system-site-packages .venv
 uv pip install --python .venv -e .
 .venv/bin/linux64studio                       # the IDE

@@ -84,6 +84,25 @@ starts VICE's `vsid` (minimised, with no tune loaded) and writes the registers i
 VICE's binary monitor. Every change you make is heard straight away. **SID** picks the 6581 or
 the 8580. **Silence** gates every voice off. vsid closes with the designer's tab.
 
+**MIDI**: a MIDI keyboard can play the voices, as in CBM prg Studio. Each voice listens on a MIDI
+channel (1, 2 and 3 to start with, or Off). A note on that channel plays the voice at that note,
+and the gate is held until the key is let go. Each voice plays one note at a time. A second key on
+the same channel moves the voice to the new note, and letting go goes back to a key that's still
+held. MIDI note 60 (middle C) is C-4. Notes outside C-0 to B-7 are ignored, and so is velocity.
+"All notes off" and "all sound off" messages release the voices.
+
+The **MIDI** button shows the input, **Detect Device** and the channels, beside the MIDI monitor
+(the last message, and which voice is on which channel). If a device is plugged in when the
+designer opens, it connects to it and shows the monitor. Otherwise plug one in and press
+**Detect Device**. Detect Device picks the device you used last, or else the first input that
+isn't ALSA's "Midi Through" port. Choose another from the list at any time. The channels and the
+device are kept in the preferences. Software keyboards that make an ALSA MIDI port (VMPK, for
+example) work too. Remember that a voice needs a waveform before it makes a sound. Because vsid
+plays the sound, there's a short delay, as with CBM prg Studio's SID emulation.
+
+MIDI needs `python3-mido` and `python3-rtmidi` (see the README's install line). Without them, the
+rest of the designer works and the MIDI row says what to install.
+
 **Code Generation** (the code updates as you change things):
 
 * **Include**: any of the three voices, the filter settings ($D415-$D417), and the filter mode
@@ -131,6 +150,9 @@ Linux64Studio checks the song exists before packing.
 `tests/test_sid_designer.py` checks the register values, the settings files and the code
 generator, and compares the note frequencies with GoatTracker's table (within 0.05%). Its
 opt-in VICE tests (`L64S_VICE_TESTS=1`) run the generated BASIC and the generated assembler in
-`x64sc` and read the SID registers back, and write registers into a live `vsid`. The designer was
+`x64sc` and read the SID registers back, and write registers into a live `vsid`. `tests/test_sid_midi.py` checks the channel mapping, last-note priority and the monitor text, and
+sends a note through a virtual ALSA MIDI port. The designer was
 also driven through the GUI with vsid recording to a WAV file: the toggled voice and the piano
-key each sounded with their attack, decay, sustain and release.
+key each sounded with their attack, decay, sustain and release. A virtual MIDI keyboard was
+also played into the designer, and the SID registers in vsid were read after each message: the
+right voice played the right note, went back to a held key, and released.
