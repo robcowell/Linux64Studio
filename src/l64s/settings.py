@@ -17,6 +17,8 @@ class Settings:
     emulator: str = "x64sc"
     emulator_args: list[str] = field(default_factory=list)
     kickass_jar: str = ""
+    goattracker_dir: str = ""     # folder with goattrk2, sidmonkey, gt2reloc, ins2snd2 ("" = find them)
+    vsid: str = "vsid"            # VICE's SID player
     java: str = "java"
     font: str = "Monospace 11"
     tab_width: int = 8

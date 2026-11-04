@@ -10,6 +10,7 @@ l64asm = "l64s.asm.cli:main"
 l64bas = "l64s.basic.cli:main"
 l64disk = "l64s.disk.cli:main"
 l64cart = "l64s.cart.cli:main"
+l64sid = "l64s.sid.cli:main"
 linux64studio = "l64s.ui.app:main"
 
 [build-system]

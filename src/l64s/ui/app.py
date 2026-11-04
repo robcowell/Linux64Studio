@@ -154,6 +154,16 @@ class Application(Adw.Application):
             fd.open(self.window, None, done)
         pick.connect("clicked", choose_jar)
 
+        mg = Adw.PreferencesGroup(title="Music",
+                                  description="GoatTracker GTK Edition and SidMonkey (github.com/robcowell/"
+                                              "goattracker) for songs and sound effects; VICE's vsid to play them.")
+        gt_dir = Adw.EntryRow(title="GoatTracker folder (with gt2reloc, ins2snd2, goattrk2, sidmonkey)",
+                              text=s.goattracker_dir)
+        vsid = Adw.EntryRow(title="SID player", text=s.vsid)
+        mg.add(gt_dir)
+        mg.add(vsid)
+        page.add(mg)
+
         ed = Adw.PreferencesGroup(title="Editor")
         font = Adw.EntryRow(title="Font", text=s.font)
         tabw = Adw.SpinRow.new_with_range(1, 16, 1)
@@ -174,6 +184,8 @@ class Application(Adw.Application):
             sub = jar.get_subtitle()
             s.kickass_jar = "" if sub == "Not set" else sub
             s.java = java.get_text().strip() or "java"
+            s.goattracker_dir = gt_dir.get_text().strip()
+            s.vsid = vsid.get_text().strip() or "vsid"
             s.font = font.get_text().strip() or "Monospace 11"
             s.tab_width = int(tabw.get_value())
             s.insert_spaces = spaces.get_active()

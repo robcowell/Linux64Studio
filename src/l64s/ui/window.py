@@ -21,6 +21,7 @@ from .debugger import DebuggerPanel, DebugSession  # noqa: E402
 from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
+from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".lst"}
@@ -80,6 +81,8 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Open File…", "win.open-file")
         sec2.append("List BASIC Program (.prg)…", "win.list-prg")
         sec2.append("Renumber BASIC…", "win.renumber")
+        sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
+        sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
         sec2.append("Close Project", "win.close-project")
         menu.append_section(None, sec2)
@@ -200,6 +203,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
+        add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -273,6 +277,7 @@ class MainWindow(Adw.ApplicationWindow):
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
                   ("Binary", lambda f: f.suffix.lower() == ".bin"),
+                  ("Music", lambda f: f.suffix.lower() in (".sng", ".ins", ".sid")),
                   ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81", ".crt"))]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
@@ -290,8 +295,8 @@ class MainWindow(Adw.ApplicationWindow):
                 except ValueError:
                     rel = Path(f.name)
                 box = Gtk.Box(spacing=6, margin_start=6)
-                icon = {"Source": "text-x-generic-symbolic", "Graphics": "image-x-generic-symbolic"}.get(
-                    title, "application-x-executable-symbolic")
+                icon = {"Source": "text-x-generic-symbolic", "Graphics": "image-x-generic-symbolic",
+                        "Music": "audio-x-generic-symbolic"}.get(title, "application-x-executable-symbolic")
                 box.append(Gtk.Image(icon_name=icon))
                 lbl = Gtk.Label(label=str(rel), xalign=0, ellipsize=Pango.EllipsizeMode.START, hexpand=True)
                 box.append(lbl)
@@ -353,6 +358,12 @@ class MainWindow(Adw.ApplicationWindow):
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".prg":
                 return self.list_prg(path)
+            elif sfx == ".sid":
+                ed = SidFileView(path, self.settings, self.project)
+            elif sfx == ".sng":
+                ed = SongView(path, self.settings, self.project, self._save_project_quietly)
+            elif sfx == ".ins":
+                ed = SfxView(path, self.settings, self.project, self._save_project_quietly)
             elif sfx == ".crt":
                 ed = CartView(path)
                 ed.connect("run-cart", lambda e: self._launch(e.path))
@@ -397,7 +408,8 @@ class MainWindow(Adw.ApplicationWindow):
         icon = {"source": "text-x-generic-symbolic", "sprites": "image-x-generic-symbolic",
                 "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic",
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
-                "cart": "media-flash-symbolic"}.get(ed.kind)
+                "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
+                "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -663,7 +675,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         def work():
             try:
-                res = build_project(proj, overrides, only, settings.kickass_jar, settings.java)
+                res = build_project(proj, overrides, only, settings.kickass_jar, settings.java,
+                                    settings.goattracker_dir)
             except Exception as e:  # report internal errors in the log rather than losing them
                 import traceback
                 from ..asm.errors import Diagnostic
@@ -799,6 +812,27 @@ class MainWindow(Adw.ApplicationWindow):
         if isinstance(ed, SourceEditor):
             ed.set_pc_line(line)
             self._pc_editor = ed
+
+    # ================================================================== music
+    def _save_project_quietly(self):
+        if self.project:
+            try:
+                self.project.save()
+            except OSError as e:
+                self.toast(f"Couldn't save project settings: {e}")
+
+    def _music_app(self, which: str):
+        """Start SidMonkey or GoatTracker in the project folder (they open their own songs)."""
+        import subprocess
+        from ..sid.goattracker import find_tool
+        tool = find_tool(which, self.settings.goattracker_dir)
+        if not tool:
+            self.toast(f"{which} not found: set the GoatTracker folder in Preferences")
+            return
+        subprocess.Popen([tool], cwd=str(self.project.directory) if self.project else None,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        self.toast("Save songs in the project folder to use them here")
 
     # ================================================================== BASIC
     def choose_prg_to_list(self):

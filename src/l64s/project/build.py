@@ -102,13 +102,41 @@ def _with_disk(project: Project, res: BuildResult, only_file) -> BuildResult:
 
 
 def build_project(project: Project, overrides: dict[str, str] | None = None,
-                  only_file: Path | None = None, kickass_jar: str = "", java: str = "java") -> BuildResult:
+                  only_file: Path | None = None, kickass_jar: str = "", java: str = "java",
+                  goattracker_dir: str = "") -> BuildResult:
     """Build the whole project, or (CBM prg Studio's "Build Program") just `only_file`."""
+    music_log, music_diags = prepare_music(project, goattracker_dir)
+    if any(d.severity == "error" for d in music_diags):
+        return BuildResult(False, None, None, music_diags, "\n".join([music_log] + [str(d) for d in music_diags]))
     if project.toolchain == TOOLCHAIN_KICKASS:
         res = _build_kickass(project, kickass_jar, java, only_file)
     else:
         res = _build_cbm(project, overrides, only_file)
-    return _with_disk(project, res, only_file)
+    res = _with_disk(project, res, only_file)
+    if music_log:
+        res.log = music_log + "\n" + res.log
+    return res
+
+
+def prepare_music(project: Project, goattracker_dir: str = "") -> tuple[str, list[Diagnostic]]:
+    """Pack each linked GoatTracker song and convert each sound effect, ready for the code to include."""
+    from ..sid.goattracker import MusicError, PackOptions, convert_sfx, pack_song
+    lines: list[str] = []
+    for link in project.music:
+        src = (project.directory / link.get("source", "")).resolve()
+        out = (project.directory / link.get("output", "")).resolve()
+        where = SourceLoc(str(src), 1)
+        try:
+            if src.suffix.lower() == ".ins":
+                data = convert_sfx(src, out, link.get("label", ""), goattracker_dir,
+                                   kickass=project.toolchain == TOOLCHAIN_KICKASS)
+                lines.append(f"Sound effect {src.name} -> {out.name} ({len(data)} bytes)")
+            else:
+                r = pack_song(src, out, PackOptions.from_dict(link), goattracker_dir)
+                lines.append(f"Packed {src.name} -> {out.name} (${r.start:04X}-${r.end - 1:04X}, {r.size} bytes)")
+        except MusicError as e:
+            return "\n".join(lines), [Diagnostic("error", f"Music: {e}", where)]
+    return "\n".join(lines), []
 
 
 BASIC_EXTS = {".bas"}

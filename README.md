@@ -30,6 +30,10 @@ can be followed on Linux.
   the bank-switched Magic Desk, Ocean and EasyFlash. The program is bank 0, and data files fill
   further banks. Output matches VICE's `cartconv` byte for byte, and there's a cartridge
   project template. See [docs/cartridge.md](docs/cartridge.md).
+* **SID music**: `.sid` files open with their header, play in VICE's `vsid`, and extract for
+  `incbin`. Songs and sound effects from [GoatTracker GTK Edition and SidMonkey](https://github.com/robcowell/goattracker)
+  open in those editors and are packed with GoatTracker's `gt2reloc` before every build, at the
+  address you choose, with ready-to-paste player code. See [docs/music.md](docs/music.md).
 * **Run and debug in VICE**: breakpoints, step into/over/out, registers, disassembly
   with labels, memory view, and the current source line highlighted. Uses VICE's
   binary monitor.
@@ -67,6 +71,7 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 .venv/bin/l64asm chapter17.cbmprj --d64 game.d64 --disk-name "my game,mg"
 .venv/bin/l64disk list game.d64                # also: create, add, extract, delete (.d64/.d71/.d81)
 .venv/bin/l64cart make normal8 cart.prg -o game.crt   # also: info, types (--bank for banked carts)
+.venv/bin/l64sid pack tune.sng music.bin --address 1000   # also: info, extract, sfx
 .venv/bin/l64bas game.bas                      # tokenize BASIC -> game.prg
 .venv/bin/l64bas --list game.prg               # list a program as BASIC source
 .venv/bin/l64bas --renumber game.bas --start 100 --step 10

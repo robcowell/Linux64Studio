@@ -25,6 +25,7 @@ TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".txt"}
+MUSIC_EXTS = {".sng", ".ins", ".sid"}
 GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
             ".d64", ".d71", ".d81", ".crt"}
 
@@ -58,6 +59,9 @@ class Project:
     cart_name: str = ""              # name in the .crt header; default: project name
     cart_banks: list[str] = field(default_factory=list)  # data files for banks 1, 2, ... (banked carts)
     run_cart: bool = False           # run and debug with the cartridge plugged in
+    # Music made with GoatTracker/SidMonkey, packed (songs) or converted (sound effects) before
+    # every build: [{"source": "music/tune.sng", "output": "music.bin", "address": 4096, ...}]
+    music: list[dict] = field(default_factory=list)
 
     @property
     def directory(self) -> Path:
@@ -110,7 +114,7 @@ class Project:
             if not root.is_dir():
                 continue
             for p in sorted(root.rglob("*")):
-                if (p.is_file() and p.suffix.lower() in SOURCE_EXTS | GFX_EXTS and p not in seen
+                if (p.is_file() and p.suffix.lower() in SOURCE_EXTS | GFX_EXTS | MUSIC_EXTS and p not in seen
                         and not p.name.startswith(".")):
                     if any(part.startswith(".") or part in ("Output", "build") for part in p.relative_to(root).parts[:-1]):
                         continue
