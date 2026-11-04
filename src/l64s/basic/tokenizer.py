@@ -68,9 +68,11 @@ class TokenizeResult:
 def _source_bytes(text: str, line_no: int) -> list[tuple[int, bool]]:
     """Convert source characters to PETSCII, tracking which bytes came from {codes}.
 
-    Returns (byte, literal) pairs; literal=True bytes are never part of a keyword.
+    Returns (byte, literal, shifted, start, end): literal bytes (from {codes}) are never part of a
+    keyword; shifted is a capital letter outside a string (a keyword's abbreviation ends with
+    one: pO); start and end are where it is in `text`.
     """
-    out: list[tuple[int, bool]] = []
+    out: list[tuple[int, bool, bool, int, int]] = []
     in_string = False
     i = 0
     while i < len(text):
@@ -80,7 +82,7 @@ def _source_bytes(text: str, line_no: int) -> list[tuple[int, bool]]:
             if close == -1:
                 raise BasicError("'{' without a closing '}'", line_no)
             try:
-                out.extend((b, True) for b in parse_control(text[i + 1:close]))
+                out.extend((b, True, False, i, close + 1) for b in parse_control(text[i + 1:close]))
             except ControlCodeError as e:
                 raise BasicError(str(e), line_no)
             i = close + 1
@@ -88,7 +90,7 @@ def _source_bytes(text: str, line_no: int) -> list[tuple[int, bool]]:
         if ch == '"':
             in_string = not in_string
         try:
-            out.append((char_to_petscii(ch, in_string), False))
+            out.append((char_to_petscii(ch, in_string), False, not in_string and "A" <= ch <= "Z", i, i + 1))
         except ControlCodeError as e:
             raise BasicError(str(e), line_no)
         i += 1
@@ -97,6 +99,35 @@ def _source_bytes(text: str, line_no: int) -> list[tuple[int, bool]]:
 
 _KW_BYTES = [(bytes(ord(c) - 32 if "a" <= c <= "z" else ord(c) for c in kw), 0x80 + i)
              for i, kw in enumerate(KEYWORDS)]
+
+
+def match_keyword(src, i: int) -> tuple[int, int] | None:
+    """The keyword at src[i] as (token, how many bytes), as the ROM finds it: the first in its
+    table that matches, written in full or abbreviated. An abbreviation is the start of the
+    keyword ending in a shifted (capital) letter after a lower-case one, `pO` for POKE, `pR` for
+    PRINT#. A word all in capitals is the keyword in full (PRINT), and `goTo` is GOTO, since the
+    letters after the capital carry on spelling it."""
+    n = len(src)
+    for kw, tok in _KW_BYTES:
+        k = len(kw)
+        j = 0
+        while j < k:
+            if i + j >= n:
+                break
+            b, literal, shifted = src[i + j][0], src[i + j][1], src[i + j][2]
+            if literal or b != kw[j]:
+                break
+            if shifted and j >= 1 and not src[i + j - 1][2]:
+                rest = kw[j + 1:]
+                carries_on = rest and i + j + len(rest) < n + 1 and all(
+                    i + j + 1 + q < n and src[i + j + 1 + q][0] == rest[q] and not src[i + j + 1 + q][1]
+                    for q in range(len(rest)))
+                if not carries_on:
+                    return tok, j + 1          # abbreviated
+            j += 1
+        if j == k:
+            return tok, k
+    return None
 
 
 def crunch(text: str, line_no: int = 0) -> bytes:
@@ -109,7 +140,7 @@ def crunch(text: str, line_no: int = 0) -> bytes:
     in_rem = False
     n = len(src)
     while i < n:
-        b, literal = src[i]
+        b, literal = src[i][0], src[i][1]
         if in_rem:
             out.append(b)
             i += 1
@@ -141,12 +172,7 @@ def crunch(text: str, line_no: int = 0) -> bytes:
             out.append(b)
             i += 1
             continue
-        token = None
-        for kw, tok in _KW_BYTES:
-            k = len(kw)
-            if i + k <= n and all(src[i + j][0] == kw[j] and not src[i + j][1] for j in range(k)):
-                token = (tok, k)
-                break
+        token = match_keyword(src, i)
         if token:
             tok, k = token
             out.append(tok)

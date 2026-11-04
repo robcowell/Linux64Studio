@@ -381,6 +381,12 @@ class SourceEditor(EditorPage):
             menu.append_section(None, sec)
         elif self.is_basic:
             menu.append("Convert to pBASIC", "win.convert-to-pbasic")
+        if self.is_basic:
+            fmt = Gio.Menu()
+            fmt.append("Reformat BASIC…", "win.reformat-basic")
+            fmt.append("Compress (abbreviate keywords)", "win.basic-compress")
+            fmt.append("Uncompress (keywords in full)", "win.basic-uncompress")
+            menu.append_section(None, fmt)
         self.view.set_extra_menu(menu)
         self._click_iter_offset: int | None = None
         right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)

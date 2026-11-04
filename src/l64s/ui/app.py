@@ -203,6 +203,9 @@ class Application(Adw.Application):
         num_step.set_value(s.basic_number_step)
         pb.add(auto_num)
         pb.add(num_step)
+        uncompress_lower = Adw.SwitchRow(title="Uncompress to lower case", active=s.basic_uncompress_lowercase,
+                                         subtitle="Uncompress writes keywords in lower case (off: upper case)")
+        pb.add(uncompress_lower)
         pb_start = Adw.SpinRow.new_with_range(0, 63999, 1)
         pb_start.set_title("pBASIC: first line number")
         pb_start.set_value(s.pbasic_start)
@@ -243,6 +246,7 @@ class Application(Adw.Application):
             s.pbasic_preview = pb_preview.get_active()
             s.basic_auto_number = auto_num.get_active()
             s.basic_number_step = int(num_step.get_value())
+            s.basic_uncompress_lowercase = uncompress_lower.get_active()
             s.basic_code_style = style_keys[codes.get_selected()]
             s.dark_mode = ["system", "light", "dark"][scheme.get_selected()]
             s.save()

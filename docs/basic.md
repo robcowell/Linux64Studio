@@ -142,6 +142,35 @@ a label (`@line100`) for every line a jump goes to.
 Tools that write numbered BASIC (Code Snippets, the SYS() call generator, …) insert it into a
 pBASIC file without its line numbers, with labels for any jumps.
 
+## Reformatting
+
+**Reformat BASIC…** (main menu, or right-click in a BASIC file) is CBM prg Studio's Reformat BASIC
+Code:
+
+* **General formatting:** a space after each line number; blank lines removed; quoted strings and
+  REMs converted to lower or upper case ({codes} are left alone; in a string, capitals are the
+  shifted characters, so this changes what's printed).
+* **Source compression:** REM statements removed (a line that's only a REM goes, unless a GOTO
+  goes to it: then it's kept as `rem`); spaces removed, outside strings (and in REMs if asked);
+  zeros taken out of DATA (`data 0,0.5` becomes `data ,.5`, which READ reads the same); keywords
+  abbreviated.
+* **Expand code:** keywords in full, with a space round them (`?a:pO53280,0` becomes
+  `print a:poke 53280,0`).
+* **Create backup file** saves the text as it was to `name.bas.bak`.
+
+Right-click → **Compress** writes keywords abbreviated, as the C64 manual lists them (`?` for
+PRINT, `pO` POKE, `gO` GOTO, `fO` FOR, `goS` GOSUB, `pR` PRINT#…; a few, like IF and ON, have
+none), and **Uncompress** writes them in full, in lower case or (Preferences → BASIC) upper.
+
+Only what needs changing is changed: the rest of each line stays as you wrote it. Each changed
+line is tokenized before and after, and if it would do anything different (beyond what was asked
+for, such as a string's case) it's left as it was and marked: removing the space from
+`a=t an` would make it `a=tan`. Everything is one Ctrl+Z. pBASIC files work too.
+
+Abbreviations are read as the C64 reads them, so `pO53280,0` builds: a lower-case letter then a
+capital ends the keyword, and the ROM's keyword order decides which (`pR` is PRINT#, not PRINT).
+A word all in capitals is read in full (`PRINT`).
+
 ## Listing programs
 
 Opening a `.prg` (or *List BASIC Program…*) lists it as a new `.bas` file. Control characters

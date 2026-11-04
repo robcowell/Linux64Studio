@@ -99,6 +99,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Add TODO…", "win.add-todo")
         sec2.append("List BASIC Program (.prg)…", "win.list-prg")
         sec2.append("Renumber BASIC…", "win.renumber")
+        sec2.append("Reformat BASIC…", "win.reformat-basic")
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Screen Calculator", "win.screen-calculator")
         sec2.append("Code Snippets", "win.snippets")
@@ -242,6 +243,10 @@ class MainWindow(Adw.ApplicationWindow):
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
+        add("reformat-basic", lambda *_: self.reformat_dialog())
+        add("basic-compress", lambda *_: self.basic_keywords("abbreviate"))
+        add("basic-uncompress", lambda *_: self.basic_keywords(
+            "full" if self.settings.basic_uncompress_lowercase else "FULL"))
         add("goto-definition", lambda *_: self.goto_definition())
         add("add-todo", lambda *_: self.add_todo())
         add("go-back", lambda *_: self.go_back())
@@ -1559,6 +1564,100 @@ class MainWindow(Adw.ApplicationWindow):
         ed = self.open_file(path)
         if isinstance(ed, SourceEditor):
             ed.goto_line(line, select=False)
+
+    # ================================================================== reformatting BASIC
+    def _basic_editor(self):
+        ed = self.current_editor()
+        if isinstance(ed, SourceEditor) and ed.is_basic:
+            return ed
+        self.toast("This works on a BASIC (.bas or .pbas) file")
+        return None
+
+    def _apply_reformat(self, ed, options, what: str, backup: bool = False):
+        from ..basic.reformat import reformat
+        text = ed.get_text()
+        new, warnings = reformat(text, options)
+        if backup and ed.path:
+            try:
+                ed.path.with_name(ed.path.name + ".bak").write_text(text)
+            except OSError as e:
+                self.toast(f"Couldn't write the backup: {e.strerror}")
+                return
+        if new != text:
+            ed.replace_text(new)
+        ed.clear_errors()
+        for w in warnings:
+            if w.line:
+                ed.mark_error(w.line)
+        if warnings:
+            w = warnings[0]
+            self.toast(f"{what}; {len(warnings)} line{'s' if len(warnings) != 1 else ''} left as "
+                       f"{'they were' if len(warnings) != 1 else 'it was'} (line {w.line}: {w.message})")
+        else:
+            self.toast(f"{what} (Ctrl+Z to undo)" if new != text else "Nothing to change")
+
+    def basic_keywords(self, how: str):
+        """Compress (keywords abbreviated) or Uncompress (in full), as CBM prg Studio's Edit → Advanced."""
+        from ..basic.reformat import Options
+        ed = self._basic_editor()
+        if ed:
+            self._apply_reformat(ed, Options(space_after_number=False, remove_blank_lines=False, keywords=how),
+                                 "Compressed" if how == "abbreviate" else "Uncompressed")
+
+    def reformat_dialog(self):
+        """CBM prg Studio's Reformat BASIC Code."""
+        from ..basic.reformat import Options
+        ed = self._basic_editor()
+        if not ed:
+            return
+        dlg = Adw.AlertDialog(heading="Reformat BASIC Code",
+                              body="Lines that would do anything different are left as they are.")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        def check(label, active=False, tip=None):
+            c = Gtk.CheckButton(label=label, active=active, tooltip_text=tip)
+            box.append(c)
+            return c
+
+        def case_row(label):
+            row = Gtk.Box(spacing=8)
+            row.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            dd = Gtk.DropDown.new_from_strings(["No case conversion", "Convert to lower case", "Convert to upper case"])
+            row.append(dd)
+            box.append(row)
+            return dd
+        box.append(Gtk.Label(label="<b>General formatting</b>", use_markup=True, xalign=0))
+        space = check("Insert space after line number", True)
+        blank = check("Remove blank lines", True)
+        strings = case_row("Quoted strings")
+        comments = case_row("Comments (REM)")
+        box.append(Gtk.Label(label="<b>Source compression</b>", use_markup=True, xalign=0, margin_top=6))
+        rems = check("Remove REM statements", tip="A line that's only a REM is kept as 'rem' if a GOTO goes to it")
+        spaces = check("Remove spaces")
+        after_rem = check("    (also after REM)")
+        zeros = check("Remove zeros from DATA", tip="data 0,0.5 becomes data ,.5, which READ reads the same")
+        abbrev = check("Abbreviate keywords (Compress: ? for print, pO for poke)")
+        box.append(Gtk.Label(label="<b>Expand</b>", use_markup=True, xalign=0, margin_top=6))
+        expand = check("Expand code (keywords in full, spaced out)")
+        box.append(Gtk.Label(label="", margin_top=2))
+        backup = check("Create backup file (.bak)", True)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Reformat")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        cases = [None, "lower", "upper"]
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            o = Options(space_after_number=space.get_active(), remove_blank_lines=blank.get_active(),
+                        strings_case=cases[strings.get_selected()], comments_case=cases[comments.get_selected()],
+                        remove_rems=rems.get_active(), remove_spaces=spaces.get_active(),
+                        spaces_after_rem=after_rem.get_active(), remove_zeros=zeros.get_active(),
+                        expand=expand.get_active(), keywords="abbreviate" if abbrev.get_active() else None)
+            self._apply_reformat(ed, o, "Reformatted", backup.get_active())
+        dlg.choose(self, None, chosen)
 
     # ================================================================== pBASIC
     def _pbasic_editor(self) -> SourceEditor | None:
