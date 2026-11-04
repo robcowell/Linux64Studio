@@ -14,6 +14,7 @@ from .charset_editor import CharsetEditor  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 from .exports import ExportLinks  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
+from .tilemap_editor import TileMapEditor  # noqa: E402
 
 METHOD_NAMES = {COLOUR_GLOBAL: "global colour", COLOUR_PER_TILE: "colour per tile", COLOUR_PER_CHAR: "colour per character"}
 
@@ -46,16 +47,19 @@ class CharPadEditor(EditorPage):
         self.links = ExportLinks(path, kinds, project)
         bar.append(self.links)
 
-        self.chars = CharsetEditor(None, data=cs, per_char_colour=p.colour_method == COLOUR_PER_CHAR)
+        view = self._view()
+        self.chars = CharsetEditor(None, data=cs, per_char_colour=p.colour_method == COLOUR_PER_CHAR,
+                                   material_names=lambda: list(self._view().get("materials") or []))
         self.stack.add_titled_with_icon(self.chars, "chars", "Characters", "font-x-generic-symbolic")
         self.screens = p.to_screenset()
-        if p.tiles_enabled:
-            # Tile maps are shown with the colours worked out at load time (per tile or per char).
-            cell_colour = None
+        if p.tiles_enabled and not p.char_expanded:
+            # paint tiles, edit tiles, see rooms and materials
+            self.map = TileMapEditor(p, view, self._save_view)
         else:
-            cell_colour = (lambda ch: p.cell_colour(ch))
-        self.map = ScreenEditor(None, data=self.screens, charset=cs, cell_colour=cell_colour,
-                                read_only=not p.map_editable)
+            # char maps edit as a screen; char-expanded tile maps (each tile its own characters) are shown
+            cell_colour = None if p.tiles_enabled else (lambda ch: p.cell_colour(ch))
+            self.map = ScreenEditor(None, data=self.screens, charset=cs, cell_colour=cell_colour,
+                                    read_only=not p.map_editable)
         self.stack.add_titled_with_icon(self.map, "map", "Map", "video-display-symbolic")
         for child in (self.chars, self.map):
             child.connect("modified-changed", self._child_modified)
@@ -63,12 +67,37 @@ class CharPadEditor(EditorPage):
         self.stack.connect("notify::visible-child", lambda *_: self.map.refresh())
         self.append(self.stack)
 
+    # view settings (room size, material names), kept in the Linux64Studio project
+    def _key(self) -> str | None:
+        if not self.project:
+            return None
+        import os
+        return os.path.relpath(self.path.resolve(), self.project.directory)
+
+    def _view(self) -> dict:
+        key = self._key()
+        if key is None:
+            return getattr(self, "_local_view", {})
+        return dict(self.project.charpad_views.get(key, {}))
+
+    def _save_view(self, view: dict):
+        key = self._key()
+        if key is None:
+            self._local_view = dict(view)
+            return
+        self.project.charpad_views[key] = dict(view)
+        try:
+            self.project.save()
+        except OSError:
+            pass
+
     def _child_modified(self, child):
         if child.modified:
             self.set_modified(True)
 
     def save(self):
-        self.ctm.update_map_from(self.screens)
+        if isinstance(self.map, ScreenEditor):
+            self.ctm.update_map_from(self.screens)
         save_ctm(self.ctm, self.path)
         for child in (self.chars, self.map):
             child.set_modified(False)

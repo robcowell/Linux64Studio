@@ -48,6 +48,15 @@ class Charset:
             return self.attribs[ch] & 0x0F
         return self.char_colour
 
+    def material_of(self, ch: int) -> int:
+        """CharPad's material for a character: the high nibble of its attribute byte."""
+        return (self.attribs[ch] >> 4) & 0x0F if self.attribs is not None else 0
+
+    def set_material_of(self, ch: int, material: int) -> None:
+        if self.attribs is None:
+            self.attribs = [self.char_colour] * 256
+        self.attribs[ch] = ((material & 0x0F) << 4) | (self.attribs[ch] & 0x0F)
+
     def set_colour_of(self, ch: int, colour: int) -> None:
         if self.attribs is not None:
             self.attribs[ch] = (self.attribs[ch] & 0xF0) | (colour & 0x0F)

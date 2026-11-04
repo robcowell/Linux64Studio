@@ -93,6 +93,46 @@ class CharPadProject:
         s = screens.screens[0]
         self.map_data = [s.chars[r][c] for r in range(self.map_height) for c in range(self.map_width)]
 
+    # -------------------------------------------------------------- tile map editing
+    def tile_cells(self, tile: int) -> list[int]:
+        """The characters of a tile, row by row."""
+        return self._tile_cells(tile)
+
+    def tile_at(self, x: int, y: int) -> int:
+        return self.map_data[y * self.map_width + x]
+
+    def set_tile_at(self, x: int, y: int, tile: int) -> None:
+        if not 0 <= tile < max(1, self.tile_count):
+            raise CharPadError(f"There's no tile {tile}")
+        self.map_data[y * self.map_width + x] = tile
+
+    def set_tile_cell(self, tile: int, cell: int, ch: int) -> None:
+        """Set one character of a tile (cells are row by row)."""
+        if self.char_expanded:
+            raise CharPadError("In a char-expanded project each tile's characters are fixed")
+        n = self.tile_width * self.tile_height
+        self.tile_data[tile * n + cell] = ch & 0xFF
+
+    def add_tile(self, copy_of: int | None = None) -> int:
+        """A new tile at the end (a copy of another, or blank); returns its number."""
+        if self.char_expanded:
+            raise CharPadError("A char-expanded project can't have more tiles than characters allow")
+        if self.tile_count >= 256:
+            raise CharPadError("There are already 256 tiles: an 8-bit map can't use more")
+        n = self.tile_width * self.tile_height
+        cells = self.tile_cells(copy_of) if copy_of is not None else [0] * n
+        self.tile_data += list(cells)
+        self.tile_count += 1
+        return self.tile_count - 1
+
+    def tile_uses(self) -> list[int]:
+        """How many map cells use each tile."""
+        uses = [0] * max(1, self.tile_count)
+        for t in self.map_data:
+            if t < len(uses):
+                uses[t] += 1
+        return uses
+
     # -------------------------------------------------------------- exports (CharPad's binary formats)
     def export_charset(self) -> bytes:
         return self.charset.to_bin(self.charset.count)
@@ -175,3 +215,38 @@ def save_ctm(p: CharPadProject, path: str | Path) -> None:
         out += p.tile_colours
     out += struct.pack(f"<{len(p.map_data)}H", *p.map_data)
     Path(path).write_bytes(bytes(out))
+
+
+def from_binaries(chars: bytes, attribs: bytes, tiles: bytes, map_data: bytes, map_width: int,
+                  tile_width: int = 2, tile_height: int = 2, multicolour: bool = False,
+                  background: int = 0, mc1: int = 1, mc2: int = 2) -> CharPadProject:
+    """A project from CharPad's binary exports (characters, attributes with colour in the low
+    nibble and material in the high one, 8-bit tiles row by row, 8-bit map row by row), so a
+    game whose data is those files can be edited and exported back exactly."""
+    if not chars or len(chars) % 8:
+        raise CharPadError(f"The character data should be 8 bytes a character ({len(chars)} bytes)")
+    n_chars = len(chars) // 8
+    if n_chars > 256:
+        raise CharPadError(f"{n_chars} characters: only up to 256 are supported")
+    if len(attribs) != n_chars:
+        raise CharPadError(f"The attributes should be one byte a character: {n_chars} characters but "
+                           f"{len(attribs)} attribute bytes")
+    cells = tile_width * tile_height
+    if tile_width < 1 or tile_height < 1 or not tiles or len(tiles) % cells:
+        raise CharPadError(f"The tile data ({len(tiles)} bytes) isn't whole {tile_width}x{tile_height} tiles")
+    n_tiles = len(tiles) // cells
+    if n_tiles > 256:
+        raise CharPadError(f"{n_tiles} tiles: an 8-bit map can use 256 at most")
+    if map_width < 1 or not map_data or len(map_data) % map_width:
+        raise CharPadError(f"The map ({len(map_data)} bytes) isn't whole rows of {map_width} tiles")
+    bad = sorted({t for t in map_data if t >= n_tiles})
+    if bad:
+        raise CharPadError(f"The map uses tile {bad[0]}, but there are only {n_tiles} tiles")
+    cs = Charset(multicolour=multicolour, background=background & 15, mc1=mc1 & 15, mc2=mc2 & 15,
+                 char_colour=attribs[0] & 15 if attribs else 1, count=n_chars)
+    cs.chars = [list(chars[i * 8:i * 8 + 8]) for i in range(n_chars)] + [[0] * 8 for _ in range(256 - n_chars)]
+    cs.attribs = list(attribs) + [cs.char_colour] * (256 - n_chars)
+    return CharPadProject(charset=cs, colour_method=COLOUR_PER_CHAR, tiles_enabled=True, char_expanded=False,
+                          tile_count=n_tiles, tile_width=tile_width, tile_height=tile_height,
+                          tile_data=list(tiles), map_width=map_width, map_height=len(map_data) // map_width,
+                          map_data=list(map_data))

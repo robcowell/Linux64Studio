@@ -103,6 +103,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("String Formatter", "win.string-formatter")
         sec2.append("Source Analyser", "win.source-analyser")
         sec2.append("Statistics (BASIC)", "win.basic-statistics")
+        sec2.append("Import CharPad Binaries…", "win.import-charpad")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Snapshots", "win.snapshots")
@@ -241,6 +242,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("string-formatter", lambda *_: self.open_string_formatter())
         add("source-analyser", lambda *_: self.open_source_analyser())
         add("basic-statistics", lambda *_: self.open_basic_statistics())
+        add("import-charpad", lambda *_: self.import_charpad())
         add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
@@ -954,6 +956,19 @@ class MainWindow(Adw.ApplicationWindow):
             tool.refresh()
             return tool
         return self._add_page(BasicStatistics(self._last_source_editor, self._open_source_line))
+
+    def import_charpad(self):
+        """Make a .ctm from a game's CharPad binaries, linked to write them back."""
+        from .charpad_import import CharPadImportDialog
+
+        def done(ctm: Path):
+            if self.project:
+                self._populate_files()           # the new .ctm appears in the file list
+            self.open_file(ctm)
+            self.toast(f"Made {ctm.name}: saving it writes the four files back")
+        dlg = CharPadImportDialog(self, self.project, done)
+        dlg.present()
+        return dlg
 
     def analyse_from_editor(self):
         """The editor's right-click Analyse: the selected lines, or else the whole file."""

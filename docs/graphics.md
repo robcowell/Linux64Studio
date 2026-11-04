@@ -103,3 +103,38 @@ the mouse instead of the crosshair, with its top-left corner on the pointer. Cho
 set, the sprite number, and whether it's expanded. The offsets and the format are kept for next
 time. `tests/test_digitiser.py` checks the coordinates and formats; they agree with the Screen
 Calculator's sprite coordinates.
+
+## CharPad tile maps
+
+A CharPad project (`.ctm`) that uses tiles opens with a **Map** page for editing the tile map.
+
+* **Draw** paints the chosen tile. Right-click paints tile 0, and Ctrl+click picks up the tile
+  under the pointer. **Rectangle** fills an area, and **Pick** chooses the tile under the
+  pointer. Ctrl+Z and Ctrl+Shift+Z undo and redo every change, tile edits included.
+* **Tiles** shows them all; tiles no map cell uses are dimmed. **New Tile** adds a copy of the
+  chosen one at the end. To change a tile, click one of its cells in **Tile**, then a character
+  below. The cell moves on to the next one, so a tile can be built quickly.
+* **Rooms** (width × height, in tiles) draws the grid of rooms (screens) a game cuts the map
+  into, numbered left to right and top to bottom, as a flip-screen game counts them. The status
+  line says which room the pointer is in, and where in it.
+* **Materials** tints each character by its material, the high nibble of CharPad's attribute
+  byte, which games use for collision. Name the materials (solid, platform, ladder and so on)
+  in the list below the characters. The names show here and on the Characters page, which has a
+  **Material** control for each character beside its colour.
+
+The room size and material names are kept in the Linux64Studio project (`charpad_views`).
+
+### Games whose data is CharPad's binary exports
+
+**Menu → Import CharPad Binaries…** makes a `.ctm` from a game's four files: characters (8 bytes
+each), attributes (colour in the low nibble, material in the high one), tiles (8-bit, row by
+row) and the map (8-bit, row by row). It guesses the files by name. Give it the tile size and
+the map's width, and it shows the size of the map you'll get. The new project's exports are
+linked to those same four files. Saving it writes them back byte for byte, with only your edits
+changed, so the game's code and build don't change at all. Importing a game's data and saving it
+straight away gives back the same four files.
+
+`tests/test_charpad_tiles.py` checks the import, the edits, materials and that the exports are
+the original files. This was also checked on a real game: 256 characters, 15 tiles and an 80×20
+map. Painting a ladder into one room changed only those six bytes of `map.bin`, and the game,
+rebuilt, showed the ladder in that room.

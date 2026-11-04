@@ -74,6 +74,8 @@ class Project:
     # The file to put on the disk image as the program, instead of the built .prg (e.g. a crunched
     # copy a post-build command makes); "" = the built program
     disk_program: str = ""
+    # CharPad projects' view settings, by .ctm (relative path): {"room": [w, h] in tiles, "materials": [names]}
+    charpad_views: dict[str, dict] = field(default_factory=dict)
 
     @property
     def directory(self) -> Path:

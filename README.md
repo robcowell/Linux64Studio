@@ -20,6 +20,9 @@ can be followed on Linux.
   **Morph** makes the frames that turn one sprite into another, and the **Explosion
   Generator** makes explosion animations. The screen editor's **digitiser** gives the sprite
   coordinates of points on the screen ([docs/graphics.md](docs/graphics.md)).
+  CharPad tile maps can be painted and their tiles edited, with a room grid and a materials
+  view, and **Import CharPad Binaries** turns a game's char/attribute/tile/map files into an
+  editable project that writes them back ([docs/graphics.md](docs/graphics.md#charpad-tile-maps)).
 * **Linked exports**: saving a graphics file can rewrite its `.bin` exports, so you don't have
   to export by hand after every change. A link is switched on automatically only when the
   `.bin` already matches the source, so unrelated files are never overwritten.

@@ -68,9 +68,11 @@ class CharsetEditor(EditorPage):
     kind = "charset"
 
     def __init__(self, path: Path | None, data: Charset | None = None, per_char_colour: bool = False,
-                 project=None):
+                 project=None, material_names=None):
         super().__init__(path)
         self.project = project
+        # CharPad: each character's material (its attribute's high nibble), named by the project
+        self.material_names = material_names
         # per_char_colour: each character has its own colour (CharPad); colours 8-15 make a character
         # multicolour when multicolour mode is on, 0-7 leave it hires.
         self.per_char = per_char_colour and data is not None and data.attribs is not None
@@ -176,6 +178,16 @@ class CharsetEditor(EditorPage):
         if self.per_char:
             side.append(Gtk.Label(label="Colours 8–15 make this character multicolour;\n0–7 keep it hires.",
                                   xalign=0, css_classes=["dim-label", "caption"]))
+            mrow = Gtk.Box(spacing=6)
+            mrow.append(Gtk.Label(label="Material"))
+            self.material = Gtk.SpinButton.new_with_range(0, 15, 1)
+            self.material.set_tooltip_text("CharPad's material for this character (the attribute's high "
+                                           "nibble): games use it for collision and the like")
+            self.material.connect("value-changed", self._material_changed)
+            mrow.append(self.material)
+            self.material_name = Gtk.Label(xalign=0, css_classes=["dim-label"])
+            mrow.append(self.material_name)
+            side.append(mrow)
         side.append(Gtk.Label(label="Preview (3x3 tiled)", xalign=0))
         self.preview = Gtk.DrawingArea(content_width=144, content_height=144)
         self.preview.set_draw_func(self._draw_preview)
@@ -231,9 +243,25 @@ class CharsetEditor(EditorPage):
         self.status.set_text(f"Character {i} (${i:02X})" + (f"  colour {self._fg()}" if self.per_char else ""))
         if self.per_char:
             self.colour_buttons["char_colour"].colour = self._fg()
+            self._showing = True
+            self.material.set_value(self.data.material_of(i))
+            self._showing = False
+            self._show_material_name()
             self._update_mode()
         self.canvas.queue_draw()
         self.preview.queue_draw()
+
+    def _show_material_name(self):
+        names = self.material_names() if self.material_names else []
+        m = self.data.material_of(self.index)
+        self.material_name.set_text(names[m] if m < len(names) else "")
+
+    def _material_changed(self, spin):
+        if getattr(self, "_showing", False):
+            return
+        self.data.set_material_of(self.index, spin.get_value_as_int())
+        self._show_material_name()
+        self.set_modified(True)
 
     def _pen_toggled(self, btn, pen):
         if btn.get_active():
