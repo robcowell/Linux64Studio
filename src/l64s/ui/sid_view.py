@@ -76,7 +76,7 @@ class _MusicPage(EditorPage):
                           css_classes=["flat"])
         group.set_header_suffix(copy)
         view = Gtk.TextView(editable=False, monospace=True, top_margin=8, bottom_margin=8, left_margin=8,
-                            css_classes=["card"])
+                            css_classes=["card", "monospace"])
         copy.connect("clicked", lambda *_: (Gdk.Display.get_default().get_clipboard().set(
             view.get_buffer().get_text(view.get_buffer().get_start_iter(), view.get_buffer().get_end_iter(), False)),
             self.status.set_text("Copied to the clipboard")))

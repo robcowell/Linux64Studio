@@ -153,7 +153,7 @@ class ScreenCodeBuilder(EditorPage):
         left.append(Gtk.Label(label="<b>Text</b>  type it, or click the keys below. Codes are written "
                                     "{like this}, as in a BASIC listing.", use_markup=True, xalign=0, wrap=True))
         self.text = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=6, bottom_margin=6,
-                                 left_margin=6, css_classes=["card"])
+                                 left_margin=6, css_classes=["card", "monospace"])
         self.text.set_size_request(-1, 90)
         self.text.get_buffer().set_text(EXAMPLE)
         self.text.get_buffer().connect("changed", lambda *_: self._update())
@@ -232,7 +232,7 @@ class ScreenCodeBuilder(EditorPage):
         out_bar.append(ins)
         right.append(out_bar)
         self.output = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=6,
-                                   bottom_margin=6, left_margin=6, css_classes=["card"])
+                                   bottom_margin=6, left_margin=6, css_classes=["card", "monospace"])
         right.append(Gtk.ScrolledWindow(child=self.output, min_content_height=110))
         self.status = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"])
         right.append(self.status)

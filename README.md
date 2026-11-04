@@ -26,6 +26,10 @@ can be followed on Linux.
   graphics where the VIC-II can't see them. Any address can be viewed as hex, screen text,
   characters, sprites or a bitmap, from the last build or a live snapshot of the program
   running in VICE. See [docs/memory.md](docs/memory.md).
+* **Binary Import/Export**: turn any `.bin` or `.prg` into source, as a disassembly that
+  reassembles to the same bytes (traced from the entry points to keep code and data apart),
+  `byte` lines or BASIC DATA statements with a loader. Write any range of the last build out as
+  `.bin` or `.prg`. See [docs/binary.md](docs/binary.md).
 * **Screen Code Builder**: build PRINT strings with colours, cursor moves, reverse and
   Commodore/SHIFT graphics by clicking, see exactly what they do on a C64 screen, and insert
   them as a BASIC PRINT line, PETSCII bytes for CHROUT, or screen codes (and colours) for
@@ -83,6 +87,7 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 .venv/bin/l64disk list game.d64                # also: create, add, extract, delete (.d64/.d71/.d81)
 .venv/bin/l64cart make normal8 cart.prg -o game.crt   # also: info, types (--bank for banked carts)
 .venv/bin/l64sid pack tune.sng music.bin --address 1000   # also: info, extract, sfx
+.venv/bin/l64bin import game.prg --as disasm --trace -o game.asm   # also --as data / basic, and export
 .venv/bin/l64bas game.bas                      # tokenize BASIC -> game.prg
 .venv/bin/l64bas --list game.prg               # list a program as BASIC source
 .venv/bin/l64bas --renumber game.bas --start 100 --step 10

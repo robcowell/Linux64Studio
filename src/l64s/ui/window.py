@@ -21,6 +21,7 @@ from .debugger import DebuggerPanel, DebugSession  # noqa: E402
 from .disk_editor import DiskEditor  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
+from .binary_tool import BinaryTool  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
@@ -85,6 +86,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Memory Viewer", "win.memory-viewer")
+        sec2.append("Binary Import/Export", "win.binary-tool")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
@@ -211,6 +213,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
+        add("binary-tool", lambda *_: self.open_binary_tool())
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -394,6 +397,7 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.AlertDialog(heading=f"Open {path.name} as…",
                               body="Raw binary files don't say what they contain.")
         dlg.add_response("cancel", "Cancel")
+        dlg.add_response("import", "Import as Source")
         dlg.add_response("chars", "Characters")
         dlg.add_response("sprites", "Sprites")
         guess = "sprites" if "sprite" in path.name.lower() else "chars"
@@ -401,7 +405,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         def chosen(d, res):
             r = d.choose_finish(res)
-            if r == "sprites":
+            if r == "import":
+                self.open_binary_tool(path)
+            elif r == "sprites":
                 self._add_page(SpriteEditor(path, self.project))
             elif r == "chars":
                 self._add_page(CharsetEditor(path, project=self.project))
@@ -417,7 +423,8 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic"}.get(ed.kind)
+                "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic",
+                "binary": "document-open-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -843,6 +850,23 @@ class MainWindow(Adw.ApplicationWindow):
                 ed.refresh()
                 return ed
         return self._add_page(MemoryViewer(self._memory_of_last_build, lambda: self.debug, self._open_source_line))
+
+    def open_binary_tool(self, path: Path | None = None):
+        tool = next((ed for ed in self.editors() if isinstance(ed, BinaryTool)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+        else:
+            kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+            tool = self._add_page(BinaryTool(kickass, self.project.directory if self.project else None,
+                                             self._build_memory, self._insert_into_last_source))
+        if path:
+            tool.load_file(path)
+        return tool
+
+    def _build_memory(self):
+        """(memory, used, {address: label}, description) of the last build, for exporting."""
+        m, symbols, desc = self._memory_of_last_build()
+        return (m.memory, m.used, symbols, desc) if m else None
 
     def _memory_of_last_build(self):
         """(MemoryMap, {address: label}, description) for the last successful build."""
