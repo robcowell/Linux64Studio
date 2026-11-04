@@ -95,3 +95,41 @@ The preview follows the KERNAL's screen editor. It was checked against VICE, inc
 colour RAM under blank cells (clearing fills it with the current text colour) and the
 character set chosen in `$D018`. With `L64S_VICE_TESTS=1`, `tests/test_screencodes.py` runs that
 comparison itself.
+
+## Code Snippets
+
+**Menu → Code Snippets** is a library of small routines to insert into a program, as in CBM prg
+Studio. The snippets are grouped by CBM's six types: Sprites, Characters, Hi-res, Sound, Misc and
+Machine Code. Machine Code snippets are assembler; all the others are BASIC. Search filters by
+description, code or type. Double-click a snippet, or press **Insert into Editor**, to insert it
+into the last source file you used. **Copy** puts it on the clipboard.
+
+BASIC snippets are written without line numbers. They're numbered from **Start line** in steps
+of **Step**; **After the program** starts after the last line of the BASIC file you're inserting
+into. Snippets can use labels: start a line with `!1` to `!9`, and write `!n` after GOTO,
+GOSUB, THEN or ON … GOTO to jump to it. For example `!1 get k$ : if k$="" then !1` becomes
+`1000 get k$ : if k$="" then 1000`. Labels inside strings and REMs are left alone, and using a
+label no line has is an error. The numbered lines go where their numbers belong in the file, not
+at the cursor. If any of their line numbers are already used, nothing is inserted and you're
+told which.
+
+Snippets in CBM prg Studio's capitals (`POKE V+21,…`) become listing case (`poke v+21,…`) when
+inserted, because capitals are shifted characters in a BASIC listing. Machine Code snippets are
+in CBM prg Studio's syntax. In a Kick Assembler project they're converted as they're inserted:
+labels get a colon, `;` becomes `//`, `byte`/`word`/`text` become `.byte`/`.word`/`.text`, and
+`NAME = value` becomes `.const`. That's enough for simple snippets; macros aren't converted.
+
+Edit a snippet's description, type or code in place. **+** adds one, and the other buttons
+duplicate and delete. Save the library with Ctrl+S or the save button. It's kept in
+`~/.config/linux64studio/snippets.xml`, which starts as a copy of the built-in snippets. The ⋮
+menu has three items: **Import** merges another snippets file, such as CBM prg Studio's own
+`Snippets.xml` from its install folder; **Export** writes the library out; **Add back the
+built-in snippets** restores any you've deleted. Snippets already in the library (same type and
+description) aren't imported twice. The file format is CBM prg Studio's, so a library can go
+back to CBM prg Studio too.
+
+The 37 built-in snippets were written for Linux64Studio. They don't include CBM prg Studio's
+own, which you can import from your copy. `tests/test_snippets.py` checks that every BASIC snippet
+tokenises and lists back unchanged, and every Machine Code snippet assembles. Its VICE tests
+(`L64S_VICE_TESTS=1`) run some of them: copying the character ROM to RAM, plotting a point in
+a bitmap, and the raster interrupt.

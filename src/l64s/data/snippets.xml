@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Linux64Studio's built-in code snippets (CBM prg Studio's Snippets.xml format).
+     BASIC: n = sprite number 0-7, and v = 53248 (the VIC-II) unless the snippet sets it. -->
+<snippets>
+  <snippet>
+    <type>0</type>
+    <description>Switch sprite N on</description>
+    <code>
+      <line>v=53248 : poke v+21,peek(v+21) or 2^n</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Switch sprite N off</description>
+    <code>
+      <line>v=53248 : poke v+21,peek(v+21) and (255-2^n)</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Point sprite N at block P (screen at 1024)</description>
+    <code>
+      <line>rem the sprite's data is at p*64 in the vic bank</line>
+      <line>poke 2040+n,p</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Read 63 bytes of DATA into sprite block P</description>
+    <code>
+      <line>for i=0 to 62 : read d : poke p*64+i,d : next i</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Move sprite N to X (0-511), Y</description>
+    <code>
+      <line>v=53248 : poke v+2*n,x and 255 : poke v+2*n+1,y</line>
+      <line>if x&gt;255 then poke v+16,peek(v+16) or 2^n</line>
+      <line>if x&lt;256 then poke v+16,peek(v+16) and (255-2^n)</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Set sprite N's colour to C</description>
+    <code>
+      <line>poke 53287+n,c</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Multicolour sprite N, shared colours M1 and M2</description>
+    <code>
+      <line>v=53248 : poke v+28,peek(v+28) or 2^n : poke v+37,m1 : poke v+38,m2</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Expand sprite N to double width and height</description>
+    <code>
+      <line>v=53248 : poke v+29,peek(v+29) or 2^n : poke v+23,peek(v+23) or 2^n</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>0</type>
+    <description>Has sprite N hit another sprite?</description>
+    <code>
+      <line>rem reading 53278 clears it, so keep the value</line>
+      <line>sc=peek(53278) : if sc and 2^n then print "hit"</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>1</type>
+    <description>Copy the ROM character set to RAM at 12288 and use it</description>
+    <code>
+      <line>rem keyboard interrupt off, character rom in</line>
+      <line>poke 56334,peek(56334) and 254 : poke 1,peek(1) and 251</line>
+      <line>for i=0 to 2047 : poke 12288+i,peek(53248+i) : next i</line>
+      <line>poke 1,peek(1) or 4 : poke 56334,peek(56334) or 1</line>
+      <line>rem characters at 12288 (slot 6 of the vic bank)</line>
+      <line>poke 53272,(peek(53272) and 240) or 12</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>1</type>
+    <description>Redefine character C from 8 bytes of DATA (set at 12288)</description>
+    <code>
+      <line>for i=0 to 7 : read d : poke 12288+c*8+i,d : next i</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>1</type>
+    <description>Back to the ROM character set</description>
+    <code>
+      <line>poke 53272,21</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>1</type>
+    <description>Print at row R, column C</description>
+    <code>
+      <line>rem the kernal's plot routine moves the cursor</line>
+      <line>poke 781,r : poke 782,c : poke 783,0 : sys 65520 : print "hello";</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>1</type>
+    <description>Put screen code K with colour C at row R, column C1</description>
+    <code>
+      <line>poke 1024+40*r+c1,k : poke 55296+40*r+c1,c</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>2</type>
+    <description>Bitmap mode on (bitmap at 8192, colours from 1024)</description>
+    <code>
+      <line>poke 53265,peek(53265) or 32 : poke 53272,peek(53272) or 8</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>2</type>
+    <description>Clear the bitmap and set its colours (FG, BG)</description>
+    <code>
+      <line>for i=8192 to 16191 : poke i,0 : next i</line>
+      <line>for i=1024 to 2023 : poke i,16*fg+bg : next i</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>2</type>
+    <description>Plot point X (0-319), Y (0-199)</description>
+    <code>
+      <line>by=8192+int(y/8)*320+int(x/8)*8+(y and 7)</line>
+      <line>poke by,peek(by) or 2^(7-(x and 7))</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>2</type>
+    <description>Bitmap mode off</description>
+    <code>
+      <line>poke 53265,peek(53265) and 223 : poke 53272,peek(53272) and 247</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>3</type>
+    <description>Clear the SID chip</description>
+    <code>
+      <line>for l=54272 to 54296 : poke l,0 : next l</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>3</type>
+    <description>Beep</description>
+    <code>
+      <line>s=54272 : poke s+24,15 : poke s+5,9 : poke s+6,0</line>
+      <line>poke s,177 : poke s+1,25 : poke s+4,33</line>
+      <line>for t=1 to 200 : next t : poke s+4,32</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>3</type>
+    <description>Explosion</description>
+    <code>
+      <line>s=54272 : poke s+24,15 : poke s+5,10 : poke s+6,10</line>
+      <line>poke s,0 : poke s+1,6 : poke s+4,129</line>
+      <line>for t=1 to 100 : next t : poke s+4,128</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>3</type>
+    <description>Random numbers from SID voice 3 (R = 0-255)</description>
+    <code>
+      <line>rem voice 3 plays noise at full speed, silently</line>
+      <line>poke 54286,255 : poke 54287,255 : poke 54290,128</line>
+      <line>r=peek(54299)</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Border colour B, background colour C</description>
+    <code>
+      <line>poke 53280,b : poke 53281,c</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Clear the screen</description>
+    <code>
+      <line>print "{clear}";</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Wait for a key (in K$)</description>
+    <code>
+      <line>!1 get k$ : if k$="" then !1</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Wait N jiffies (sixtieths of a second)</description>
+    <code>
+      <line>t=ti</line>
+      <line>!1 if ti-t&lt;n then !1</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Read the joystick in port 2</description>
+    <code>
+      <line>j=(255-peek(56320)) and 31</line>
+      <line>if j and 1 then print "up"</line>
+      <line>if j and 2 then print "down"</line>
+      <line>if j and 4 then print "left"</line>
+      <line>if j and 8 then print "right"</line>
+      <line>if j and 16 then print "fire"</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Random whole number R from 1 to N</description>
+    <code>
+      <line>r=int(rnd(1)*n)+1</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>4</type>
+    <description>Menu: wait for 1, 2 or 3</description>
+    <code>
+      <line>print "1, 2 or 3?"</line>
+      <line>!1 get k$ : if k$&lt;"1" or k$&gt;"3" then !1</line>
+      <line>on val(k$) goto !2,!3,!4</line>
+      <line>!2 print "one" : end</line>
+      <line>!3 print "two" : end</line>
+      <line>!4 print "three" : end</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Clear the screen (KERNAL)</description>
+    <code>
+      <line>        jsr $E544       ; the KERNAL's clear screen</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Fill the screen with a character and a colour</description>
+    <code>
+      <line>        ldx #0</line>
+      <line>fillloop lda #$20       ; the screen code (space)</line>
+      <line>        sta $0400,x</line>
+      <line>        sta $0500,x</line>
+      <line>        sta $0600,x</line>
+      <line>        sta $06E8,x</line>
+      <line>        lda #1          ; the colour (white)</line>
+      <line>        sta $D800,x</line>
+      <line>        sta $D900,x</line>
+      <line>        sta $DA00,x</line>
+      <line>        sta $DAE8,x</line>
+      <line>        inx</line>
+      <line>        bne fillloop</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Wait for the raster to reach line 255</description>
+    <code>
+      <line>waitraster lda $D012</line>
+      <line>        cmp #255</line>
+      <line>        bne waitraster</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Raster interrupt (with the KERNAL's keyboard and clock)</description>
+    <code>
+      <line>        sei</line>
+      <line>        lda #$7F</line>
+      <line>        sta $DC0D       ; CIA 1 timer interrupts off</line>
+      <line>        lda $DC0D       ; and clear any pending</line>
+      <line>        lda #&lt;irq</line>
+      <line>        sta $0314</line>
+      <line>        lda #&gt;irq</line>
+      <line>        sta $0315</line>
+      <line>        lda #250        ; the raster line</line>
+      <line>        sta $D012</line>
+      <line>        lda $D011</line>
+      <line>        and #$7F        ; raster line bit 8 = 0</line>
+      <line>        sta $D011</line>
+      <line>        lda #1</line>
+      <line>        sta $D01A       ; raster interrupts on</line>
+      <line>        cli</line>
+      <line>        rts</line>
+      <line></line>
+      <line>irq     lda #1</line>
+      <line>        sta $D019       ; acknowledge the interrupt</line>
+      <line>        inc $D020       ; your code here</line>
+      <line>        jmp $EA31       ; the KERNAL's handler: keyboard, clock</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Read the joystick in port 2 (bits set when pressed)</description>
+    <code>
+      <line>        lda $DC00</line>
+      <line>        eor #$FF</line>
+      <line>        and #%00011111  ; fire, right, left, down, up</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Random numbers from SID voice 3</description>
+    <code>
+      <line>        lda #$FF</line>
+      <line>        sta $D40E       ; voice 3 frequency: as fast as it goes</line>
+      <line>        sta $D40F</line>
+      <line>        lda #$80</line>
+      <line>        sta $D412       ; noise, gate off: silent</line>
+      <line>        lda $D41B       ; a random byte (read again for more)</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Print a zero-terminated message (CHROUT)</description>
+    <code>
+      <line>        ldx #0</line>
+      <line>printloop lda message,x</line>
+      <line>        beq printdone</line>
+      <line>        jsr $FFD2       ; CHROUT</line>
+      <line>        inx</line>
+      <line>        bne printloop</line>
+      <line>printdone rts</line>
+      <line></line>
+      <line>message byte $48,$45,$4C,$4C,$4F,$0D,0  ; "HELLO", return</line>
+    </code>
+  </snippet>
+  <snippet>
+    <type>5</type>
+    <description>Copy X pages of memory ($FB/$FC to $FD/$FE)</description>
+    <code>
+      <line>; set $FB/$FC to the source, $FD/$FE to the destination, X to the number of pages</line>
+      <line>copypages ldy #0</line>
+      <line>copyloop lda ($FB),y</line>
+      <line>        sta ($FD),y</line>
+      <line>        iny</line>
+      <line>        bne copyloop</line>
+      <line>        inc $FC</line>
+      <line>        inc $FE</line>
+      <line>        dex</line>
+      <line>        bne copyloop</line>
+      <line>        rts</line>
+    </code>
+  </snippet>
+</snippets>

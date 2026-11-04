@@ -49,6 +49,11 @@ can be followed on Linux.
   expression, BASIC POKEs, assembler, and the sprite X/Y over it; or find the cell at an address
   or under a sprite. The screen base can come from VICE or the Memory Manager. See
   [docs/memory.md](docs/memory.md#screen-calculator).
+* **Code Snippets**: a library of BASIC and assembler routines (sprites, characters, hi-res,
+  sound, joystick, raster interrupts…) to insert into a program. BASIC is numbered to fit after
+  your program, with `!1`-style labels for GOTO targets. Kept in CBM prg Studio's
+  `Snippets.xml` format, so you can import CBM's own snippets. See
+  [docs/basic.md](docs/basic.md#code-snippets).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

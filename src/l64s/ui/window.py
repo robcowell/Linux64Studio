@@ -25,6 +25,7 @@ from .binary_tool import BinaryTool  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
 from .memory_manager import MemoryManager  # noqa: E402
 from .snapshot_manager import SnapshotManager  # noqa: E402
+from .snippets_view import SnippetsView  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screen_calculator import ScreenCalculator  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
@@ -91,6 +92,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Renumber BASIC…", "win.renumber")
         sec2.append("Screen Code Builder", "win.screen-codes")
         sec2.append("Screen Calculator", "win.screen-calculator")
+        sec2.append("Code Snippets", "win.snippets")
         sec2.append("Memory Viewer", "win.memory-viewer")
         sec2.append("Memory Manager", "win.memory-manager")
         sec2.append("Snapshots", "win.snapshots")
@@ -223,6 +225,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("screen-calculator", lambda *_: self.open_screen_calculator())
+        add("snippets", lambda *_: self.open_snippets())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
@@ -440,7 +443,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -877,6 +880,18 @@ class MainWindow(Adw.ApplicationWindow):
             mm = next((ed for ed in self.editors() if isinstance(ed, MemoryManager)), None)
             return mm.layout if mm else None
         return self._add_page(ScreenCalculator(kickass, lambda: self.debug, layout, self._insert_into_last_source))
+
+    def open_snippets(self):
+        tool = next((ed for ed in self.editors() if isinstance(ed, SnippetsView)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            return tool
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        return self._add_page(SnippetsView(kickass, self._insert_into_last_source, self._last_source_editor))
+
+    def _last_source_editor(self):
+        ed = self._last_source
+        return ed if ed is not None and ed in self.editors() else None
 
     def open_memory_viewer(self):
         for ed in self.editors():
