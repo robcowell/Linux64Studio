@@ -135,8 +135,12 @@ class Application(Adw.Application):
 
         ka = Adw.PreferencesGroup(title="Kick Assembler",
                                   description="Used for Kick Assembler projects (Retro Game Dev Vol 2, VS Code "
-                                              "workspaces). Point this at KickAss.jar.")
-        jar = Adw.ActionRow(title="KickAss.jar", subtitle=s.kickass_jar or "Not set")
+                                              "workspaces). Point this at KickAss.jar, or leave it unset to use "
+                                              "the one tools/install-kickassembler.sh installs.")
+        from ..project.build import default_kickass_jar
+        installed = default_kickass_jar()
+        unset = f"Not set: using {installed}" if installed else "Not set"
+        jar = Adw.ActionRow(title="KickAss.jar", subtitle=s.kickass_jar or unset)
         pick = Gtk.Button(icon_name="document-open-symbolic", valign=Gtk.Align.CENTER)
         jar.add_suffix(pick)
         java = Adw.EntryRow(title="Java", text=s.java)
@@ -188,7 +192,7 @@ class Application(Adw.Application):
             s.emulator = emu_path.get_text().strip() or "x64sc"
             s.emulator_args = emu_args.get_text().split()
             sub = jar.get_subtitle()
-            s.kickass_jar = "" if sub == "Not set" else sub
+            s.kickass_jar = "" if sub.startswith("Not set") else sub
             s.java = java.get_text().strip() or "java"
             s.goattracker_dir = gt_dir.get_text().strip()
             s.vsid = vsid.get_text().strip() or "vsid"

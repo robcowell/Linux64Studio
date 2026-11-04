@@ -111,6 +111,25 @@ in order, as one program. All labels and macros are shared between files. **veri
 CBM prg Studio, Ctrl+F5 (*Build → Project → And Run*) does this, and F5 builds only the current
 file. Linux64Studio uses the same keys.
 
+A Kick Assembler project names its main file; Kick Assembler is run on it (`java -jar
+KickAss.jar`). **Project Properties → Build** can name a `KickAss.jar` kept in the project (used
+instead of the one in Preferences), and add command-line options such as `-define DEBUG`. A
+different program file name (for a debug build, say) is passed as `-o`. `l64asm project.l64proj`
+builds a Kick Assembler project the same way, from the command line.
+
+**Build events** are commands run before and after a project build, as in CBM prg Studio: one a
+line, in the project folder. `[prg]`, `[prgName]`, `[prgDir]`, `[ProjectDir]`, `[ProjectName]` and
+`[OutputDir]` are filled in. A line starting with `;` is switched off, and `echo text` writes to the
+build output. The after-build commands run only when the build worked, unless you switch that
+off. A command that fails fails the build. They run directly, not through a shell, so use `sh -c
+"…"` for pipes and redirection. For example, to crunch the program with exomizer:
+
+    exomizer sfx basic -n [prg] -o [prg].exo
+
+and set the Disk Image page's **Program file to put on the disk** to `game.prg.exo`. The disk
+image is written after the build events. The project's VICE options (`vice_args` in the
+`.l64proj`) are added to the ones in Preferences whenever the project runs or is debugged.
+
 ## Graphics files
 
 | File | Format | Notes |

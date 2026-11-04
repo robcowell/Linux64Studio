@@ -62,6 +62,18 @@ class Project:
     # Music made with GoatTracker/SidMonkey, packed (songs) or converted (sound effects) before
     # every build: [{"source": "music/tune.sng", "output": "music.bin", "address": 4096, ...}]
     music: list[dict] = field(default_factory=list)
+    # Kick Assembler: the project's own KickAss.jar (relative path; "" = the one in Preferences), and
+    # more command-line options, one per item (e.g. ["-define", "DEBUG"])
+    kickass_jar: str = ""
+    assembler_args: list[str] = field(default_factory=list)
+    # Build events, as in CBM prg Studio: commands run in the project folder before and after a build,
+    # one a line, with presets such as [prg] and [ProjectDir] (see build.build_events)
+    pre_build: list[str] = field(default_factory=list)
+    post_build: list[str] = field(default_factory=list)
+    post_build_always: bool = False  # run the post-build commands even when the build fails
+    # The file to put on the disk image as the program, instead of the built .prg (e.g. a crunched
+    # copy a post-build command makes); "" = the built program
+    disk_program: str = ""
 
     @property
     def directory(self) -> Path:

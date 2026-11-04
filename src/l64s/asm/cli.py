@@ -39,6 +39,19 @@ def main(argv: list[str] | None = None) -> int:
     if len(inputs) == 1 and inputs[0].suffix.lower() in (".cbmprj", ".l64proj"):
         from ..project.model import load_project
         proj = load_project(inputs[0])
+        from ..project.model import TOOLCHAIN_KICKASS
+        if proj.toolchain == TOOLCHAIN_KICKASS:
+            # the whole project build: build events, Kick Assembler, the disk image
+            from ..project.build import build_project
+            from ..settings import Settings
+            settings = Settings.load()
+            res = build_project(proj, kickass_jar=settings.kickass_jar, java=settings.java,
+                                goattracker_dir=settings.goattracker_dir)
+            if not a.quiet or not res.ok:
+                print(res.log, file=sys.stderr if not res.ok else sys.stdout)
+            for d in res.diagnostics:
+                print(d, file=sys.stderr)
+            return 0 if res.ok else 1
         files = proj.build_paths()
         opts.padding_byte = proj.padding_byte
         default_out = proj.output_path()

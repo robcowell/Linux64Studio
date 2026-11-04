@@ -355,7 +355,8 @@ class AnalyseError(ValueError):
 
 
 def analyse(files: list[Path], overrides: dict[str, str] | None = None, kickass: bool = False,
-            scope: Path | None = None, lines: tuple[int, int] | None = None, padding_byte: int = 0) -> Report:
+            scope: Path | None = None, lines: tuple[int, int] | None = None, padding_byte: int = 0,
+            kick_build=None) -> Report:
     """Analyse assembler files (a project's build list, in order). With `scope`, count only that
     file (and with `lines`, only those lines of it); the whole list is still assembled, so
     labels and macros from the other files are known."""
@@ -385,6 +386,27 @@ def analyse(files: list[Path], overrides: dict[str, str] | None = None, kickass:
             return Report(from_listing(res.listing, only), files=[str(t) for t in targets], method="assembled")
         first = next((d for d in res.diagnostics if d.severity == "error"), None)
         note = f" (it doesn't assemble: {first})" if first else " (it doesn't assemble)"
+    if kickass and kick_build is not None:
+        # Kick Assembler's last build and its debug dump: the real instructions, if they're up to date
+        info, prg = kick_build
+        def changed(t: Path) -> bool:
+            if str(t) in overrides:                    # open in an editor: changed if not saved
+                try:
+                    if overrides[str(t)] != t.read_text(encoding="utf-8", errors="replace"):
+                        return True
+                except OSError:
+                    return True
+            return t.exists() and prg.exists() and t.stat().st_mtime > prg.stat().st_mtime
+        stale = [t for t in asm if changed(t)]
+        if not stale:
+            from .kickdbg import instructions
+            from .memmap import from_prg
+            mem = from_prg(prg.read_bytes()).memory
+            want = {str(Path(t).resolve()) for t in targets}
+            instrs = [Instr(f, ln, m, mode, src) for f, ln, m, mode, src in instructions(info, mem)
+                      if str(Path(f).resolve()) in want and (not lines or lines[0] <= ln <= lines[1])]
+            return Report(instrs, files=[str(t) for t in targets], method="assembled (the last build)")
+        note = f" ({Path(stale[0]).name} has changed since the last build: build again for exact figures)"
     instrs, invalid = [], []
     for t in targets:
         i, bad = from_text(text_of(t), str(t), symbols, lines=lines)

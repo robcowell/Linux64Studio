@@ -1,6 +1,7 @@
 """Build a project with its toolchain, producing a .prg plus labels/listing/source map."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ class BuildResult:
     asm_result: Result | None = None
     disk: Path | None = None          # the .d64 written, if the project makes one
     cart: Path | None = None          # the .crt written, if the project makes one
+    kick_debug: object = None         # Kick Assembler builds: the parsed debug dump (kickdbg.DebugInfo)
 
     def run_target(self, project) -> Path | None:
         """What to run: the cartridge, the disk image or the program, as the project says."""
@@ -64,8 +66,14 @@ def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Dia
         format_for(dest)
     except DiskError as e:
         return None, [Diagnostic("error", f"Disk image: {e}", None)], ""
+    program = prg
+    if project.disk_program:
+        program = (project.directory / expand_presets(project.disk_program, project, prg)).resolve()
+        if not program.is_file():
+            return None, [Diagnostic("error", f"Disk image: the program file {project.disk_program} wasn't made "
+                                              f"(a post-build command should write it)", None)], ""
     name = project.disk_file_name or prg.stem
-    files = [(name, prg.read_bytes(), "prg")]
+    files = [(name, program.read_bytes(), "prg")]
     for extra in project.disk_extra_files:
         rel = extra.get("file", "")
         src = (project.directory / rel).resolve()
@@ -101,6 +109,57 @@ def _with_disk(project: Project, res: BuildResult, only_file) -> BuildResult:
     return res
 
 
+def expand_presets(text: str, project: Project, prg: Path | None) -> str:
+    """CBM prg Studio's build event presets, in a command."""
+    out_prg = prg or project.output_path()
+    values = {"[ProjectDir]": str(project.directory), "[ProjectName]": project.name,
+              "[prg]": str(out_prg), "[prgName]": out_prg.name, "[prgDir]": str(out_prg.parent),
+              "[OutputDir]": str((project.directory / project.output_dir).resolve())}
+    for k, v in values.items():
+        text = text.replace(k, v)
+    return text
+
+
+def build_events(project: Project, commands: list[str], prg: Path | None, which: str) -> tuple[bool, list[str]]:
+    """Run build event commands; returns (all succeeded, log lines).
+
+    One command a line, run in the project folder. As in CBM prg Studio, a line starting with ;
+    is switched off and `echo text` writes to the build output. Commands run directly, not through
+    a shell, so use sh -c "..." for pipes and redirection.
+    """
+    import shlex
+    log: list[str] = []
+    for raw in commands:
+        line = raw.strip()
+        if not line or line.startswith(";"):
+            continue
+        line = expand_presets(line, project, prg)
+        if line.lower() == "echo" or line.lower().startswith("echo "):
+            log.append(line[5:])
+            continue
+        try:
+            argv = shlex.split(line)
+        except ValueError as e:
+            log.append(f"{which} command can't be read ({e}): {line}")
+            return False, log
+        log.append(f"> {line}")
+        try:
+            proc = subprocess.run(argv, cwd=project.directory, capture_output=True, text=True, timeout=300)
+        except FileNotFoundError:
+            log.append(f"{which} command not found: {argv[0]}")
+            return False, log
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.append(f"{which} command failed: {e}")
+            return False, log
+        out = (proc.stdout + proc.stderr).rstrip()
+        if out:
+            log.append(out)
+        if proc.returncode != 0:
+            log.append(f"{which} command failed (exit code {proc.returncode}): {line}")
+            return False, log
+    return True, log
+
+
 def build_project(project: Project, overrides: dict[str, str] | None = None,
                   only_file: Path | None = None, kickass_jar: str = "", java: str = "java",
                   goattracker_dir: str = "") -> BuildResult:
@@ -108,10 +167,26 @@ def build_project(project: Project, overrides: dict[str, str] | None = None,
     music_log, music_diags = prepare_music(project, goattracker_dir)
     if any(d.severity == "error" for d in music_diags):
         return BuildResult(False, None, None, music_diags, "\n".join([music_log] + [str(d) for d in music_diags]))
+    pre_log: list[str] = []
+    if project.pre_build:
+        ok, pre_log = build_events(project, project.pre_build, None, "Pre-build")
+        if not ok:
+            d = Diagnostic("error", pre_log[-1], None)
+            return BuildResult(False, None, None, [d], "\n".join(pre_log))
     if project.toolchain == TOOLCHAIN_KICKASS:
-        res = _build_kickass(project, kickass_jar, java, only_file)
+        jar = str((project.directory / project.kickass_jar).resolve()) if project.kickass_jar else \
+            (kickass_jar or default_kickass_jar())
+        res = _build_kickass(project, jar, java, only_file)
     else:
         res = _build_cbm(project, overrides, only_file)
+    if pre_log:
+        res.log = "\n".join(pre_log) + "\n" + res.log
+    if project.post_build and not only_file and (res.ok or project.post_build_always):
+        ok, post_log = build_events(project, project.post_build, res.prg, "Post-build")
+        res.log += "\n" + "\n".join(post_log)
+        if not ok:
+            res.ok = False
+            res.diagnostics.append(Diagnostic("error", post_log[-1], None))
     res = _with_disk(project, res, only_file)
     if music_log:
         res.log = music_log + "\n" + res.log
@@ -240,9 +315,55 @@ def _merge_basic(result: Result, basic) -> None:
 _KA_AT = re.compile(r"at line (\d+), column (\d+) in (.+)$")
 
 
+def default_kickass_jar() -> str:
+    """The Kick Assembler tools/install-kickassembler.sh installs, if it's there."""
+    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    jar = base / "linux64studio" / "KickAssembler" / "KickAss.jar"
+    return str(jar) if jar.is_file() else ""
+
+
+_KA_WRITING = re.compile(r"^Writing (prg|Vice symbol|Symbol) file: (.+)$", re.I)
+
+
+def _written(output: str, folders: list[Path]) -> dict[str, Path]:
+    """The files Kick Assembler says it wrote ("Writing prg file: ..."), by kind. A relative path
+    is tried against each folder in turn."""
+    out: dict[str, Path] = {}
+    for line in output.splitlines():
+        m = _KA_WRITING.match(line.strip())
+        if not m:
+            continue
+        p = Path(m.group(2).strip())
+        candidates = [p] if p.is_absolute() else [f / p for f in folders]
+        hit = next((c for c in candidates if c.exists()), None)
+        if hit:
+            out[m.group(1).lower()] = hit.resolve()
+    return out
+
+
+_KA_VERSIONS: dict[tuple[str, float], tuple[int, int] | None] = {}
+
+
+def kickass_version(java: str, jar: str) -> tuple[int, int] | None:
+    """Kick Assembler's version, from the banner it prints (remembered until the jar changes)."""
+    try:
+        key = (str(Path(jar).resolve()), Path(jar).stat().st_mtime)
+    except OSError:
+        return None
+    if key not in _KA_VERSIONS:
+        try:
+            proc = subprocess.run([java, "-jar", jar], capture_output=True, text=True, timeout=60)
+            m = re.search(r"Kick Assembler v(\d+)\.(\d+)", proc.stdout + proc.stderr)
+            _KA_VERSIONS[key] = (int(m.group(1)), int(m.group(2))) if m else None
+        except (OSError, subprocess.TimeoutExpired):
+            _KA_VERSIONS[key] = None
+    return _KA_VERSIONS[key]
+
+
 def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildResult:
     if not jar or not Path(jar).is_file():
-        d = Diagnostic("error", "Kick Assembler isn't set up: choose KickAss.jar in Preferences", None)
+        d = Diagnostic("error", "Kick Assembler isn't set up: choose KickAss.jar in Preferences, or run "
+                                   "tools/install-kickassembler.sh", None)
         return BuildResult(False, None, None, [d], str(d))
     if not shutil.which(java):
         d = Diagnostic("error", f"Java runtime '{java}' not found", None)
@@ -250,9 +371,21 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
     main = Path(only_file) if only_file else project.directory / project.main_file
     out_dir = (project.directory / project.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [java, "-jar", jar, str(main), "-odir", str(out_dir), "-vicesymbols", "-symbolfile"]
+    # -odir relative to the main file's folder: Kick Assembler 4 adds even an absolute path to that
+    # folder (writing to <source dir>/home/...); Kick Assembler 5 takes either
+    odir = os.path.relpath(out_dir, main.resolve().parent)
+    cmd = [java, "-jar", jar, str(main), "-odir", odir, "-vicesymbols", "-symbolfile"]
+    version = kickass_version(java, jar)
+    if version is None or version >= (5, 0):
+        cmd.append("-debugdump")            # source lines for the debugger (Kick Assembler 5 and later)
     for lib in project.lib_dirs:
         cmd += ["-libdir", str((project.directory / lib).resolve())]
+    prg_name = main.with_suffix(".prg").name
+    if project.executable and not only_file and Path(project.executable).name != prg_name:
+        prg_name = Path(project.executable).name
+        # Kick Assembler 5 reads -o from the folder it runs in (the project's), not from -odir
+        cmd += ["-o", os.path.relpath(out_dir / prg_name, project.directory)]
+    cmd += list(project.assembler_args)
     try:
         proc = subprocess.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -272,9 +405,25 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
             if not f.is_absolute():
                 f = (project.directory / f).resolve()
             diags[-1] = Diagnostic("error", diags[-1].message, SourceLoc(str(f), int(m.group(1))))
-    prg = out_dir / main.with_suffix(".prg").name
+    # Where the files went, as Kick Assembler reports them (its versions put them in different
+    # places), else where they should be
+    written = _written(proc.stdout + proc.stderr, [project.directory, out_dir, main.resolve().parent])
+    prg = written.get("prg") or out_dir / prg_name
     ok = proc.returncode == 0 and prg.exists()
     if not ok and not diags:
         diags.append(Diagnostic("error", f"Kick Assembler failed (exit code {proc.returncode})", None))
-    labels = prg.with_suffix(".vs")
-    return BuildResult(ok, prg if ok else None, labels if labels.exists() else None, diags, log)
+    labels = written.get("vice symbol") or next(
+        (p for p in (prg.with_suffix(".vs"), out_dir / main.with_suffix(".vs").name) if p.exists()), None)
+    res = BuildResult(ok, prg if ok else None, labels if labels and labels.exists() else None, diags, log)
+    # -debugdump writes <program>.dbg next to the program (Kick Assembler 5)
+    dbg = next((p for p in (prg.with_suffix(".dbg"), out_dir / main.with_suffix(".dbg").name) if p.exists()),
+               prg.with_suffix(".dbg"))
+    if ok and dbg.exists():
+        # -debugdump: which line made which bytes, for source-level debugging and the memory tools
+        from ..kickdbg import DebugDumpError, parse, source_map
+        try:
+            res.kick_debug = parse(dbg, project.directory)
+            res.srcmap = source_map(res.kick_debug)
+        except DebugDumpError as e:
+            res.log += f"\n{e}"
+    return res

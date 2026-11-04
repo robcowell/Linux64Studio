@@ -60,6 +60,22 @@ build it came from.
 The snapshot files are read directly for listing and comparing, without VICE (`tests/test_snapshot.py`;
 the save and restore round trip through VICE runs with `L64S_VICE_TESTS=1`).
 
+## Kick Assembler projects
+
+Kick Assembler projects (Vol 2, or your own) get the same source-level debugging: breakpoints in
+the gutter, the current line highlighted as you step, and stepping into other files. Kick
+Assembler 5 and later write a debug dump (`-debugdump`, a `.dbg` file of which line made which
+bytes), and Linux64Studio passes that option and reads the file after every build. A line inside a
+macro is shown at the macro's own line, where the code is written, rather than where it's used.
+The labels come from the dump too. When two labels share an address, the more specific one is
+used (`active` rather than the `player_state` block it starts).
+
+Kick Assembler 4 can't write the dump, so with it you get VICE and its monitor with your
+labels, but no source lines. Run `tools/install-kickassembler.sh` to get the latest Kick
+Assembler (5.25 at the time of writing). It goes in `~/.local/share/linux64studio/KickAssembler/`,
+which Linux64Studio uses when Preferences doesn't name a `KickAss.jar` and the project doesn't
+bring its own.
+
 ## Notes on VICE
 
 These are worked around automatically, and were found with VICE 3.7.1:

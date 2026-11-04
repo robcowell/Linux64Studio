@@ -143,8 +143,10 @@ known. A macro's instructions are counted at each line that uses it. A file or s
 still assembled with the rest of the project, so labels and macros from the other files are
 known. A file outside the build list is assembled on its own.
 
-For **Kick Assembler** projects, which this assembler can't build, the instructions are read
-from the source text. It starts from the main file and follows its `#import`s; an import whose
+For **Kick Assembler** projects, the last build's debug dump (Kick Assembler 5) and program give
+the exact instructions: each use of a macro counts, at the macro's line. If a file has changed
+since that build, or there's no dump, the instructions are read from the source text instead,
+and the results say why. It starts from the main file and follows its `#import`s; an import whose
 case differs from the file on disk, as in the book's `../../Library/`, is still found. Labels
 with a plain number (`.const`, `.label`, `.var`, `NAME = $FB`) are used to tell zero page from
 absolute. Any other label counts as absolute. Macro bodies are counted once, where they're

@@ -44,9 +44,10 @@ Each graphics view has hires/multicolour and the four colours.
 
 ## Last build or running program
 
-**Last build** uses the program from the last successful build, with no emulator needed. Kick
-Assembler builds show the whole program as one segment, since the per-file detail comes from
-the built-in assembler.
+**Last build** uses the program from the last successful build, with no emulator needed. For a
+Kick Assembler 5 build, the segments, kinds and labels come from its debug dump (see
+[debugger.md](debugger.md#kick-assembler-projects)). With Kick Assembler 4 there's no dump, so
+the program is one segment, labelled from its VICE labels file.
 
 **Running program (VICE)** needs a debug session (Shift+F5). It takes a snapshot of memory as
 the CPU sees it, including whatever the program has drawn or changed. A running program pauses

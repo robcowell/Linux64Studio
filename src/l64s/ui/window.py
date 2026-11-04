@@ -755,9 +755,13 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             self._launch(res.run_target(self.project) if self.project else res.prg, res.labels)
 
+    def _vice_args(self) -> list[str]:
+        """VICE options: the ones in Preferences, then the project's own."""
+        return list(self.settings.emulator_args) + (list(self.project.vice_args) if self.project else [])
+
     def _launch(self, target: Path, labels: Path | None = None):
         try:
-            proc = vice.launch(target, self.settings.emulator, labels, None, self.settings.emulator_args)
+            proc = vice.launch(target, self.settings.emulator, labels, None, self._vice_args())
             self._vice_procs.append(proc)
             self.toast(f"Running {target.name} in VICE")
         except FileNotFoundError as e:
@@ -827,9 +831,9 @@ class MainWindow(Adw.ApplicationWindow):
         return addrs
 
     def _start_debug(self, res: BuildResult):
-        if self.project and self.project.toolchain == TOOLCHAIN_KICKASS:
-            self.toast("Source-level debugging needs the built-in assembler; running in VICE with the monitor enabled")
-        symbols = {}
+        if self.project and self.project.toolchain == TOOLCHAIN_KICKASS and not res.srcmap:
+            self.toast("Kick Assembler didn't write a debug dump (.dbg), so the debugger can't show source lines")
+        symbols = self._build_symbols(res)
         if res.asm_result:
             for key, value in res.asm_result.symbols.items():
                 name = res.asm_result.names.get(key, key)
@@ -837,7 +841,7 @@ class MainWindow(Adw.ApplicationWindow):
                     symbols[value] = name
         start = res.run_target(self.project) if self.project else res.prg
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
-                               self.settings.emulator_args)
+                               self._vice_args())
         self.debug = session
         self.debugger.attach(session)
         pending = getattr(self, "_pending_snapshot", None)
@@ -967,6 +971,9 @@ class MainWindow(Adw.ApplicationWindow):
                                     [self.project.directory / d for d in self.project.lib_dirs])
         req = {"files": list(build), "overrides": self._overrides(), "kickass": kickass,
                "padding_byte": self.project.padding_byte if self.project else 0}
+        lb = self.last_build
+        if kickass and lb and lb.ok and lb.prg and lb.kick_debug is not None:
+            req["kick_build"] = (lb.kick_debug, lb.prg)
         if scope == "project":
             if not self.project:
                 return "Open a project first, or analyse the current file"
@@ -1094,9 +1101,35 @@ class MainWindow(Adw.ApplicationWindow):
                 name = res.asm_result.names.get(key, key)
                 if "__m" not in key and not name.startswith("@") and value not in symbols:
                     symbols[value] = name
+        elif res.kick_debug is not None:
+            from ..kickdbg import memory_map
+            m = memory_map(res.prg.read_bytes(), res.kick_debug, res.prg.name)
+            symbols = self._build_symbols(res)
         else:
             m = memmap.from_prg(res.prg.read_bytes(), res.prg.name)
+            symbols = self._build_symbols(res)
         return m, symbols, f"Last build: {res.prg.name}"
+
+    @staticmethod
+    def _build_symbols(res: BuildResult) -> dict[int, str]:
+        """address -> label for a build that wasn't made by the built-in assembler: from Kick
+        Assembler's debug dump, or else its VICE labels file."""
+        if res.asm_result:
+            return {}
+        if res.kick_debug is not None:
+            from ..kickdbg import symbols
+            return symbols(res.kick_debug)
+        out: dict[int, str] = {}
+        if res.labels and res.labels.exists():
+            for line in res.labels.read_text(errors="replace").splitlines():
+                parts = line.split()
+                if len(parts) >= 3 and parts[0] == "al":
+                    try:
+                        addr = int(parts[1].split(":")[-1], 16)
+                    except ValueError:
+                        continue
+                    out.setdefault(addr, parts[2].lstrip("."))
+        return out
 
     def _open_source_line(self, file: str, line: int):
         ed = self.open_file(Path(file))
@@ -1328,6 +1361,48 @@ class MainWindow(Adw.ApplicationWindow):
             rebuild()
         rebuild()
 
+        # ---------- build page: Kick Assembler options and build events
+        import shlex
+        bpage = Adw.PreferencesPage(title="Build", icon_name="system-run-symbolic")
+        win.add(bpage)
+        kg = Adw.PreferencesGroup(title="Kick Assembler")
+        bpage.add(kg)
+        k_jar = Adw.EntryRow(title="KickAss.jar for this project (empty = the one in Preferences)",
+                             text=p.kickass_jar)
+        k_args = Adw.EntryRow(title="More command-line options, e.g. -define DEBUG",
+                              text=" ".join(shlex.quote(a) for a in p.assembler_args))
+        kg.add(k_jar)
+        kg.add(k_args)
+        eg = Adw.PreferencesGroup(
+            title="Build events",
+            description="Commands run in the project folder before and after a project build, one a line, as in "
+                        "CBM prg Studio. [prg], [prgName], [prgDir], [ProjectDir], [ProjectName] and [OutputDir] are "
+                        "filled in; a line starting with ; is skipped; echo text writes to the build output. "
+                        "Commands don't go through a shell: use sh -c \"…\" for pipes and redirection.")
+        bpage.add(eg)
+
+        def commands_box(title):
+            # a group of its own, so the box sits under its title (groups put rows before other widgets)
+            g = Adw.PreferencesGroup(title=title)
+            bpage.add(g)
+            tv = Gtk.TextView(monospace=True, top_margin=6, bottom_margin=6, left_margin=6,
+                              css_classes=["card", "monospace"])
+            tv.set_size_request(-1, 80)
+            g.add(tv)
+            return g, tv
+        _pre_g, pre_tv = commands_box("Before the build")
+        pre_tv.get_buffer().set_text("\n".join(p.pre_build))
+        post_g, post_tv = commands_box("After the build")
+        post_tv.get_buffer().set_text("\n".join(p.post_build))
+        post_always = Adw.SwitchRow(title="Run them even if the build fails", active=p.post_build_always)
+        ag = Adw.PreferencesGroup()
+        ag.add(post_always)
+        bpage.add(ag)
+
+        def lines_of(tv):
+            b = tv.get_buffer()
+            return [ln for ln in b.get_text(b.get_start_iter(), b.get_end_iter(), False).splitlines() if ln.strip()]
+
         # ---------- disk image page
         dpage = Adw.PreferencesPage(title="Disk Image", icon_name="media-floppy-symbolic")
         win.add(dpage)
@@ -1351,10 +1426,13 @@ class MainWindow(Adw.ApplicationWindow):
         d_name = Adw.EntryRow(title="Disk name (16 characters)", text=p.disk_name or p.name[:16])
         d_id = Adw.EntryRow(title="Disk ID (2 characters)", text=p.disk_id or "00")
         d_file = Adw.EntryRow(title="Program's name on the disk", text=p.disk_file_name or stem[:16])
+        d_prog = Adw.EntryRow(title="Program file to put on the disk (empty = the built .prg)",
+                              text=p.disk_program)
+        d_prog.set_tooltip_text("For example a crunched copy that a post-build command makes, such as game.prg.exo")
         d_run = Adw.SwitchRow(title="Run from the disk image",
                               subtitle="Ctrl+F5 and debugging autostart the .d64 instead of the .prg",
                               active=p.run_from_disk)
-        for w in (d_on, d_kind, d_path, d_name, d_id, d_file, d_run):
+        for w in (d_on, d_kind, d_path, d_name, d_id, d_file, d_prog, d_run):
             dg.add(w)
         xg = Adw.PreferencesGroup(title="More files on the disk",
                                   description="Added after the program: other programs, data files (SEQ) and so on.")
@@ -1471,6 +1549,15 @@ class MainWindow(Adw.ApplicationWindow):
             p.disk_file_name = d_file.get_text().strip()[:16]
             p.run_from_disk = d_run.get_active()
             p.disk_extra_files = extras
+            p.disk_program = d_prog.get_text().strip()
+            p.kickass_jar = k_jar.get_text().strip()
+            try:
+                p.assembler_args = shlex.split(k_args.get_text())
+            except ValueError:
+                self.toast("The Kick Assembler options have an unmatched quote; they weren't changed")
+            p.pre_build = lines_of(pre_tv)
+            p.post_build = lines_of(post_tv)
+            p.post_build_always = post_always.get_active()
             p.cart_type = ckeys[c_type.get_selected()] if c_on.get_active() else ""
             p.cart_file = c_file.get_text().strip()
             p.cart_name = c_name.get_text().strip()[:32]

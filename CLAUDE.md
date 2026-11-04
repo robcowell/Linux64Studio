@@ -13,8 +13,9 @@ sources build unchanged. `docs/dialect.md` is the spec of that dialect.
   module, a GObject typelib, a system package), stop and ask Rob to install it, with the exact
   command (e.g. `! sudo apt install python3-numpy`). Don't work around it by writing a
   substitute, picking a weaker approach, or vendoring code.
-- Don't run downloaded third-party executables or jars (e.g. `KickAss.jar`, CBM prg Studio's
-  files in the scratchpad); read and analyse them only.
+- Running Kick Assembler (`java -jar KickAss.jar`, the book's copy or a project's own) is fine:
+  use it to build and test Kick Assembler projects. CBM prg Studio's Windows files (extracted in
+  the scratchpad) are only read and analysed, not run.
 
 ## Commands
 
@@ -25,6 +26,7 @@ uv venv --system-site-packages .venv && uv pip install --python .venv -e .   # P
 L64S_VICE_TESTS=1 .venv/bin/python -m pytest                  # also the opt-in tests that launch VICE
 .venv/bin/linux64studio [project.cbmprj]                      # the IDE
 .venv/bin/l64asm chapter17.cbmprj                             # CLIs: l64asm l64bas l64disk l64cart l64sid l64bin
+tools/install-kickassembler.sh   # Kick Assembler 5.25 into ~/.local/share/linux64studio (the default jar)
 ```
 
 There's no lint config in the repo; `uvx ruff check --line-length 120 <files>` works but its

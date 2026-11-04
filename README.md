@@ -9,6 +9,8 @@ can be followed on Linux.
   identical to the book's `.prg` files. See [docs/dialect.md](docs/dialect.md).
 * **Projects**: opens CBM prg Studio `.cbmprj` files directly, using the same build order.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
+  Projects can run **build events** before and after a build (e.g. crunch with exomizer), as in
+  CBM prg Studio ([docs/dialect.md](docs/dialect.md#projects)).
 * **Editor** with 6502 syntax highlighting, error navigation and breakpoints in the gutter.
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
@@ -142,7 +144,10 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 Volume 2 uses **Kick Assembler** with VS Code, not CBM prg Studio. Kick Assembler is a Java
 program that already runs on Linux. Open a chapter's `.code-workspace` file, then set the
 path to `KickAss.jar` (included in the book's `Tools/KickAssembler` folder) under
-Preferences → Kick Assembler.
+Preferences → Kick Assembler. Or run `tools/install-kickassembler.sh`, which downloads the
+latest Kick Assembler (5.25) from its official site, for Linux64Studio to use whenever
+Preferences doesn't name one. Kick Assembler 5 builds get source-level debugging
+([docs/debugger.md](docs/debugger.md#kick-assembler-projects)).
 
 The `Chapters/Content` folder appears in the project's file list, because the code imports
 from it. Open `BeachBarSprites*.spd` in the sprite editor, or `BeachBarScreens.ctm` in the
