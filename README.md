@@ -101,7 +101,8 @@ can be followed on Linux.
   and the current source line highlighted. You can **edit registers and flags** and **edit
   memory** in a hex editor (type over bytes, go to an address or label, write byte lists or
   text); changes since the last stop are highlighted. Uses VICE's binary monitor. See
-  [docs/debugger.md](docs/debugger.md).
+  [docs/debugger.md](docs/debugger.md). Builds can also write a Kick Assembler-style `.dbg` debug dump
+  for C64 Debugger, RetroDebugger or VS64.
 
 ## Install
 

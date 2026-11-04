@@ -1538,6 +1538,14 @@ class MainWindow(Adw.ApplicationWindow):
                               text=" ".join(shlex.quote(a) for a in p.assembler_args))
         kg.add(k_jar)
         kg.add(k_args)
+        dd = Adw.SwitchRow(title="Write a debug dump (.dbg)",
+                           subtitle="Kick Assembler's format, which C64 Debugger, RetroDebugger and VS64 read "
+                                    "for source-level debugging. Kick Assembler projects always get one.",
+                           active=p.debug_dump)
+        if p.toolchain != TOOLCHAIN_KICKASS:
+            dg = Adw.PreferencesGroup(title="Debugging in other tools")
+            dg.add(dd)
+            bpage.add(dg)
         eg = Adw.PreferencesGroup(
             title="Build events",
             description="Commands run in the project folder before and after a project build, one a line, as in "
@@ -1723,6 +1731,7 @@ class MainWindow(Adw.ApplicationWindow):
             p.pre_build = lines_of(pre_tv)
             p.post_build = lines_of(post_tv)
             p.post_build_always = post_always.get_active()
+            p.debug_dump = dd.get_active()
             p.cart_type = ckeys[c_type.get_selected()] if c_on.get_active() else ""
             p.cart_file = c_file.get_text().strip()
             p.cart_name = c_name.get_text().strip()[:32]

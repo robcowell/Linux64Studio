@@ -321,7 +321,10 @@ def _build_cbm(project: Project, overrides, only_file, pbasic: PBasicOptions | N
         return BuildResult(True, None, None, result.diagnostics, "\n".join(log),
                            srcmap=source_map(result), asm_result=result, basic_preview=previews)
     if result.ok:
-        write_outputs(result, out, labels=labels, lst=out.with_suffix(".lst"))
+        dbg = out.with_suffix(".dbg") if project.debug_dump else None
+        write_outputs(result, out, labels=labels, lst=out.with_suffix(".lst"), dbg=dbg)
+        if dbg:
+            log.append(f"Wrote the debug dump {dbg.name}")
         if p00_name is not None:
             out.write_bytes(p00(result.prg(), p00_name))
             log.append(f"Wrote {out.name} as a PC64 .p00 file named {p00_name.upper()[:16]}")

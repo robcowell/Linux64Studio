@@ -71,6 +71,9 @@ class Project:
     pre_build: list[str] = field(default_factory=list)
     post_build: list[str] = field(default_factory=list)
     post_build_always: bool = False  # run the post-build commands even when the build fails
+    # Built-in assembler: also write a debug dump (.dbg) in Kick Assembler's format, for debuggers
+    # such as C64 Debugger, RetroDebugger and VS64
+    debug_dump: bool = False
     # The file to put on the disk image as the program, instead of the built .prg (e.g. a crunched
     # copy a post-build command makes); "" = the built program
     disk_program: str = ""

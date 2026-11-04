@@ -75,6 +75,7 @@ class Result:
     generate_to: list[str] | None = None          # GENERATETO's arguments
     messages: list[str] = field(default_factory=list)              # DEBUG output
     target: str = "TGT_C64"
+    label_locs: dict[str, SourceLoc] = field(default_factory=dict)  # address label key -> where it's defined
 
     def binary(self) -> bytes:
         if self.save_block is not None:
@@ -369,6 +370,7 @@ class Assembler:
             generate_to=state["generate_to"],
             messages=state["messages"],
             target=self.target,
+            label_locs=state["label_locs"],
         )
         return res
 
@@ -389,7 +391,7 @@ class Assembler:
               "zpopt": opt.zp_optimise, "charset": 1, "warnings": True, "file": "",
               "debug": {"pass": None, "auto": False, "hex": True},
               "no_load_address": False, "save_block": None, "padding": None, "exports": {}, "watches": [],
-              "breakpoints": [], "debug_start": None, "generate_to": None, "messages": []}
+              "breakpoints": [], "debug_start": None, "generate_to": None, "messages": [], "label_locs": {}}
         cond_stack: list[bool] = []  # True = currently assembling
         owner: dict[str, str] = {}   # label key -> the file that defined it first
         # A plain label is local to its file (CBM prg Studio): the same name in another file is a
@@ -437,7 +439,8 @@ class Assembler:
         def evaluate(text: str) -> int:
             return Evaluator(lookup, st["pc"], st["calc"], char_value).evaluate(text)
 
-        def define(label: str, value: int, loc: SourceLoc):
+        def define(label: str, value: int, loc: SourceLoc, address: bool = False):
+            """Set a label (`address`: one on a line of code, not NAME = value)."""
             key = resolve_name(label)
             if key in symbols:
                 if (not key.endswith("$") and not key.startswith(owner.get(key, st["file"]) + "::")
@@ -446,12 +449,16 @@ class Assembler:
                     if key not in symbols:
                         symbols[key] = value
                         names.setdefault(key, label)
+                        if address:
+                            st["label_locs"].setdefault(key, loc)
                         return
                 diags.append(Diagnostic("error", f"Label '{label}' is already defined", loc))
                 return
             symbols[key] = value
             owner[key] = st["file"]
             names.setdefault(key, label if not label.startswith("@") else key)
+            if address:
+                st["label_locs"].setdefault(key, loc)
 
         def emit(data: bytes | bytearray | list[int], stmt: Statement):
             pc = st["pc"]
@@ -526,7 +533,7 @@ class Assembler:
                 if s.label and s.kind != "const":
                     if st["pc"] is None:
                         raise AsmError(f"Label '{s.label}' defined before any origin (*=)")
-                    define(s.label, st["pc"], loc)
+                    define(s.label, st["pc"], loc, address=True)
                     if not s.label.startswith("@"):
                         st["scope"] = s.label
                 k = s.kind
@@ -715,7 +722,7 @@ class Assembler:
                 if not used[a]:
                     mem[a] = st["padding"]
         out = {k: st[k] for k in ("no_load_address", "save_block", "padding", "exports", "watches", "breakpoints",
-                                  "debug_start", "generate_to", "messages")}
+                                  "debug_start", "generate_to", "messages", "label_locs")}
         return {"symbols": symbols, "undefined": st["undefined"], "size_changed": st["size_changed"],
                 "mem": mem, "used": used, "start": st["lo"], "end": st["hi"], "diags": diags,
                 "listing": listing, "names": names, **out}

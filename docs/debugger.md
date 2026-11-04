@@ -91,6 +91,20 @@ Assembler (5.25 at the time of writing). It goes in `~/.local/share/linux64studi
 which Linux64Studio uses when Preferences doesn't name a `KickAss.jar` and the project doesn't
 bring its own.
 
+## Debugging in other tools (.dbg)
+
+Kick Assembler 5's debug dump (`-debugdump`) is a `.dbg` file that tells a debugger which source
+line made which bytes, and where each label is. C64 Debugger, RetroDebugger and VS64 read it to
+show the source as the program runs. Kick Assembler projects always get one. For a CBM prg Studio
+project, switch on **Project Properties → Build → Write a debug dump (.dbg)**, or run
+`l64asm game.cbmprj --debugdump` (`--debugdump file.dbg` to name it). It's written next to the
+program, with the same name.
+
+It's in Kick Assembler's own format: for the same instructions, the rows are what Kick Assembler
+5.25 writes (`tests/asm/test_debugdump.py` runs both). As in Kick Assembler's, a line in a macro
+is listed at the macro's own line, not where the macro is used. Source `breakpoint` and `watch`
+directives go in its Breakpoints and Watchpoints.
+
 ## Notes on VICE
 
 These are worked around automatically, and were found with VICE 3.7.1:

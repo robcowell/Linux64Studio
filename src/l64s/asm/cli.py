@@ -21,6 +21,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-l", "--labels", help="write a VICE label file")
     ap.add_argument("--list", dest="listing", help="write a listing file")
     ap.add_argument("--srcmap", help="write an address->source map (JSON)")
+    ap.add_argument("--debugdump", nargs="?", const="", metavar="FILE",
+                    help="write a debug dump in Kick Assembler's format (default: the program's name, .dbg)")
     ap.add_argument("--raw", action="store_true", help="write a raw binary without the 2-byte load address")
     ap.add_argument("--d64", metavar="IMAGE", help="also write a disk image (.d64, .d71 or .d81) with the program")
     ap.add_argument("--disk-name", help='disk name and ID for --d64, e.g. "my game,mg"')
@@ -36,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     opts = Options(illegal_opcodes=a.illegal, case_sensitive=a.case_sensitive, text_encoding=a.text)
     inputs = [Path(p) for p in a.inputs]
     default_out: Path
+    debug_dump = False                # the project's own setting
     if len(inputs) == 1 and inputs[0].suffix.lower() in (".cbmprj", ".l64proj"):
         from ..project.model import load_project
         proj = load_project(inputs[0])
@@ -55,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
         files = proj.build_paths()
         opts.padding_byte = proj.padding_byte
         default_out = proj.output_path()
+        debug_dump = proj.debug_dump
     else:
         files = inputs
         default_out = inputs[0].with_suffix(".prg")
@@ -66,11 +70,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"l64asm: {len(result.errors)} error(s)", file=sys.stderr)
         return 1
     out = Path(a.output) if a.output else default_out
+    dbg = None
+    if a.debugdump is not None or debug_dump:
+        dbg = Path(a.debugdump) if a.debugdump else out.with_suffix(".dbg")
     write_outputs(result, out,
                   labels=Path(a.labels) if a.labels else None,
                   lst=Path(a.listing) if a.listing else None,
                   srcmap=Path(a.srcmap) if a.srcmap else None,
-                  raw=a.raw)
+                  raw=a.raw, dbg=dbg)
     if not a.quiet and result.start is not None:
         print(f"{out}: ${result.start:04X}-${result.end - 1:04X} ({result.end - result.start} bytes, "
               f"{result.passes} passes)")
