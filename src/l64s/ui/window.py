@@ -1,6 +1,7 @@
 """The main IDE window."""
 from __future__ import annotations
 
+import os
 import re
 import threading
 from pathlib import Path
@@ -235,6 +236,8 @@ class MainWindow(Adw.ApplicationWindow):
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
+        add("goto-definition", lambda *_: self.goto_definition())
+        add("go-back", lambda *_: self.go_back())
         add("pbasic-create-label", lambda *_: self.pbasic_create_label())
         add("pbasic-remove-numbers", lambda *_: self.pbasic_remove_numbers())
         add("pbasic-preview", lambda *_: self.pbasic_preview())
@@ -1330,6 +1333,151 @@ class MainWindow(Adw.ApplicationWindow):
             else:
                 self.toast("Renumbered (Ctrl+Z to undo)")
         dlg.choose(self, None, chosen)
+
+    # ================================================================== definitions
+    ASM_EXTS = (".asm", ".s", ".a", ".inc", ".i")
+
+    def symbol_index(self):
+        """The project's definitions, brought up to date (unsaved editors included)."""
+        from ..symindex import SymbolIndex
+        if getattr(self, "_symbols", None) is None:
+            self._symbols = SymbolIndex()
+        files = [f for f in (self.project.all_files() if self.project else []) if f.suffix.lower() in self.ASM_EXTS]
+        seen = {f.resolve() for f in files}
+        for e in self.editors():
+            if isinstance(e, SourceEditor) and e.path and e.path.suffix.lower() in self.ASM_EXTS \
+                    and e.path.resolve() not in seen:
+                files.append(e.path)
+        overrides = {str(e.path): e.get_text() for e in self.editors()
+                     if isinstance(e, SourceEditor) and e.path and e.modified}
+        kick = None if not self.project else self.project.toolchain == TOOLCHAIN_KICKASS
+        self._symbols.update(files, overrides, kick)
+        return self._symbols
+
+    def _symbol_value(self, sym) -> int | None:
+        """A label's value in the last build (found by where it's defined), if it was built."""
+        res = getattr(self, "last_build", None)
+        if res is None:
+            return None
+        here = Path(sym.file).resolve()
+        if res.asm_result is not None:
+            for key, loc in res.asm_result.label_locs.items():
+                if loc.line == sym.line and loc.file and Path(loc.file).resolve() == here:
+                    return res.asm_result.symbols.get(key)
+        if res.kick_debug is not None:
+            for addr, _name, f, line in res.kick_debug.labels:
+                if line == sym.line and f and Path(f).resolve() == here:
+                    return addr
+        return None
+
+    def describe_symbol(self, ed, line_text: str, col: int, line_no: int) -> str | None:
+        """Hover text for a name: where it's defined, that line, and its value in the last build."""
+        from ..symindex import word_at
+        if not ed.path:
+            return None
+        _s, _e, word = word_at(line_text, col)
+        if not word:
+            return None
+        defs = self.symbol_index().definitions(word, str(ed.path), line_no)
+        if not defs:
+            return None
+        d = defs[0]
+        try:
+            where = os.path.relpath(d.file, self.project.directory) if self.project else Path(d.file).name
+        except ValueError:
+            where = d.file
+        text = f"{d.name}: {d.kind} in {where}, line {d.line}\n{d.text}"
+        v = self._symbol_value(d) if d.kind in ("label", "local") else None
+        if v is not None:
+            text += f"\n= ${v:04X} ({v}) in the last build"
+        if len(defs) > 1:
+            text += f"\n(also defined in {len(defs) - 1} other place{'s' if len(defs) > 2 else ''})"
+        return text + "\nF12 or Ctrl+click: go to it"
+
+    def goto_definition(self, ed=None):
+        """F12 / Ctrl+click / right-click: open where the name at the cursor is defined (or the
+        file an include line names, or in BASIC the line a GOTO goes to)."""
+        from ..symindex import basic_target, include_at, word_at
+        ed = ed or self.current_editor()
+        if not isinstance(ed, SourceEditor):
+            return
+        line_no, col, line_text = ed.position_at_click()
+        ed._click_iter_offset = None
+        if ed.is_basic:
+            target = basic_target(ed.get_text(), line_no, col, self.settings.pbasic_options().prefix)
+            if target is None:
+                self.toast("Put the cursor on the line number (or label) after a GOTO, GOSUB or THEN")
+                return
+            self._push_back(ed)
+            ed.goto_line(target)
+            return
+        inc = include_at(line_text, ed.path.parent) if ed.path else None
+        _s, _e, word = word_at(line_text, col)
+        if inc is not None and (not word or line_text.find(word) > line_text.find(" ")):
+            if inc.exists():
+                self._push_back(ed)
+                self.open_file(inc)
+            else:
+                self.toast(f"{inc.name} doesn't exist")
+            return
+        if not word:
+            self.toast("Put the cursor on a label, constant or macro name")
+            return
+        defs = self.symbol_index().definitions(word, str(ed.path) if ed.path else None, line_no)
+        here = str(ed.path.resolve()) if ed.path else None
+        others = [d for d in defs if not (d.file == here and d.line == line_no)]
+        if not defs:
+            self.toast(f"No definition of {word} in the project")
+            return
+        if not others:
+            self.toast(f"This is where {word} is defined")
+            return
+        if len(others) == 1:
+            self._jump_to(ed, others[0])
+            return
+        self._choose_definition(ed, word, others)
+
+    def _jump_to(self, ed, sym):
+        self._push_back(ed)
+        target = self.open_file(Path(sym.file))
+        if isinstance(target, SourceEditor):
+            target.goto_position(sym.line, sym.col, len(sym.name))
+
+    def _choose_definition(self, ed, word, defs):
+        dlg = Adw.AlertDialog(heading=f"{word} is defined in {len(defs)} places")
+        lb = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        for d in defs:
+            try:
+                where = os.path.relpath(d.file, self.project.directory) if self.project else Path(d.file).name
+            except ValueError:
+                where = d.file
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f"{where}:{d.line}"),
+                                subtitle=GLib.markup_escape_text(d.text), activatable=True)
+            row.connect("activated", lambda _r, s=d: (dlg.close(), self._jump_to(ed, s)))
+            lb.append(row)
+        sc = Gtk.ScrolledWindow(propagate_natural_height=True, max_content_height=360)
+        sc.set_child(lb)
+        dlg.set_extra_child(sc)
+        dlg.add_response("cancel", "Cancel")
+        dlg.present(self)
+
+    def _push_back(self, ed):
+        if not ed.path:
+            return
+        stack = self.__dict__.setdefault("_back", [])
+        stack.append((ed.path, ed.current_line()))
+        del stack[:-50]
+
+    def go_back(self):
+        """Alt+Left: back to where Go to Definition jumped from."""
+        stack = self.__dict__.get("_back") or []
+        if not stack:
+            self.toast("Nowhere to go back to")
+            return
+        path, line = stack.pop()
+        ed = self.open_file(path)
+        if isinstance(ed, SourceEditor):
+            ed.goto_line(line, select=False)
 
     # ================================================================== pBASIC
     def _pbasic_editor(self) -> SourceEditor | None:

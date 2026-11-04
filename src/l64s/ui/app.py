@@ -32,6 +32,8 @@ ACCELS = {
     "win.debug-into": ["F11"],
     "win.debug-out": ["<Shift>F11"],
     "win.goto-line": ["<Control>g"],
+    "win.goto-definition": ["F12"],
+    "win.go-back": ["<Alt>Left"],
     "app.preferences": ["<Control>comma"],
     "app.quit": ["<Control>q"],
 }
@@ -39,6 +41,8 @@ ACCELS = {
 SHORTCUT_GROUPS = [
     ("Files", [("<Control>o", "Open project"), ("<Control>s", "Save"), ("<Control><Shift>s", "Save all"),
                ("<Control>w", "Close tab"), ("<Control>g", "Go to line")]),
+    ("Editing", [("<Control>space", "Complete the name"), ("F12", "Go to definition (or Ctrl+click)"),
+                 ("<Alt>Left", "Back to where you were")]),
     ("Build and run", [("F7", "Build project"), ("<Shift>F7", "Build current file"),
                        ("F5", "Build current file and run"), ("<Control>F5", "Build project and run"),
                        ("<Shift>F5", "Debug project")]),
@@ -181,10 +185,13 @@ class Application(Adw.Application):
         tabw.set_value(s.tab_width)
         spaces = Adw.SwitchRow(title="Insert spaces instead of tabs", active=s.insert_spaces)
         save_first = Adw.SwitchRow(title="Save files before building", active=s.save_before_build)
+        complete = Adw.SwitchRow(title="Suggest completions as you type",
+                                 subtitle="Labels, constants, macros, instructions and directives. Ctrl+Space "
+                                          "shows them at any time", active=s.auto_complete)
         scheme = Adw.ComboRow(title="Appearance", model=Gtk.StringList.new(["Follow system", "Light", "Dark"]),
                               selected=["system", "light", "dark"].index(s.dark_mode)
                               if s.dark_mode in ("system", "light", "dark") else 0)
-        for w in (font, tabw, spaces, save_first, scheme):
+        for w in (font, tabw, spaces, complete, save_first, scheme):
             ed.add(w)
         page.add(ed)
         pb = Adw.PreferencesGroup(title="pBASIC", description="BASIC without line numbers (.pbas files): "
@@ -214,6 +221,7 @@ class Application(Adw.Application):
             s.tab_width = int(tabw.get_value())
             s.insert_spaces = spaces.get_active()
             s.save_before_build = save_first.get_active()
+            s.auto_complete = complete.get_active()
             s.pbasic_start = int(pb_start.get_value())
             s.pbasic_step = int(pb_step.get_value())
             prefix = pb_prefix.get_text().strip()

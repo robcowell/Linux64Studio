@@ -52,6 +52,28 @@ Hex is written with 2 or 4 digits, binary with 8 or 16, and a wider original (`$
 width. Numbers inside quotes and digits that are part of a name (`label2`, `/1`) aren't numbers.
 Each conversion is one undo step.
 
+### Auto-complete and Go to Definition in the editor
+
+As you type a name, a list under the cursor offers what could finish it: the project's labels,
+constants and macros first (this file's, then the others', each with where it's defined), then
+instructions and directives. Up/Down choose, Enter or Tab puts it in, Escape closes the list.
+Ctrl+Space opens it at any time; **Preferences → Suggest completions as you type** turns the
+automatic list off. It isn't offered in comments or strings. In BASIC it offers the keywords.
+
+**F12**, **Ctrl+click** or right-click → **Go to Definition** opens where the name under the
+cursor is defined; **Alt+Left** goes back. On an `incasm`, `incbin`, `#import` or `.import` line it
+opens that file, and in BASIC it goes to the line a `GOTO`/`GOSUB`/`THEN` names (or a pBASIC
+`@label`). When a name is defined in several places (a label local to each of several files), it
+asks which, starting with the current file. Hovering over a name shows where it's defined, that
+line, and its value in the last build.
+
+Both dialects are understood, from the source as it is (unsaved changes included, no build
+needed). CBM prg Studio: labels in column 1, `NAME = value`, `defm`, and `@local` labels (found
+under the label they follow); labels are any case. Kick Assembler: `name:`, `.const`, `.var`,
+`.label`, `.macro`, `.function`, `.pseudocommand`, `.namespace` and `ns.name`, all
+case-sensitive. Every label in the 12 Vol 1 chapters, and every label in Kick Assembler's debug
+dump of a Kick Assembler game, is found at the line that defines it (`tests/test_symindex.py`).
+
 ### `Operator Calc` / `Operator HiLo`
 
 This sets how tightly `<` and `>` bind, from that line onwards:

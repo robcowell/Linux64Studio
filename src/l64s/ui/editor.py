@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from .. import numconv  # noqa: E402
 
@@ -128,6 +128,16 @@ class SourceEditor(EditorPage):
         self.view.set_has_tooltip(True)
         self.view.connect("query-tooltip", self._on_tooltip)
         self._setup_convert_menu()
+        from .completion import CompletionPopup
+        self.completion = CompletionPopup(self.view, self._completion_candidates,
+                                          lambda: getattr(self.settings, "auto_complete", True))
+        # Ctrl+click: go to the definition of the name clicked
+        ctrl_click = Gtk.GestureClick(button=1)
+        ctrl_click.connect("released", self._on_left_click)
+        self.view.add_controller(ctrl_click)
+        typing = Gtk.EventControllerKey()
+        typing.connect("key-pressed", self._forget_click)
+        self.view.add_controller(typing)
 
     # ---------------------------------------------------------------- appearance
     def _apply_font(self, font: str):
@@ -300,6 +310,7 @@ class SourceEditor(EditorPage):
         for base, label in (("hex", "Hexadecimal ($)"), ("dec", "Decimal"), ("bin", "Binary (%)")):
             sub.append(label, f"editor.convert::{base}")
         menu = Gio.Menu()
+        menu.append("Go to Definition", "win.goto-definition")
         menu.append_submenu("Convert Number", sub)
         menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
         if self.is_pbasic:
@@ -315,6 +326,57 @@ class SourceEditor(EditorPage):
         right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)
         right.connect("pressed", self._on_right_click)
         self.view.add_controller(right)
+
+    def _forget_click(self, *_):
+        self._click_iter_offset = None          # menu items act on the cursor again
+        return False
+
+    def _on_left_click(self, gesture, _n, x, y):
+        self._click_iter_offset = None
+        if gesture.get_current_event_state() & Gdk.ModifierType.CONTROL_MASK:
+            it = self._iter_at_widget(x, y)
+            if it is not None:
+                self._click_iter_offset = it.get_offset()
+                GLib.idle_add(self._request_definition)
+
+    def _request_definition(self):
+        win = self.get_root()
+        if hasattr(win, "goto_definition"):
+            win.goto_definition(self)
+        return False
+
+    def position_at_click(self) -> tuple[int, int, str]:
+        """(1-based line, column, the line's text) right-clicked, Ctrl+clicked or at the cursor."""
+        buf = self.buffer
+        if self._click_iter_offset is not None:
+            it = buf.get_iter_at_offset(self._click_iter_offset)
+        else:
+            it = buf.get_iter_at_mark(buf.get_insert())
+        text, col = self.line_at_click()
+        return it.get_line() + 1, col, text
+
+    def goto_position(self, line: int, col: int = 0, length: int = 0):
+        """Put the cursor at (1-based line, column), selecting `length` characters."""
+        self.goto_line(line, select=False)
+        ok, it = self.buffer.get_iter_at_line(max(0, line - 1))
+        if not ok:
+            return
+        if col <= it.get_chars_in_line():
+            it.set_line_offset(min(col, max(0, it.get_chars_in_line() - (0 if it.ends_line() else 1))))
+        end = it.copy()
+        end.forward_chars(length)
+        self.buffer.select_range(end, it)
+
+    def _completion_candidates(self, prefix: str) -> list[tuple[str, str]]:
+        win = self.get_root()
+        idx = win.symbol_index() if hasattr(win, "symbol_index") else None
+        if idx is None:
+            from ..symindex import SymbolIndex
+            idx = SymbolIndex()
+            if self.path:
+                idx.update([self.path], {str(self.path): self.get_text()})
+        return [(t, w) for t, w, _s in idx.completions(prefix, str(self.path) if self.path else None,
+                                                        basic=self.is_basic, limit=100)]
 
     def line_at_click(self) -> tuple[str, int]:
         """The text of the line right-clicked (or with the cursor), and the column."""
@@ -414,6 +476,18 @@ class SourceEditor(EditorPage):
         word = self.buffer.get_text(start, end, False).lower()
         if self.is_basic:
             return False
+        win = self.get_root()
+        if hasattr(win, "describe_symbol"):
+            line_start = it.copy()
+            line_start.set_line_offset(0)
+            line_end = line_start.copy()
+            if not line_end.ends_line():
+                line_end.forward_to_line_end()
+            info = win.describe_symbol(self, self.buffer.get_text(line_start, line_end, False),
+                                       it.get_line_offset(), it.get_line() + 1)
+            if info:
+                tooltip.set_text(info)
+                return True
         help_text = DIRECTIVE_HELP.get(word)
         if help_text:
             tooltip.set_text(help_text)

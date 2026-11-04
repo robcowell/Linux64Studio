@@ -13,6 +13,10 @@ can be followed on Linux.
   Projects can run **build events** before and after a build (e.g. crunch with exomizer), as in
   CBM prg Studio ([docs/dialect.md](docs/dialect.md#projects)).
 * **Editor** with 6502 syntax highlighting, error navigation and breakpoints in the gutter.
+  **Auto-complete** offers the project's labels, constants and macros (with where each is
+  defined), instructions and directives; **Go to Definition** (F12 or Ctrl+click, Alt+Left back)
+  works for both assembler dialects, include lines and BASIC line numbers
+  ([details](docs/dialect.md#auto-complete-and-go-to-definition-in-the-editor)).
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's
