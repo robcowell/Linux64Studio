@@ -38,7 +38,7 @@ class KickToolDialog(Adw.Window):
         body.append(left)
         left.append(Gtk.Label(label="<b>Source</b>  " + ("a key and a value a line" if hash_ else "an item a line"),
                               use_markup=True, xalign=0))
-        self.source = Gtk.TextView(monospace=True, top_margin=6, left_margin=6, css_classes=["card"])
+        self.source = Gtk.TextView(monospace=True, top_margin=6, left_margin=6, css_classes=["card", "monospace"])
         self.source.get_buffer().set_text(text)
         self.source.get_buffer().connect("changed", lambda *_: self._update())
         left.append(Gtk.ScrolledWindow(child=self.source, vexpand=True))
@@ -68,7 +68,8 @@ class KickToolDialog(Adw.Window):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
         body.append(right)
         right.append(Gtk.Label(label="<b>Kick Assembler</b>", use_markup=True, xalign=0))
-        self.out = Gtk.TextView(monospace=True, editable=False, top_margin=6, left_margin=6, css_classes=["card"],
+        self.out = Gtk.TextView(monospace=True, editable=False, top_margin=6, left_margin=6,
+                               css_classes=["card", "monospace"],
                                wrap_mode=Gtk.WrapMode.WORD_CHAR)
         right.append(Gtk.ScrolledWindow(child=self.out, vexpand=True))
         self.status = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])

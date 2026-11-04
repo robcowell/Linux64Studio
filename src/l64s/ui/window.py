@@ -109,6 +109,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Source Analyser", "win.source-analyser")
         sec2.append("UTF-8 Check", "win.utf8-check")
         sec2.append("Create Token File…", "win.create-token-file")
+        sec2.append("Convert Source (Develop 64, Genesis, TASM)…", "win.convert-source")
         sec2.append("Statistics (BASIC)", "win.basic-statistics")
         sec2.append("Import CharPad Binaries…", "win.import-charpad")
         sec2.append("Memory Viewer", "win.memory-viewer")
@@ -266,6 +267,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("print", lambda *_: self.print_source())
         add("utf8-check", lambda *_: self.open_utf8_check())
         add("create-token-file", lambda *_: self.create_token_file())
+        add("convert-source", lambda *_: self.convert_source())
         add("user-tool", lambda _a, v: self.run_user_tool(v.get_int32()), "i")
         add("git-status", lambda *_: self.git_status())
         add("git-diff", lambda *_: self.git_diff())
@@ -1859,6 +1861,29 @@ class MainWindow(Adw.ApplicationWindow):
             GLib.idle_add(lambda: (self._set_log(text), self.toast(f"{tool.name} {'finished' if ok else 'failed'}"),
                                    False)[2])
         threading.Thread(target=work, daemon=True).start()
+
+    # ================================================================== source converter
+    def convert_source(self, path: Path | None = None):
+        from .convert_dialog import ConvertDialog
+        folder = self.project.directory if self.project else Path.home()
+
+        def done(dest: Path, add: bool):
+            if add and self.project:
+                try:
+                    rel = str(dest.relative_to(self.project.directory))
+                except ValueError:
+                    rel = str(dest)
+                if rel not in self.project.build_list:
+                    self.project.build_list.append(rel)
+                    self._save_project_quietly()
+            self._populate_files()
+            self.open_file(dest)
+            self.toast(f"Converted to {dest.name}")
+        dlg = ConvertDialog(self, folder, done, can_add=bool(self.project and self.project.toolchain == TOOLCHAIN_CBM))
+        dlg.present()
+        if path:
+            dlg.load(path)
+        return dlg
 
     # ================================================================== BASIC token files
     def create_token_file(self):

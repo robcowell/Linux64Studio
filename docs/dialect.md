@@ -222,6 +222,28 @@ and set the Disk Image page's **Program file to put on the disk** to `game.prg.e
 image is written after the build events. The project's VICE options (`vice_args` in the
 `.l64proj`) are added to the ones in Preferences whenever the project runs or is debugged.
 
+## Converting sources from other assemblers
+
+**Convert Source (Develop 64, Genesis, TASM)…** in the main menu is CBM prg Studio's Source File
+Converter. Choose the source file and its type (guessed from the name: `.prg` Genesis, `.seq`
+Develop 64, others TASM), see the converted source with the converter's notes and what the assembler
+makes of it, and **Convert** writes it as a `.asm` (and adds it to the build list if you like).
+
+* **Develop 64**: a SEQ file (PETSCII, a CR at the end of each line) or a text file.
+* **Genesis**: a `.prg`, the source kept as a tokenized BASIC program (so the OR in `ORA` and the
+  `AND` were crunched); it's listed back, BASIC V2's and BASIC 3.5's keywords, without line numbers.
+* **TASM** (Turbo Assembler): a text file.
+
+Then: `.byte`/`BYT`/`dfb` become `byte`, `.word`/`WOR` `word`, `.text`/`.asc` `text`, `.null`
+`null`, `ORG`/`.org` `*=`, `EQU`/`.equ` `=`, `.include` `incasm`, `.binary` `incbin`, `.macro`/
+`.endm` `defm`/`endm` (with `\1` → `/1`), `.rta x` `word x-1`, and the conditionals; a label loses
+its `:`; a `*` comment line becomes `;`; PETSCII control codes in strings are written `{codes}`.
+`.end`, listing control and `.block` are made comments, and a directive it doesn't know is left as it
+was, with a note, for you to look at.
+
+There's no manual for these formats to hand: the rules follow what CBM prg Studio's own converter
+shows of them, and the usual syntax of the three; the result is assembled to check it.
+
 ## Kick Assembler hash tables and lists
 
 CBM prg Studio's Kick Assembler tools: select some lines in an assembler file, right-click, and
