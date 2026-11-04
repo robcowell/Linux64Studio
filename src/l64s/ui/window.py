@@ -1,6 +1,7 @@
 """The main IDE window."""
 from __future__ import annotations
 
+import re
 import threading
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from .sid_designer import SidDesigner  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
 
-SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".lst"}
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst"}
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -71,6 +72,7 @@ class MainWindow(Adw.ApplicationWindow):
         new_menu.append("New Project…", "win.new-project")
         new_menu.append("New Source File…", "win.new-file::asm")
         new_menu.append("New BASIC File…", "win.new-file::bas")
+        new_menu.append("New pBASIC File (no line numbers)…", "win.new-file::pbas")
         new_menu.append("New Sprite Set…", "win.new-file::spt")
         new_menu.append("New Character Set…", "win.new-file::cst")
         new_menu.append("New Screen Design…", "win.new-file::sdd")
@@ -233,6 +235,10 @@ class MainWindow(Adw.ApplicationWindow):
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
+        add("pbasic-create-label", lambda *_: self.pbasic_create_label())
+        add("pbasic-remove-numbers", lambda *_: self.pbasic_remove_numbers())
+        add("pbasic-preview", lambda *_: self.pbasic_preview())
+        add("convert-to-pbasic", lambda *_: self.convert_to_pbasic())
         add("music-app", lambda _a, v: self._music_app(v.get_string()), "s")
         add("screen-codes", lambda *_: self.open_screen_code_builder())
         add("screen-calculator", lambda *_: self.open_screen_calculator())
@@ -639,15 +645,16 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project:
             self.toast("Open or create a project first")
             return
-        dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file", "spt": "New sprite set",
+        dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file",
+                                       "pbas": "New pBASIC file (BASIC without line numbers)", "spt": "New sprite set",
                                        "cst": "New character set", "sdd": "New screen design",
                                        "d64": "New disk image (.d64, .d71 or .d81)"}[kind])
-        default = {"asm": "gameNew.asm", "bas": "main.bas", "spt": "sprites.spt", "cst": "characters.cst",
+        default = {"asm": "gameNew.asm", "bas": "main.bas", "pbas": "main.pbas", "spt": "sprites.spt", "cst": "characters.cst",
                    "sdd": "screens.sdd", "d64": "disk.d64"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
-        if kind in ("asm", "bas") and self.project.toolchain == TOOLCHAIN_CBM:
+        if kind in ("asm", "bas", "pbas") and self.project.toolchain == TOOLCHAIN_CBM:
             add_build = Gtk.CheckButton(label="Add to the build list (before the last file)", active=True)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             box.append(entry)
@@ -672,9 +679,11 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast(f"{fname} already exists")
                 self.open_file(path)
                 return
-            if kind in ("asm", "bas"):
+            if kind in ("asm", "bas", "pbas"):
                 if kind == "asm":
                     path.write_text(f";===============================================================================\n; {path.stem}\n\n")
+                elif kind == "pbas":
+                    path.write_text(f"rem {path.stem}\n")
                 else:
                     path.write_text(f"10 rem {path.stem}\n")
                 if add_build and add_build.get_active():
@@ -733,7 +742,7 @@ class MainWindow(Adw.ApplicationWindow):
         def work():
             try:
                 res = build_project(proj, overrides, only, settings.kickass_jar, settings.java,
-                                    settings.goattracker_dir)
+                                    settings.goattracker_dir, settings.pbasic_options())
             except Exception as e:  # report internal errors in the log rather than losing them
                 import traceback
                 from ..asm.errors import Diagnostic
@@ -746,6 +755,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.last_build = res
         self._set_log(res.log)
         self._show_diagnostics(res)
+        if self.settings.pbasic_preview:
+            for src, text in res.basic_preview:
+                self._show_basic_preview(src, text, select=False)
         if not res.ok:
             self.toast("Build failed")
             return
@@ -1166,6 +1178,14 @@ class MainWindow(Adw.ApplicationWindow):
         if ed is None or ed not in self.editors():
             return None
         # On a line of its own: after the cursor's line if the cursor is part-way along one.
+        if ed.is_pbasic and re.match(r"\s*\d", text):
+            # a tool's numbered BASIC, going into pBASIC: labels for its jumps, no line numbers
+            from ..basic.pbasic import from_basic
+            from ..basic.tokenizer import BasicErrors
+            try:
+                text = from_basic(text, self.settings.pbasic_options().prefix)[0]
+            except BasicErrors:
+                pass
         buf = ed.buffer
         it = buf.get_iter_at_mark(buf.get_insert())
         if not it.starts_line():
@@ -1273,6 +1293,9 @@ class MainWindow(Adw.ApplicationWindow):
         if not isinstance(ed, SourceEditor) or not ed.is_basic:
             self.toast("Renumbering works on a BASIC (.bas) file")
             return
+        if ed.is_pbasic:
+            self.toast("pBASIC has no line numbers to renumber: Preferences → pBASIC sets how it's numbered")
+            return
         dlg = Adw.AlertDialog(heading="Renumber BASIC program",
                               body="GOTO, GOSUB, THEN, ON…GOTO/GOSUB, RUN and LIST line numbers are updated too.")
         grid = Gtk.Grid(row_spacing=6, column_spacing=8, halign=Gtk.Align.CENTER)
@@ -1307,6 +1330,122 @@ class MainWindow(Adw.ApplicationWindow):
             else:
                 self.toast("Renumbered (Ctrl+Z to undo)")
         dlg.choose(self, None, chosen)
+
+    # ================================================================== pBASIC
+    def _pbasic_editor(self) -> SourceEditor | None:
+        ed = self.current_editor()
+        if isinstance(ed, SourceEditor) and ed.is_pbasic:
+            return ed
+        self.toast("This works on a pBASIC (.pbas) file")
+        return None
+
+    def pbasic_create_label(self):
+        """CBM prg Studio's Create Label: name the line that the right-clicked jump goes to."""
+        from ..basic.pbasic import create_label, jump_target_at
+        from ..basic.tokenizer import BasicError
+        ed = self._pbasic_editor()
+        if not ed:
+            return
+        line, col = ed.line_at_click()
+        target = jump_target_at(line, col)
+        if target is None:
+            self.toast("Right-click a line number that a GOTO, GOSUB, THEN, RUN or LIST jumps to")
+            return
+        prefix = self.settings.pbasic_options().prefix
+        dlg = Adw.AlertDialog(heading="Create Label", body=f"A label for line {target}, used by every jump to it.")
+        entry = Gtk.Entry(placeholder_text="name", activates_default=True)
+        dlg.set_extra_child(entry)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", "Create")
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) != "ok":
+                return
+            name = entry.get_text().strip().lstrip(prefix)
+            try:
+                text, n = create_label(ed.get_text(), target, name, prefix)
+            except BasicError as e:
+                self.toast(e.message)
+                return
+            ed.replace_text(text)
+            self.toast(f"{prefix}{name} is line {target}: {n} jump{'s' if n != 1 else ''} changed (Ctrl+Z to undo)")
+        dlg.choose(self, None, chosen)
+
+    def pbasic_remove_numbers(self):
+        from ..basic.pbasic import remove_line_numbers
+        ed = self._pbasic_editor()
+        if not ed:
+            return
+        text, warnings = remove_line_numbers(ed.get_text(), self.settings.pbasic_options().prefix)
+        ed.replace_text(text)
+        if warnings:
+            w = warnings[0]
+            self.toast((f"Line {w.line}: " if w.line else "") + w.message +
+                       (f" (and {len(warnings) - 1} more)" if len(warnings) > 1 else ""))
+        else:
+            self.toast("Line numbers removed (Ctrl+Z to undo)")
+
+    def pbasic_preview(self):
+        from ..basic.pbasic import to_basic
+        from ..basic.tokenizer import BasicErrors
+        ed = self._pbasic_editor()
+        if not ed:
+            return
+        try:
+            res = to_basic(ed.get_text(), self.settings.pbasic_options())
+        except BasicErrors as e:
+            err = e.errors[0]
+            if err.line:
+                ed.goto_line(err.line)
+            self.toast((f"Line {err.line}: " if err.line else "") + err.message)
+            return
+        self._show_basic_preview(ed.path, res.text)
+
+    def _show_basic_preview(self, src: Path, text: str, select: bool = True):
+        """The numbered BASIC a pBASIC file makes, in a read-only tab (one per file)."""
+        dest = src.with_name(f"{src.stem} (generated).bas")
+        key = str(dest.resolve())
+        if key in self.pages:
+            ed = self.pages[key].get_child()
+            if select:
+                self.tab_view.set_selected_page(self.pages[key])
+        else:
+            ed = SourceEditor(dest, self.settings)
+            ed.view.set_editable(False)
+            cur = self.tab_view.get_selected_page()
+            self._add_page(ed)
+            if not select and cur is not None:
+                self.tab_view.set_selected_page(cur)
+        ed.view.set_editable(True)
+        ed.replace_text(text)
+        ed.view.set_editable(False)
+        ed.buffer.set_modified(False)
+
+    def convert_to_pbasic(self):
+        """A numbered BASIC file as a new pBASIC one: every jump target gets a label."""
+        from ..basic.pbasic import from_basic
+        from ..basic.tokenizer import BasicErrors
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor) or not ed.is_basic or ed.is_pbasic or not ed.path:
+            self.toast("Open a BASIC (.bas) file to convert")
+            return
+        try:
+            text, warnings = from_basic(ed.get_text(), self.settings.pbasic_options().prefix)
+        except BasicErrors as e:
+            self.toast((f"Line {e.errors[0].line}: " if e.errors[0].line else "") + e.errors[0].message)
+            return
+        dest = ed.path.with_suffix(".pbas")
+        n = 1
+        while dest.exists() or str(dest.resolve()) in self.pages:
+            dest = ed.path.with_name(f"{ed.path.stem}_{n}.pbas")
+            n += 1
+        new = SourceEditor(dest, self.settings)
+        new.connect("breakpoints-changed", self._on_breakpoints_changed)
+        new.replace_text(text)
+        self._add_page(new)
+        self.toast(f"Save to keep it as {dest.name}" + (f". {warnings[0].message}" if warnings else ""))
 
     # ================================================================== misc dialogs
     def _goto_line_dialog(self):
@@ -1368,7 +1507,8 @@ class MainWindow(Adw.ApplicationWindow):
                 rows.append(r)
             add_row = Adw.ComboRow(title="Add file")
             candidates = [str(f.relative_to(p.directory)) for f in p.all_files()
-                          if f.suffix.lower() in (".asm", ".s") and str(f.relative_to(p.directory)) not in order]
+                          if f.suffix.lower() in (".asm", ".s", ".bas", ".pbas")
+                          and str(f.relative_to(p.directory)) not in order]
             add_row.set_model(Gtk.StringList.new(["—"] + candidates))
             add_row.connect("notify::selected", lambda r, _ps: (r.get_selected() > 0 and (
                 order.append(candidates[r.get_selected() - 1]), GLib.idle_add(rebuild))))

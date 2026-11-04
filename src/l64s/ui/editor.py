@@ -51,7 +51,11 @@ class EditorPage(Gtk.Box):
 
     @property
     def is_basic(self) -> bool:
-        return bool(self.path) and self.path.suffix.lower() == ".bas"
+        return bool(self.path) and self.path.suffix.lower() in (".bas", ".pbas")
+
+    @property
+    def is_pbasic(self) -> bool:
+        return bool(self.path) and self.path.suffix.lower() == ".pbas"
 
     @property
     def title(self) -> str:
@@ -89,7 +93,7 @@ class SourceEditor(EditorPage):
             lm = GtkSource.LanguageManager.get_default()
             if str(DATA_DIR) not in lm.get_search_path():      # it can only be set before any language loads
                 lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
-            is_basic = bool(path) and path.suffix.lower() == ".bas"
+            is_basic = bool(path) and path.suffix.lower() in (".bas", ".pbas")
             lang = lm.get_language("cbmbasic" if is_basic else "cbmasm")
             if lang:
                 self.buffer.set_language(lang)
@@ -298,11 +302,33 @@ class SourceEditor(EditorPage):
         menu = Gio.Menu()
         menu.append_submenu("Convert Number", sub)
         menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
+        if self.is_pbasic:
+            sec = Gio.Menu()
+            sec.append("Create Label…", "win.pbasic-create-label")
+            sec.append("Remove Line Numbers", "win.pbasic-remove-numbers")
+            sec.append("Preview Generated BASIC", "win.pbasic-preview")
+            menu.append_section(None, sec)
+        elif self.is_basic:
+            menu.append("Convert to pBASIC", "win.convert-to-pbasic")
         self.view.set_extra_menu(menu)
         self._click_iter_offset: int | None = None
         right = Gtk.GestureClick(button=3, propagation_phase=Gtk.PropagationPhase.CAPTURE)
         right.connect("pressed", self._on_right_click)
         self.view.add_controller(right)
+
+    def line_at_click(self) -> tuple[str, int]:
+        """The text of the line right-clicked (or with the cursor), and the column."""
+        buf = self.buffer
+        if self._click_iter_offset is not None:
+            it = buf.get_iter_at_offset(self._click_iter_offset)
+        else:
+            it = buf.get_iter_at_mark(buf.get_insert())
+        start = it.copy()
+        start.set_line_offset(0)
+        end = start.copy()
+        if not end.ends_line():
+            end.forward_to_line_end()
+        return buf.get_text(start, end, False), it.get_line_offset()
 
     def _iter_at_widget(self, x, y):
         bx, by = self.view.window_to_buffer_coords(Gtk.TextWindowType.WIDGET, int(x), int(y))

@@ -59,6 +59,58 @@ line numbers after `GOTO`, `GO TO`, `GOSUB`, `THEN`, `ON … GOTO/GOSUB`, `RUN` 
 References inside strings, REM or DATA are left alone. A reference to a line that doesn't
 exist is kept, with a warning. Ctrl+Z undoes the whole renumber.
 
+## pBASIC: BASIC without line numbers
+
+A `.pbas` file (*New → New pBASIC File…*) is CBM prg Studio's pBASIC: BASIC V2 with labels
+instead of line numbers. A line holding only `@name` labels the line after it, and `goto @name`,
+`gosub @name`, `then @name`, `on x goto @a,@b`, `run @name` and `list @name` jump to it:
+
+```
+rem automatic color bars
+print chr$(147)
+@loop
+print chr$(18); "     ";
+cl = int(8*rnd(1))+1
+on cl goto @col1,@col2
+@col1
+print chr$(5);: goto @loop
+@col2
+print chr$(28);: goto @loop
+```
+
+When it's built, every line is numbered (10, 20, 30, … by default) and the numbers go in place of
+the labels, so this becomes `30 print chr$(18)…` and `60 print chr$(5);: goto 30`. Labels are any
+case; a label must be on a line of its own; an `@` inside a string, REM or DATA is just a
+character. Errors point at the pBASIC line.
+
+**Preferences → pBASIC** sets the first line number, the increment and the label prefix (`@`
+unless you change it), and *Preview generation* opens the numbered BASIC in a read-only
+*name (generated).bas* tab after each build. Right-click → *Preview Generated BASIC* shows it at
+any time.
+
+`namespace name` … `namespace end` makes the labels in between local to that block, so each
+block can have its own `@loop`. Two additions to CBM prg Studio's version: code in a namespace
+can jump to a global label (one defined outside any namespace) when it has no label of that
+name itself, and `@block.name` jumps to a label in another namespace.
+
+Unlike CBM prg Studio, a `.pbas` file can be in a project's build list, like a `.bas` file, and
+`l64bas game.pbas` builds one from the command line (`--start`, `--step`, `--prefix`;
+`--preview` prints the numbered BASIC).
+
+### Converting a BASIC program
+
+As in CBM prg Studio's tutorial 17: paste the numbered program into a `.pbas` file, right-click a
+line number after a `GOTO` or `GOSUB` and choose *Create Label…*. Name it, and the label goes
+above that line, and into every jump to it. When every jump target has a label, right-click →
+*Remove Line Numbers*. It warns about any jump still going to a number, or if there are no
+labels at all.
+
+Or in one step: right-click in a `.bas` file → *Convert to pBASIC* makes a new `.pbas` file with
+a label (`@line100`) for every line a jump goes to.
+
+Tools that write numbered BASIC (Code Snippets, the SYS() call generator, …) insert it into a
+pBASIC file without its line numbers, with labels for any jumps.
+
 ## Listing programs
 
 Opening a `.prg` (or *List BASIC Program…*) lists it as a new `.bas` file. Control characters

@@ -2,7 +2,7 @@
 <!-- GtkSourceView 5 language definition for Commodore BASIC V2 -->
 <language id="cbmbasic" name="Commodore BASIC V2" version="2.0" _section="Source">
   <metadata>
-    <property name="globs">*.bas</property>
+    <property name="globs">*.bas;*.pbas</property>
     <property name="line-comment-start">rem </property>
   </metadata>
 
@@ -15,6 +15,8 @@
     <style id="comment" name="REM" map-to="def:comment"/>
     <style id="number" name="Number" map-to="def:number"/>
     <style id="data" name="DATA" map-to="def:preprocessor"/>
+    <style id="label" name="pBASIC label" map-to="def:special-constant"/>
+    <style id="namespace" name="pBASIC namespace" map-to="def:preprocessor"/>
   </styles>
 
   <default-regex-options case-sensitive="false"/>
@@ -48,6 +50,15 @@
       </include>
     </context>
 
+    <!-- pBASIC (.pbas): @labels and namespace lines -->
+    <context id="label" style-ref="label">
+      <match>@[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?</match>
+    </context>
+
+    <context id="namespace" style-ref="namespace">
+      <match>^\s*namespace\s+\S+\s*$</match>
+    </context>
+
     <context id="line-number" style-ref="line-number">
       <match>^\s*[0-9]+</match>
     </context>
@@ -67,8 +78,10 @@
 
     <context id="cbmbasic" class="no-spell-check">
       <include>
+        <context ref="namespace"/>
         <context ref="line-number"/>
         <context ref="string"/>
+        <context ref="label"/>
         <context ref="rem"/>
         <context ref="data"/>
         <context ref="control-code"/>

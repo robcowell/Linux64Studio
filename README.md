@@ -30,8 +30,9 @@ can be followed on Linux.
 * **BASIC V2**: `.bas` files with highlighting, a tokenizer that crunches exactly like the
   C64's ROM, `{clear}`/`{white}`/`{3 down}`-style control codes, renumbering that updates
   GOTO/GOSUB/THEN targets, and listing any `.prg` back to source. A project can mix BASIC and
-  assembly: the BASIC goes at `$0801`, the assembly anywhere above it. See
-  [docs/basic.md](docs/basic.md).
+  assembly: the BASIC goes at `$0801`, the assembly anywhere above it. **pBASIC** (`.pbas`) is
+  BASIC with `@labels` instead of line numbers, numbered when it's built, with Create Label and
+  Remove Line Numbers to convert a program. See [docs/basic.md](docs/basic.md).
 * **Memory Viewer**: a map of all 64K showing which file put what where (code, data, included
   binaries) over the C64's regions, with free space and warnings for common mistakes such as
   graphics where the VIC-II can't see them. Any address can be viewed as hex, screen text,

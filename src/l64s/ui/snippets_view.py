@@ -379,7 +379,7 @@ class SnippetsView(EditorPage):
                                  f"{t.title} is {'BASIC' if t.is_basic else 'assembler'}: open the right kind "
                                  f"of file, or use Copy")
             return
-        if t is not None and s.is_basic:
+        if t is not None and s.is_basic and not getattr(t, "is_pbasic", False):
             b = t.buffer
             before, clashes = basic_placement(b.get_text(b.get_start_iter(), b.get_end_iter(), False), text)
             if clashes:

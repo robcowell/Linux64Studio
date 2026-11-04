@@ -30,6 +30,10 @@ class Settings:
     insert_spaces: bool = True
     dark_mode: str = "system"     # system | light | dark
     save_before_build: bool = True
+    pbasic_start: int = 10        # pBASIC: the first line number, the step and the label prefix
+    pbasic_step: int = 10
+    pbasic_prefix: str = "@"
+    pbasic_preview: bool = False  # show each pBASIC file's numbered BASIC after building
     recent_projects: list[str] = field(default_factory=list)
     window_width: int = 1280
     window_height: int = 820
@@ -48,6 +52,10 @@ class Settings:
         d = config_dir()
         d.mkdir(parents=True, exist_ok=True)
         (d / "settings.json").write_text(json.dumps(asdict(self), indent=2) + "\n")
+
+    def pbasic_options(self):
+        from .basic.pbasic import PBasicOptions
+        return PBasicOptions(self.pbasic_start, self.pbasic_step, self.pbasic_prefix or "@")
 
     def add_recent(self, path: str) -> None:
         if path in self.recent_projects:

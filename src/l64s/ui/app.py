@@ -187,6 +187,20 @@ class Application(Adw.Application):
         for w in (font, tabw, spaces, save_first, scheme):
             ed.add(w)
         page.add(ed)
+        pb = Adw.PreferencesGroup(title="pBASIC", description="BASIC without line numbers (.pbas files): "
+                                                              "how lines are numbered when it's built.")
+        pb_start = Adw.SpinRow.new_with_range(0, 63999, 1)
+        pb_start.set_title("First line number")
+        pb_start.set_value(s.pbasic_start)
+        pb_step = Adw.SpinRow.new_with_range(1, 1000, 1)
+        pb_step.set_title("Increment")
+        pb_step.set_value(s.pbasic_step)
+        pb_prefix = Adw.EntryRow(title="Label prefix (best left as @)", text=s.pbasic_prefix)
+        pb_preview = Adw.SwitchRow(title="Preview generation",
+                                   subtitle="Show the numbered BASIC after building", active=s.pbasic_preview)
+        for w in (pb_start, pb_step, pb_prefix, pb_preview):
+            pb.add(w)
+        page.add(pb)
 
         def closed(*_):
             s.emulator = emu_path.get_text().strip() or "x64sc"
@@ -200,6 +214,11 @@ class Application(Adw.Application):
             s.tab_width = int(tabw.get_value())
             s.insert_spaces = spaces.get_active()
             s.save_before_build = save_first.get_active()
+            s.pbasic_start = int(pb_start.get_value())
+            s.pbasic_step = int(pb_step.get_value())
+            prefix = pb_prefix.get_text().strip()
+            s.pbasic_prefix = prefix if prefix and not prefix.isalnum() and " " not in prefix else "@"
+            s.pbasic_preview = pb_preview.get_active()
             s.dark_mode = ["system", "light", "dark"][scheme.get_selected()]
             s.save()
             self._apply_colour_scheme()

@@ -167,7 +167,3 @@ image is written after the build events. The project's VICE options (`vice_args`
 | `.sdd` screens | XML, `<RowData>` of 7-digit hex cells | char = bits 20–27, colour = bits 12–19 |
 | `.spd` SpritePad v1 | binary: `SPD`, version, counts, 3 colours, 64 bytes per sprite, 4 per animation | the 64th byte is the attribute (bit 7 multicolour, low nibble colour) and is part of SpritePad's `.bin` exports **verified** (Vol 2) |
 | `.ctm` CharPad v5 | binary, as in CharPad's own format notes | charset, colour and map exports match the book's `.bin` files; all 213 `.ctm` files in the download re-save byte-identical **verified** (Vol 2) |
-
-## Not implemented (yet)
-
-* CBM prg Studio's label-based "pBASIC"

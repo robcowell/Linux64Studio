@@ -84,7 +84,11 @@ class BasicStatistics(EditorPage):
         self.heading.set_markup(f"<b>{_esc(t.title)}</b>")
         b = t.buffer
         try:
-            st = analyse(b.get_text(b.get_start_iter(), b.get_end_iter(), False))
+            text = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+            if getattr(t, "is_pbasic", False):           # its numbered BASIC, as it's built
+                from ..basic.pbasic import to_basic
+                text = to_basic(text, t.settings.pbasic_options()).text
+            st = analyse(text)
         except BasicErrors as e:
             self.stats = None
             self.summary.set_text("")

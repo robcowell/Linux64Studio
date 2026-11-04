@@ -11,6 +11,7 @@ from pathlib import Path
 from ..asm.assembler import Assembler, Options, Result
 from ..asm.errors import Diagnostic, SourceLoc
 from ..asm.output import source_map, write_outputs
+from ..basic.pbasic import PBasicOptions
 from .model import TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project
 
 
@@ -26,6 +27,7 @@ class BuildResult:
     disk: Path | None = None          # the .d64 written, if the project makes one
     cart: Path | None = None          # the .crt written, if the project makes one
     kick_debug: object = None         # Kick Assembler builds: the parsed debug dump (kickdbg.DebugInfo)
+    basic_preview: list[tuple[Path, str]] = field(default_factory=list)   # each pBASIC file, as numbered BASIC
 
     def run_target(self, project) -> Path | None:
         """What to run: the cartridge, the disk image or the program, as the project says."""
@@ -162,8 +164,9 @@ def build_events(project: Project, commands: list[str], prg: Path | None, which:
 
 def build_project(project: Project, overrides: dict[str, str] | None = None,
                   only_file: Path | None = None, kickass_jar: str = "", java: str = "java",
-                  goattracker_dir: str = "") -> BuildResult:
-    """Build the whole project, or (CBM prg Studio's "Build Program") just `only_file`."""
+                  goattracker_dir: str = "", pbasic: PBasicOptions | None = None) -> BuildResult:
+    """Build the whole project, or (CBM prg Studio's "Build Program") just `only_file`.
+    `pbasic` numbers the .pbas files (CBM prg Studio's pBASIC settings)."""
     music_log, music_diags = prepare_music(project, goattracker_dir)
     if any(d.severity == "error" for d in music_diags):
         return BuildResult(False, None, None, music_diags, "\n".join([music_log] + [str(d) for d in music_diags]))
@@ -178,7 +181,7 @@ def build_project(project: Project, overrides: dict[str, str] | None = None,
             (kickass_jar or default_kickass_jar())
         res = _build_kickass(project, jar, java, only_file)
     else:
-        res = _build_cbm(project, overrides, only_file)
+        res = _build_cbm(project, overrides, only_file, pbasic)
     if pre_log:
         res.log = "\n".join(pre_log) + "\n" + res.log
     if project.post_build and not only_file and (res.ok or project.post_build_always):
@@ -214,7 +217,7 @@ def prepare_music(project: Project, goattracker_dir: str = "") -> tuple[str, lis
     return "\n".join(lines), []
 
 
-BASIC_EXTS = {".bas"}
+BASIC_EXTS = {".bas", ".pbas"}
 
 
 def _read_source(path: Path, overrides: dict[str, str] | None) -> str:
@@ -228,21 +231,42 @@ def _read_source(path: Path, overrides: dict[str, str] | None) -> str:
         return data.decode("cp1252")
 
 
-def _tokenize_basic(files: list[Path], overrides) -> tuple[object | None, list[Diagnostic]]:
-    """Tokenize the project's BASIC files. Returns (TokenizeResult or None, diagnostics)."""
+def _tokenize_basic(files: list[Path], overrides, pbasic: PBasicOptions | None = None,
+                    previews: list | None = None) -> tuple[object | None, list[Diagnostic]]:
+    """Tokenize the project's BASIC files, numbering pBASIC ones first (each numbered program is
+    added to `previews`). Returns (TokenizeResult or None, diagnostics)."""
+    from ..basic.pbasic import to_basic
     from ..basic.tokenizer import BasicErrors, tokenize_files
     diags: list[Diagnostic] = []
     sources = []
+    numbered = {}                    # pBASIC file -> PBasicResult, to give errors their pBASIC lines
+
+    def loc(err, fname=None):
+        f = err.file or fname
+        line = numbered[f].source_line(err.line) if f in numbered else err.line
+        return SourceLoc(f, line) if f and line else None
     for p in files:
         try:
-            sources.append((str(p), _read_source(p, overrides)))
+            text = _read_source(p, overrides)
         except OSError as e:
             diags.append(Diagnostic("error", f"Can't read {p}: {e.strerror}", None))
+            continue
+        if p.suffix.lower() == ".pbas":
+            try:
+                conv = to_basic(text, pbasic)
+            except BasicErrors as e:
+                diags += [Diagnostic("error", err.message, SourceLoc(str(p), err.line) if err.line else
+                                     SourceLoc(str(p), 1)) for err in e.errors]
+                continue
+            text = conv.text
+            if previews is not None:
+                previews.append((p, text))
+            sources.append((str(p), text))
+            numbered[str(p)] = conv
+        else:
+            sources.append((str(p), text))
     if diags:
         return None, diags
-
-    def loc(err):
-        return SourceLoc(err.file, err.line) if err.file and err.line else None
     try:
         res = tokenize_files(sources)
     except BasicErrors as e:
@@ -250,7 +274,7 @@ def _tokenize_basic(files: list[Path], overrides) -> tuple[object | None, list[D
     return res, [Diagnostic("warning", w.message, loc(w)) for w in res.warnings]
 
 
-def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
+def _build_cbm(project: Project, overrides, only_file, pbasic: PBasicOptions | None = None) -> BuildResult:
     files = [only_file] if only_file else project.build_paths()
     if not files:
         d = Diagnostic("error", "The project has no files in its build list", None)
@@ -268,7 +292,9 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
                 basic_overrides[str(p)] = substitute_exports(_read_source(p, overrides), result.exports)
             except OSError:
                 pass
-    basic, basic_diags = _tokenize_basic(basic_files, basic_overrides) if basic_files else (None, [])
+    previews: list[tuple[Path, str]] = []
+    basic, basic_diags = _tokenize_basic(basic_files, basic_overrides, pbasic, previews) \
+        if basic_files else (None, [])
     result.diagnostics[:0] = basic_diags
     if basic_files and basic is None:
         result.ok = False
@@ -293,7 +319,7 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
     if result.ok and no_output:
         log.append("GENERATETO NULL: no program file written")
         return BuildResult(True, None, None, result.diagnostics, "\n".join(log),
-                           srcmap=source_map(result), asm_result=result)
+                           srcmap=source_map(result), asm_result=result, basic_preview=previews)
     if result.ok:
         write_outputs(result, out, labels=labels, lst=out.with_suffix(".lst"))
         if p00_name is not None:
@@ -310,7 +336,7 @@ def _build_cbm(project: Project, overrides, only_file) -> BuildResult:
         log.append(f"Build failed: {len(result.errors)} error(s)")
     return BuildResult(result.ok, out if result.ok else None, labels if result.ok else None,
                        result.diagnostics, "\n".join(log),
-                       srcmap=source_map(result) if result.ok else {}, asm_result=result)
+                       srcmap=source_map(result) if result.ok else {}, asm_result=result, basic_preview=previews)
 
 
 def substitute_exports(text: str, exports: dict[str, int]) -> str:
