@@ -27,6 +27,7 @@ from .memory_manager import MemoryManager  # noqa: E402
 from .snapshot_manager import SnapshotManager  # noqa: E402
 from .memory_viewer import MemoryViewer  # noqa: E402
 from .screencode_builder import ScreenCodeBuilder  # noqa: E402
+from .sid_designer import SidDesigner  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
 
@@ -93,6 +94,7 @@ class MainWindow(Adw.ApplicationWindow):
         sec2.append("Snapshots", "win.snapshots")
         sec2.append("Binary Import/Export", "win.binary-tool")
         sec2.append("Disassembler", "win.disassembler")
+        sec2.append("SID Designer", "win.sid-designer")
         sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
         sec2.append("Open GoatTracker", "win.music-app::goattrk2")
         sec2.append("Save All", "win.save-all")
@@ -223,6 +225,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
         add("disassembler", lambda *_: self.open_disassembler())
+        add("sid-designer", lambda *_: self.open_sid_designer())
         add("list-prg", lambda *_: self.choose_prg_to_list())
 
     # ================================================================== projects
@@ -296,7 +299,7 @@ class MainWindow(Adw.ApplicationWindow):
         groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
                   ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
                   ("Binary", lambda f: f.suffix.lower() == ".bin"),
-                  ("Music", lambda f: f.suffix.lower() in (".sng", ".ins", ".sid")),
+                  ("Music", lambda f: f.suffix.lower() in (".sng", ".ins", ".sid", ".l64sid")),
                   ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81", ".crt"))]
         for title, pred in groups:
             members = [f for f in files if pred(f)]
@@ -379,6 +382,8 @@ class MainWindow(Adw.ApplicationWindow):
                 return self._open_prg(path)
             elif sfx == ".sid":
                 ed = SidFileView(path, self.settings, self.project)
+            elif sfx == ".l64sid":
+                ed = self._sid_designer(path)
             elif sfx == ".sng":
                 ed = SongView(path, self.settings, self.project, self._save_project_quietly)
             elif sfx == ".ins":
@@ -434,7 +439,8 @@ class MainWindow(Adw.ApplicationWindow):
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
                 "screencodes": "insert-text-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
-                "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic"}.get(ed.kind)
+                "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
+                "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -909,6 +915,19 @@ class MainWindow(Adw.ApplicationWindow):
         if self.project:
             return self.project.directory / "snapshots"
         return Path(GLib.get_user_data_dir()) / "linux64studio" / "snapshots"
+
+    def _sid_designer(self, path: Path | None = None) -> SidDesigner:
+        kickass = bool(self.project and self.project.toolchain == TOOLCHAIN_KICKASS)
+        return SidDesigner(self.settings, kickass, self.project.directory if self.project else None,
+                           self._insert_into_last_source, path)
+
+    def open_sid_designer(self):
+        """The untitled SID Designer, or a new one (files open their own)."""
+        tool = next((ed for ed in self.editors() if isinstance(ed, SidDesigner) and not ed.path), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            return tool
+        return self._add_page(self._sid_designer())
 
     def open_snapshots(self):
         tool = next((ed for ed in self.editors() if isinstance(ed, SnapshotManager)), None)

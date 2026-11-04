@@ -1,7 +1,8 @@
 # Music and sound effects
 
 The SID tool brings C64 music into a project in three ways: SID files, GoatTracker songs and
-GoatTracker sound effects. Songs and sound effects come from
+GoatTracker sound effects. Alongside them, the **SID Designer** (below) sets up the SID chip's
+voices and filter by hand and writes the code for them, as CBM prg Studio's SID tool does. Songs and sound effects come from
 [GoatTracker GTK Edition and SidMonkey](https://github.com/robcowell/goattracker). Linux64Studio
 runs their command-line tools (`gt2reloc`, `ins2snd2`) and opens their editors (`goattrk2`,
 `sidmonkey`). It finds them in the folder set in **Preferences → Music**, then in
@@ -61,6 +62,52 @@ Switch on **Convert on every build** and `ins2snd2` turns it into data before ea
 source output is DASM syntax, so Linux64Studio writes the byte lines itself. Waveforms above
 $81, relative notes, pulse modulation and filters don't carry over into sound effects.
 
+## SID Designer
+
+**Menu → SID Designer** opens CBM prg Studio's SID tool, in two tabs.
+
+**Voices & Filter**: each of the three voices has a note and octave (shown as Hz and as the
+frequency register value), waveforms (triangle, sawtooth, pulse, noise), ring modulation, sync,
+the test bit, the pulse width, the ADSR envelope (with how long each setting takes) and whether
+it goes through the filter. Below them are the filter cutoff, resonance, low/band/high pass,
+voice 3 off and the volume, and a line showing all 25 register values. **Copy** copies one voice
+to another, with or without its note. Choose PAL or NTSC to set the note frequencies.
+
+To hear a voice, toggle its ▶ button, or hold **1**, **2** or **3**. A voice needs a waveform
+before it makes any sound, and none is set at first. **Keyboard** shows a two-octave piano:
+click and hold a key, or use the PC keys as CBM prg Studio maps them (Tab Q W E R T Y U I O P [
+] Return for the white keys, 1 2 4 5 6 8 9 - = Backspace for the black ones). Choose the voice
+and the base octave on the left. You can change the settings while the piano is open.
+
+The sound is VICE's reSID, so it is the real chip's sound. The first time you play, the designer
+starts VICE's `vsid` (minimised, with no tune loaded) and writes the registers into it through
+VICE's binary monitor. Every change you make is heard straight away. **SID** picks the 6581 or
+the 8580. **Silence** gates every voice off. vsid closes with the designer's tab.
+
+**Code Generation** (the code updates as you change things):
+
+* **Include**: any of the three voices, the filter settings ($D415-$D417), and the filter mode
+  and volume ($D418).
+* **Source type**: BASIC or assembler. BASIC comes out in the BASIC editor's listing notation
+  (lower case keywords) from the start line, in steps. Assembler is in the project's syntax
+  (CBM prg Studio or Kick Assembler) and loads A only when the value changes.
+* **Use a variable name** (`10 vb=54272`, `poke vb+1,10`, or `SID = $D400` in assembler; type
+  your own name) or **Use addresses** (`poke 54273,10`, `sta $D401`).
+* **Add comments** says what each value does. **Clear SID chip first** zeroes all 25 registers.
+  **Start the sound** writes each voice's control register last, with the gate bit set.
+
+**Copy** puts the code on the clipboard, and **Insert into Editor** puts it on a new line at the
+cursor of the last source file you used.
+
+**Save** and **Load** keep the settings in a `.l64sid` file (JSON). These files open in the
+designer from the project's Music group. CBM prg Studio saves its own `.stf` files, but their
+format isn't documented, so Linux64Studio doesn't read them. The settings are only a few
+numbers, though, and are quick to set again by hand.
+
+Notes are equal-tempered with A-4 at 440 Hz, and octave 4 starts at middle C, as in GoatTracker.
+The frequency register is Hz × 16777216 / clock, with a clock of 985248 Hz (PAL) or 1022727 Hz
+(NTSC).
+
 ## Command line
 
 ```sh
@@ -80,3 +127,10 @@ WAV file, and the music was there.
 
 `gt2reloc` doesn't report a missing song file as an error: it packs an empty song instead. So
 Linux64Studio checks the song exists before packing.
+
+`tests/test_sid_designer.py` checks the register values, the settings files and the code
+generator, and compares the note frequencies with GoatTracker's table (within 0.05%). Its
+opt-in VICE tests (`L64S_VICE_TESTS=1`) run the generated BASIC and the generated assembler in
+`x64sc` and read the SID registers back, and write registers into a live `vsid`. The designer was
+also driven through the GUI with vsid recording to a WAV file: the toggled voice and the piano
+key each sounded with their attack, decay, sustain and release.

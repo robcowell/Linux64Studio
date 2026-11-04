@@ -57,7 +57,9 @@ can be followed on Linux.
 * **SID music**: `.sid` files open with their header, play in VICE's `vsid`, and extract for
   `incbin`. Songs and sound effects from [GoatTracker GTK Edition and SidMonkey](https://github.com/robcowell/goattracker)
   open in those editors and are packed with GoatTracker's `gt2reloc` before every build, at the
-  address you choose, with ready-to-paste player code. See [docs/music.md](docs/music.md).
+  address you choose, with ready-to-paste player code. The **SID Designer** (CBM prg Studio's
+  SID tool) sets up the three voices and the filter, plays them live through VICE's reSID, with
+  a two-octave keyboard, and generates BASIC POKEs or assembler. See [docs/music.md](docs/music.md).
 * **Run and debug in VICE**: breakpoints, step into/over/out, disassembly with labels,
   and the current source line highlighted. You can **edit registers and flags** and **edit
   memory** in a hex editor (type over bytes, go to an address or label, write byte lists or
