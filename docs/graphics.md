@@ -104,6 +104,25 @@ is added.
   those after it. Unlike CBM prg Studio, the sprite colour and multicolours can be set to the
   nearest C64 colours of the image's.
 
+## Sprite scratch pad
+
+The **Scratch Pad…** button in the sprite editor's toolbar (the grid icon) opens CBM prg Studio's
+sprite scratch pad: a grid for putting sprites side by side, to see a graphic made of several of
+them, or on top of each other, to see layers.
+
+* Click a sprite on the right, then click cells to put it there (as often as you like), or drag
+  a sprite onto a cell.
+* Right click (or Esc) to select instead: click a cell to list its sprites, the last drawn on
+  top. For the one selected, move it up to 20 pixels in its cell (the boxes, or the arrow keys),
+  flip it either way, invert it, bring it forward or send it back, or remove it (Delete). A sprite
+  moved past its cell's edge carries on into the next one, as on screen. None of this changes the
+  sprites themselves.
+* Set the grid's size and zoom in the header, and save the pad as a PNG image.
+
+The pad shows sprites as you edit them, keeps pointing at the same sprites when others are added
+or deleted, and is saved with the sprite file (in the project's settings), so closing without
+saving leaves both as they were.
+
 ## Digitiser
 
 The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)

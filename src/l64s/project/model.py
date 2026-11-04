@@ -79,6 +79,8 @@ class Project:
     disk_program: str = ""
     # CharPad projects' view settings, by .ctm (relative path): {"room": [w, h] in tiles, "materials": [names]}
     charpad_views: dict[str, dict] = field(default_factory=dict)
+    # Sprite scratch pads, by sprite file (relative path): gfx.scratchpad.ScratchPad.to_dict()
+    sprite_pads: dict[str, dict] = field(default_factory=dict)
 
     @property
     def directory(self) -> Path:

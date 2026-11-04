@@ -37,6 +37,10 @@ class SpriteEditor(EditorPage):
         self.redo: list[tuple[int, Sprite]] = []
         self._anim_source = None
         self._anim_frame = 0
+        from ..gfx.scratchpad import ScratchPad
+        saved = self._pad_key() and self.project.sprite_pads.get(self._pad_key())
+        self.scratch_pad = ScratchPad.from_dict(saved) if saved else ScratchPad()
+        self._pad_window = None
         self._build()
         self._select(0)
 
@@ -69,6 +73,8 @@ class SpriteEditor(EditorPage):
              lambda *_: self.open_explosion()),
             ("insert-image-symbolic", "Import from Image… (sprites cut from a .bmp, .png or .gif)",
              lambda *_: self.open_bmp_import()),
+            ("view-grid-symbolic", "Scratch Pad… (sprites side by side and in layers)",
+             lambda *_: self.open_scratch_pad()),
         ]:
             if icon is None:
                 bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -189,6 +195,8 @@ class SpriteEditor(EditorPage):
             self.listbox.append(box)
         self.anim_to.set_range(0, max(0, len(self.data.sprites) - 1))
         self.anim_from.set_range(0, max(0, len(self.data.sprites) - 1))
+        if getattr(self, "_pad_window", None) is not None:
+            self._pad_window.refresh()
 
     def _draw_thumb(self, _da, cr, w, h, i):
         if i >= len(self.data.sprites):
@@ -290,6 +298,11 @@ class SpriteEditor(EditorPage):
     def _redraw(self):
         self.canvas.queue_draw()
         self.preview.queue_draw()
+        if self._pad_window is not None:
+            self._pad_window.area.queue_draw()
+            child = self._pad_window.palette.get_child_at_index(self.index)
+            if child:
+                child.get_child().queue_draw()
         row = self.listbox.get_row_at_index(self.index)
         if row:
             box = row.get_child()
@@ -402,7 +415,47 @@ class SpriteEditor(EditorPage):
             self.data.mcolour1, self.data.mcolour2 = multicolours
         self._insert_frames(frames, at)
 
+    # ---------------------------------------------------------------- scratch pad
+    def _pad_key(self) -> str | None:
+        if not (self.project and self.path):
+            return None
+        import os
+        try:
+            return os.path.relpath(self.path.resolve(), self.project.directory)
+        except ValueError:
+            return None
+
+    def scratch_pad_changed(self):
+        """The pad is saved with the sprites (into the project), so it and they stay in step."""
+        self.set_modified(True)
+
+    def _save_scratch_pad(self):
+        key = self._pad_key()
+        if key is None:
+            return
+        if self.scratch_pad.cells or key in self.project.sprite_pads:
+            self.project.sprite_pads[key] = self.scratch_pad.to_dict()
+            try:
+                self.project.save()
+            except OSError:
+                pass
+
+    def open_scratch_pad(self):
+        from .sprite_scratchpad import SpriteScratchPad
+        if self._pad_window is None:
+            self._pad_window = SpriteScratchPad(self.get_root(), self)
+            self._pad_window.connect("close-request", lambda *_: (setattr(self, "_pad_window", None), False)[1])
+        self._pad_window.present()
+        return self._pad_window
+
+    def _sprites_moved(self, inserted_at: int | None = None, count: int = 1, removed: int | None = None):
+        if inserted_at is not None:
+            self.scratch_pad.sprites_inserted(inserted_at, count)
+        if removed is not None:
+            self.scratch_pad.sprite_removed(removed)
+
     def _insert_frames(self, frames, at: int):
+        self._sprites_moved(inserted_at=at, count=len(frames))
         for k, f in enumerate(frames):
             self.data.sprites.insert(at + k, f)
         self.undo.clear()               # undo works per sprite, and the sprites have moved
@@ -412,12 +465,14 @@ class SpriteEditor(EditorPage):
         self.set_modified(True)
 
     def _add(self, *_):
+        self._sprites_moved(inserted_at=self.index + 1)
         self.data.sprites.insert(self.index + 1, Sprite(multi=self.sprite.multi, colour=self.sprite.colour))
         self._refresh_list()
         self._select(self.index + 1)
         self.set_modified(True)
 
     def _duplicate(self, *_):
+        self._sprites_moved(inserted_at=self.index + 1)
         self.data.sprites.insert(self.index + 1, self.sprite.copy())
         self._refresh_list()
         self._select(self.index + 1)
@@ -426,6 +481,7 @@ class SpriteEditor(EditorPage):
     def _delete(self, *_):
         if len(self.data.sprites) > 1:
             del self.data.sprites[self.index]
+            self._sprites_moved(removed=self.index)
             self.undo.clear()
             self.redo.clear()
             self._refresh_list()
@@ -457,6 +513,7 @@ class SpriteEditor(EditorPage):
             save_spd(self.data, self.path)
         else:
             self.path.write_bytes(self.data.to_bin())
+        self._save_scratch_pad()
         self.set_modified(False)
         return self.links.write_all() if self.links else []
 
