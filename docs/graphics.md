@@ -79,6 +79,31 @@ won't match CBM prg Studio's frame for frame.
 seed gives the same frames, that the parameters have an effect, the random presets and
 mutations, and the DATA lines.
 
+## Import sprites from an image
+
+The **Import from Image…** button in the sprite editor's toolbar (the picture icon) cuts sprites
+out of a `.bmp`, as CBM prg Studio's *Import → From Bitmap* does, or out of a `.png` or `.gif`: a
+sprite sheet from another editor, a screenshot, a drawing. The image is shown with the 24×21
+cells it will be cut into (blue for those imported), and the sprites below it, before anything
+is added.
+
+* **Layout:** pixels to skip at the left and top, the gap between sprites (a sheet's grid lines
+  or spacing), and *image pixels per pixel* for an image saved zoomed in (2 if each sprite pixel
+  is 2×2). Take all the sprites that fit or a number of them, row by row or column by column, and
+  leave out empty cells if you like.
+* **Hires:** a pixel is set when it's darker than the threshold, as in CBM prg Studio, or
+  lighter, for art drawn on a dark background. Transparent pixels are never set.
+* **Multicolour:** each sprite pixel is two image pixels wide. Give the image colour of each
+  bit pair (as `RRGGBB`, or pick it by clicking the pick button then the image); a pixel takes the
+  nearest one within the tolerance, else the background. **Guess from the Image** fills them in:
+  the commonest colour (or the transparent area) is the background, and the others are matched to
+  the colours the sprite set already uses, so importing art for an existing set gets them right.
+  One import has one sprite colour, as on the C64 for each sprite: import sprites with different
+  sprite colours in separate goes.
+* **Into the sprite set:** after the current sprite, at the end, or over the current sprite and
+  those after it. Unlike CBM prg Studio, the sprite colour and multicolours can be set to the
+  nearest C64 colours of the image's.
+
 ## Digitiser
 
 The **digitiser** button in the screen editor's toolbar (the target icon, next to the charset)

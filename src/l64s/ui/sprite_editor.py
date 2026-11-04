@@ -67,6 +67,8 @@ class SpriteEditor(EditorPage):
              lambda *_: self.open_morph()),
             ("weather-storm-symbolic", "Explosion Generator… (frames of an explosion)",
              lambda *_: self.open_explosion()),
+            ("insert-image-symbolic", "Import from Image… (sprites cut from a .bmp, .png or .gif)",
+             lambda *_: self.open_bmp_import()),
         ]:
             if icon is None:
                 bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
@@ -364,6 +366,36 @@ class SpriteEditor(EditorPage):
         dlg = ExplosionDialog(self.get_root(), self.data, self.index, self._insert_explosion, folder)
         dlg.present()
         return dlg
+
+    def open_bmp_import(self, path: Path | None = None):
+        from .bmp_import_dialog import BmpImportDialog
+        folder = self.project.directory if self.project else (self.path.parent if self.path else None)
+        dlg = BmpImportDialog(self.get_root(), self.data, self.index, self._insert_imported, folder,
+                              multi=self.sprite.multi)
+        dlg.present()
+        if path:
+            dlg.load(path)
+        return dlg
+
+    def _insert_imported(self, sprites, place: str, colours):
+        """Sprites from an image: after the current one, at the end, or over the current one and
+        those after it. `colours` (sprite colour, MC1, MC2) or None to keep the editor's."""
+        if colours:
+            colour, self.data.mcolour1, self.data.mcolour2 = colours
+        else:
+            colour = self.sprite.colour
+        for s in sprites:
+            s.colour = colour
+        if place == "replace":
+            at = self.index
+            self.data.sprites[at:at + len(sprites)] = sprites
+            self.undo.clear()
+            self.redo.clear()
+            self._refresh_list()
+            self._select(at)
+            self.set_modified(True)
+            return
+        self._insert_frames(sprites, self.index + 1 if place == "after" else len(self.data.sprites))
 
     def _insert_explosion(self, frames, at: int, multicolours):
         if multicolours:

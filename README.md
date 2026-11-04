@@ -24,7 +24,8 @@ can be followed on Linux.
   `.spt`, `.cst` and `.sdd` files, SpritePad `.spd` and CharPad `.ctm` projects (Vol 2), and
   export `.bin` for `incbin` / `.import binary` or `byte` source. The sprite editor's
   **Morph** makes the frames that turn one sprite into another, and the **Explosion
-  Generator** makes explosion animations. The screen editor's **digitiser** gives the sprite
+  Generator** makes explosion animations. **Import from Image** cuts sprites out of a `.bmp`,
+  `.png` or `.gif` sprite sheet or screenshot, hires or multicolour. The screen editor's **digitiser** gives the sprite
   coordinates of points on the screen ([docs/graphics.md](docs/graphics.md)).
   CharPad tile maps can be painted and their tiles edited, with a room grid and a materials
   view, and **Import CharPad Binaries** turns a game's char/attribute/tile/map files into an
