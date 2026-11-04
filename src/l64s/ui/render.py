@@ -55,12 +55,14 @@ def draw_char_into(bm: Bitmap, px: int, py: int, rows: list[int], fg: int, bg: i
                 pix[base + x] = fg if (r >> (7 - x)) & 1 else bg
 
 
-def render_charset_grid(chars: list[list[int]], fg: int, bg: int, multicolour: bool, mc1: int, mc2: int,
+def render_charset_grid(chars: list[list[int]], fg: int | list[int], bg: int, multicolour: bool, mc1: int, mc2: int,
                         per_row: int = 16) -> Bitmap:
+    """fg is one colour RAM value for all characters, or a list with one per character."""
     rows = (len(chars) + per_row - 1) // per_row
     bm = Bitmap(per_row * 8, rows * 8)
     for i, c in enumerate(chars):
-        draw_char_into(bm, (i % per_row) * 8, (i // per_row) * 8, c, fg, bg, multicolour, mc1, mc2)
+        colour = fg[i] if isinstance(fg, list) else fg
+        draw_char_into(bm, (i % per_row) * 8, (i // per_row) * 8, c, colour, bg, multicolour, mc1, mc2)
     return bm
 
 

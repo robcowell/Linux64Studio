@@ -14,6 +14,7 @@ from ..emu import vice  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
                              new_project)
+from .charpad_editor import CharPadEditor  # noqa: E402
 from .charset_editor import CharsetEditor  # noqa: E402
 from .debugger import DebuggerPanel, DebugSession  # noqa: E402
 from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
@@ -330,10 +331,12 @@ class MainWindow(Adw.ApplicationWindow):
             return self.pages[key].get_child()
         sfx = path.suffix.lower()
         try:
-            if sfx == ".spt":
-                ed = SpriteEditor(path)
+            if sfx in (".spt", ".spd"):
+                ed = SpriteEditor(path, self.project)
             elif sfx == ".cst":
-                ed = CharsetEditor(path)
+                ed = CharsetEditor(path, project=self.project)
+            elif sfx == ".ctm":
+                ed = CharPadEditor(path, self.project)
             elif sfx == ".sdd":
                 charsets = [f for f in (self.project.all_files() if self.project else [])
                             if f.suffix.lower() in (".cst",) or f.name.lower().startswith("char") and f.suffix == ".bin"]
@@ -341,9 +344,6 @@ class MainWindow(Adw.ApplicationWindow):
                 ed = ScreenEditor(path, charsets)
             elif sfx == ".bin":
                 return self._open_bin(path)
-            elif sfx in (".spd", ".ctm"):
-                self.toast(f"{path.name} is a SpritePad/CharPad file. Open the matching .bin export instead.")
-                return None
             else:
                 ed = SourceEditor(path, self.settings)
                 ed.connect("breakpoints-changed", self._on_breakpoints_changed)
@@ -365,9 +365,9 @@ class MainWindow(Adw.ApplicationWindow):
         def chosen(d, res):
             r = d.choose_finish(res)
             if r == "sprites":
-                self._add_page(SpriteEditor(path))
+                self._add_page(SpriteEditor(path, self.project))
             elif r == "chars":
-                self._add_page(CharsetEditor(path))
+                self._add_page(CharsetEditor(path, project=self.project))
         dlg.choose(self, None, chosen)
         return None
 
@@ -376,7 +376,8 @@ class MainWindow(Adw.ApplicationWindow):
         page.set_title(ed.title)
         page.set_tooltip(str(ed.path) if ed.path else ed.title)
         icon = {"source": "text-x-generic-symbolic", "sprites": "image-x-generic-symbolic",
-                "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic"}.get(ed.kind)
+                "charset": "font-x-generic-symbolic", "screen": "video-display-symbolic",
+                "charpad": "font-x-generic-symbolic"}.get(ed.kind)
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
@@ -402,11 +403,13 @@ class MainWindow(Adw.ApplicationWindow):
         if not ed.path:
             return False
         try:
-            ed.save()
-            return True
+            extra = ed.save() or []
         except Exception as e:
             self.toast(f"Couldn't save {ed.title}: {e}")
             return False
+        if extra:
+            self.toast(f"Saved {ed.title} and updated {', '.join(p.name for p in extra)}")
+        return True
 
     def save_all(self):
         for ed in self.editors():

@@ -18,6 +18,9 @@ from pathlib import Path
 
 from .cbmprj import load_cbmprj
 
+# Kick Assembler `.import binary "x"`, `#import "x"`, and CBM prg Studio `incbin "x"`.
+_IMPORT_RE = re.compile(r'(?:\.import\s+(?:binary|source|c64|text)\s+|#import\s+|incbin\s+)"([^"]+)"', re.I)
+
 TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
 
@@ -38,6 +41,8 @@ class Project:
     padding_byte: int = 0
     vice_args: list[str] = field(default_factory=list)
     imported_from: str = ""           # original .cbmprj / .code-workspace, if any
+    # Linked exports: graphics file (relative path) -> {export kind: .bin path ("" = off)}
+    exports: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @property
     def directory(self) -> Path:
@@ -53,15 +58,36 @@ class Project:
     def settings_path(self) -> Path:
         return self.path if self.path.suffix == ".l64proj" else self.path.with_suffix(".l64proj")
 
-    def all_files(self) -> list[Path]:
-        """Every source and graphics file in the project folder (and library dirs)."""
+    def referenced_dirs(self) -> list[Path]:
+        """Folders that the project's sources import files from (e.g. Vol 2's ../../Content)."""
+        dirs: list[Path] = []
         roots = [self.directory] + [(self.directory / d).resolve() for d in self.lib_dirs]
+        for root in roots:
+            if not root.is_dir():
+                continue
+            for src in root.rglob("*.asm"):
+                try:
+                    text = src.read_text(errors="replace")
+                except OSError:
+                    continue
+                for m in _IMPORT_RE.finditer(text):
+                    target = (src.parent / m.group(1).replace("\\", "/")).resolve()
+                    d = target.parent
+                    if d.is_dir() and d not in dirs and not any(d == r or r in d.parents for r in roots):
+                        dirs.append(d)
+        return dirs
+
+    def all_files(self) -> list[Path]:
+        """Every source and graphics file in the project folder, library dirs and imported-data dirs."""
+        roots = [self.directory] + [(self.directory / d).resolve() for d in self.lib_dirs]
+        roots += self.referenced_dirs()
         seen, out = set(), []
         for root in roots:
             if not root.is_dir():
                 continue
             for p in sorted(root.rglob("*")):
-                if p.is_file() and p.suffix.lower() in SOURCE_EXTS | GFX_EXTS and p not in seen:
+                if (p.is_file() and p.suffix.lower() in SOURCE_EXTS | GFX_EXTS and p not in seen
+                        and not p.name.startswith(".")):
                     if any(part.startswith(".") or part in ("Output", "build") for part in p.relative_to(root).parts[:-1]):
                         continue
                     seen.add(p)

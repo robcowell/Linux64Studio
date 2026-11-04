@@ -9,7 +9,9 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
 from ..gfx.sprite import HEIGHT, Sprite, SpriteSet  # noqa: E402
+from ..gfx.spritepad import load_spd, save_spd  # noqa: E402
 from .editor import EditorPage  # noqa: E402
+from .exports import ExportLinks  # noqa: E402
 from .render import paint_scaled, render_sprite  # noqa: E402
 from .widgets import ColourButton, PixelCanvas  # noqa: E402
 
@@ -17,10 +19,13 @@ from .widgets import ColourButton, PixelCanvas  # noqa: E402
 class SpriteEditor(EditorPage):
     kind = "sprites"
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, project=None):
         super().__init__(path)
+        self.project = project
         if path and path.exists():
-            if path.suffix.lower() == ".spt":
+            if path.suffix.lower() == ".spd":
+                self.data = load_spd(path)
+            elif path.suffix.lower() == ".spt":
                 self.data = SpriteSet.load_spt(path)
             else:
                 self.data = SpriteSet.from_bin(path.read_bytes())
@@ -65,6 +70,11 @@ class SpriteEditor(EditorPage):
             b.connect("clicked", cb)
             bar.append(b)
         bar.append(Gtk.Box(hexpand=True))
+        self.links = None
+        if self.path and self.path.suffix.lower() in (".spt", ".spd"):
+            self.links = ExportLinks(self.path, [("bin", "Sprite data (.bin)", self.path.stem + ".bin",
+                                                  lambda: self.data.to_bin())], self.project)
+            bar.append(self.links)
         exp = Gtk.MenuButton(label="Export", tooltip_text="Export sprite data")
         menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6, margin_bottom=6,
                        margin_start=6, margin_end=6)
@@ -374,11 +384,15 @@ class SpriteEditor(EditorPage):
     def save(self):
         if not self.path:
             raise ValueError("No file name")
-        if self.path.suffix.lower() == ".spt":
+        sfx = self.path.suffix.lower()
+        if sfx == ".spt":
             self.data.save_spt(self.path)
+        elif sfx == ".spd":
+            save_spd(self.data, self.path)
         else:
             self.path.write_bytes(self.data.to_bin())
         self.set_modified(False)
+        return self.links.write_all() if self.links else []
 
     def _export(self, fmt: str):
         dlg = Gtk.FileDialog(title="Export sprites")

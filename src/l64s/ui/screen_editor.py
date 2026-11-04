@@ -15,6 +15,13 @@ from .editor import EditorPage  # noqa: E402
 from .render import Bitmap, draw_char_into, paint_scaled  # noqa: E402
 from .widgets import ColourButton  # noqa: E402
 
+def _children(widget):
+    child = widget.get_first_child()
+    while child is not None:
+        yield child
+        child = child.get_next_sibling()
+
+
 TOOLS = [("draw", "document-edit-symbolic", "Draw"), ("fill", "color-select-symbolic", "Flood fill"),
          ("pick", "find-location-symbolic", "Pick character and colour"),
          ("colour", "applications-graphics-symbolic", "Paint colour only")]
@@ -23,21 +30,37 @@ TOOLS = [("draw", "document-edit-symbolic", "Draw"), ("fill", "color-select-symb
 class ScreenEditor(EditorPage):
     kind = "screen"
 
-    def __init__(self, path: Path | None, charset_files: list[Path] | None = None):
+    def __init__(self, path: Path | None, charset_files: list[Path] | None = None, *,
+                 data: ScreenSet | None = None, charset: Charset | None = None,
+                 cell_colour=None, read_only: bool = False):
+        """Normally edits an .sdd file. With `data` + `charset` it edits a map owned by another editor
+        (a CharPad project): colours and charset belong to that project, and `cell_colour(char)`
+        gives each cell's colour. `read_only` shows the map without editing (tile-based maps)."""
         super().__init__(path)
-        self.data = ScreenSet.load_sdd(path) if path and path.exists() else ScreenSet()
+        self.map_mode = data is not None
+        self.read_only = read_only
+        self.cell_colour = cell_colour
+        if data is not None:
+            self.data = data
+        else:
+            self.data = ScreenSet.load_sdd(path) if path and path.exists() else ScreenSet()
         self.index = 0
         self.tool = "draw"
         self.char = 160 if not self.data.multicolour else 0
         self.colour = 1
         self.undo: list[tuple[int, list, list]] = []
-        self.charset = Charset()
-        rom = rom_charset(True)
-        if rom:
-            self.charset.chars = rom
-        self.charset.multicolour = self.data.multicolour
-        self.charset_files = charset_files or []
-        self._surface = None
+        if charset is not None:
+            self.charset = charset
+        else:
+            self.charset = Charset()
+            rom = rom_charset(True)
+            if rom:
+                self.charset.chars = rom
+            self.charset.multicolour = self.data.multicolour
+        self.charset_files = [] if self.map_mode else (charset_files or [])
+        self._glyphs: dict = {}
+        # Screens up to 40x25 scale to fit the window; bigger maps scroll at a fixed zoom.
+        self.fixed_zoom = 2.0 if (self.data.cols > 40 or self.data.rows > 25) else None
         self._build()
         if self.charset_files:
             # Prefer a charset in the same folder (e.g. characters.cst next to screens.sdd)
@@ -57,31 +80,44 @@ class ScreenEditor(EditorPage):
             b.connect("toggled", lambda btn, t=tid: btn.get_active() and setattr(self, "tool", t))
             if tid == "draw":
                 b.set_active(True)
+            if self.map_mode and tid == "colour":
+                continue  # in a CharPad project the colour comes from the character
             bar.append(b)
         ub = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text="Undo (Ctrl+Z)")
         ub.connect("clicked", self.do_undo)
         bar.append(ub)
-        bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
-        bar.append(Gtk.Label(label="Screen"))
         self.screen_spin = Gtk.SpinButton.new_with_range(0, max(0, len(self.data.screens) - 1), 1)
         self.screen_spin.connect("value-changed", lambda s: self._select_screen(int(s.get_value())))
-        bar.append(self.screen_spin)
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add screen")
-        add.connect("clicked", self._add_screen)
-        bar.append(add)
-        rm = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Delete screen")
-        rm.connect("clicked", self._delete_screen)
-        bar.append(rm)
-        bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
-        bar.append(Gtk.Label(label="Charset"))
         names = ["C64 ROM"] + [p.name for p in self.charset_files]
         self.charset_combo = Gtk.DropDown.new_from_strings(names)
         self.charset_combo.connect("notify::selected", self._charset_changed)
-        bar.append(self.charset_combo)
-        bar.append(Gtk.Box(hexpand=True))
-        exp = Gtk.Button(label="Export…")
-        exp.connect("clicked", self._export_dialog)
-        bar.append(exp)
+        if not self.map_mode:
+            bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+            bar.append(Gtk.Label(label="Screen"))
+            bar.append(self.screen_spin)
+            add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add screen")
+            add.connect("clicked", self._add_screen)
+            bar.append(add)
+            rm = Gtk.Button(icon_name="list-remove-symbolic", tooltip_text="Delete screen")
+            rm.connect("clicked", self._delete_screen)
+            bar.append(rm)
+            bar.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+            bar.append(Gtk.Label(label="Charset"))
+            bar.append(self.charset_combo)
+            bar.append(Gtk.Box(hexpand=True))
+            exp = Gtk.Button(label="Export…")
+            exp.connect("clicked", self._export_dialog)
+            bar.append(exp)
+        else:
+            bar.append(Gtk.Label(label=f"Map {self.data.cols} × {self.data.rows}", margin_start=12,
+                                 css_classes=["dim-label"]))
+            if self.read_only:
+                bar.append(Gtk.Label(label="Tile-based map: view only", margin_start=12,
+                                     css_classes=["warning"]))
+        if self.read_only:
+            for w in list(_children(bar)):
+                if isinstance(w, (Gtk.ToggleButton, Gtk.Button)):
+                    w.set_sensitive(False)
 
         body = Gtk.Box(spacing=8, vexpand=True, margin_start=6, margin_end=6, margin_bottom=6)
         self.append(body)
@@ -94,7 +130,15 @@ class ScreenEditor(EditorPage):
         motion = Gtk.EventControllerMotion()
         motion.connect("motion", self._motion)
         self.canvas.add_controller(motion)
-        body.append(Gtk.Frame(child=self.canvas))
+        if self.fixed_zoom:
+            self.canvas.set_content_width(int(self.data.cols * 8 * self.fixed_zoom))
+            self.canvas.set_content_height(int(self.data.rows * 8 * self.fixed_zoom))
+            self.canvas.set_hexpand(False)
+            self.canvas.set_vexpand(False)
+            sw = Gtk.ScrolledWindow(child=self.canvas, hexpand=True, vexpand=True)
+            body.append(Gtk.Frame(child=sw))
+        else:
+            body.append(Gtk.Frame(child=self.canvas))
 
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         body.append(Gtk.ScrolledWindow(child=side, hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_width=True))
@@ -120,35 +164,62 @@ class ScreenEditor(EditorPage):
         for r, (label, w) in enumerate(rows):
             g.attach(Gtk.Label(label=label, xalign=0), 0, r, 1, 1)
             g.attach(w, 1, r, 1, 1)
-        side.append(g)
-        side.append(self.mc_colour)
         self.multi = Gtk.CheckButton(label="Multicolour screen mode", active=self.data.multicolour)
         self.multi.connect("toggled", self._multi_toggled)
-        side.append(self.multi)
+        if not self.map_mode:
+            side.append(g)
+            side.append(self.mc_colour)
+            side.append(self.multi)
+        else:
+            side.append(Gtk.Label(label="Colours come from the character set\n(edit them on the Characters tab).",
+                                  xalign=0, css_classes=["dim-label", "caption"]))
         self.status = Gtk.Label(xalign=0, css_classes=["dim-label"])
         side.append(self.status)
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._key)
         self.add_controller(keys)
+        self._update_grid_colours()
 
     # ---------------------------------------------------------------- rendering
-    def _invalidate(self):
-        self._surface = None
+    def _invalidate(self, glyphs: bool = False):
+        if glyphs:
+            self._glyphs.clear()
         self.canvas.queue_draw()
 
-    def _render(self):
-        cols, rows = self.data.cols, self.data.rows
-        bm = Bitmap(cols * 8, rows * 8)
+    def refresh(self):
+        """Redraw after the charset or its colours changed elsewhere."""
+        self.grid.invalidate()
+        self._invalidate(glyphs=True)
+
+    def _palette(self):
+        """(background, border, multicolour 1, multicolour 2, multicolour mode) for the current screen."""
+        if self.map_mode:
+            cs = self.charset
+            return cs.background, cs.background, cs.mc1, cs.mc2, cs.multicolour
         s = self.screen
-        mc = self.data.multicolour
-        for r in range(rows):
-            for c in range(cols):
-                draw_char_into(bm, c * 8, r * 8, self.charset.chars[s.chars[r][c] & 0xFF], s.colours[r][c] & 0x0F,
-                               s.background, mc, s.bk1, s.bk2)
-        return bm.surface()
+        return s.background, s.border, s.bk1, s.bk2, self.data.multicolour
+
+    def _colour_of_cell(self, r, c) -> int:
+        s = self.screen
+        if self.cell_colour:
+            return self.cell_colour(s.chars[r][c] & 0xFF)
+        return s.colours[r][c] & 0x0F
+
+    def _glyph(self, ch: int, colour: int):
+        bg, _border, mc1, mc2, mc = self._palette()
+        key = (ch, colour, bg, mc1, mc2, mc)
+        surf = self._glyphs.get(key)
+        if surf is None:
+            bm = Bitmap(8, 8)
+            draw_char_into(bm, 0, 0, self.charset.chars[ch & 0xFF], colour, bg, mc, mc1, mc2)
+            surf = bm.surface()
+            self._glyphs[key] = surf
+        return surf
 
     def _geometry(self):
+        if self.fixed_zoom:
+            return self.fixed_zoom, 0, 0, 0
         w, h = self.canvas.get_width(), self.canvas.get_height()
         border = 16
         pw, ph = self.data.cols * 8 + 2 * border, self.data.rows * 8 + 2 * border
@@ -159,14 +230,22 @@ class ScreenEditor(EditorPage):
 
     def _draw(self, _w, cr, w, h):
         from .widgets import set_rgb
-        if self._surface is None:
-            self._surface = self._render()
         scale, ox, oy, border = self._geometry()
-        set_rgb(cr, self.screen.border)
+        _bg, border_colour, *_ = self._palette()
+        set_rgb(cr, border_colour)
         cr.rectangle(ox - border * scale, oy - border * scale,
                      (self.data.cols * 8 + 2 * border) * scale, (self.data.rows * 8 + 2 * border) * scale)
         cr.fill()
-        paint_scaled(cr, self._surface, ox, oy, scale, scale)
+        # Only draw the cells inside the area being repainted (big maps are mostly off-screen).
+        x1, y1, x2, y2 = cr.clip_extents()
+        cell = 8 * scale
+        c0, c1 = max(0, int((x1 - ox) // cell)), min(self.data.cols, int((x2 - ox) // cell) + 1)
+        r0, r1 = max(0, int((y1 - oy) // cell)), min(self.data.rows, int((y2 - oy) // cell) + 1)
+        s = self.screen
+        for r in range(r0, r1):
+            for c in range(c0, c1):
+                paint_scaled(cr, self._glyph(s.chars[r][c], self._colour_of_cell(r, c)),
+                             ox + c * cell, oy + r * cell, scale, scale)
 
     def _cell(self, x, y):
         scale, ox, oy, _ = self._geometry()
@@ -177,6 +256,8 @@ class ScreenEditor(EditorPage):
 
     # ---------------------------------------------------------------- input
     def _drag_begin(self, g, x, y):
+        if self.read_only:
+            return
         self._start = (x, y)
         self._button = g.get_current_button()
         self._last = None
@@ -184,6 +265,8 @@ class ScreenEditor(EditorPage):
         self._apply(x, y)
 
     def _drag_update(self, _g, dx, dy):
+        if self.read_only:
+            return
         if self.tool in ("draw", "colour"):
             self._apply(self._start[0] + dx, self._start[1] + dy)
 
@@ -192,14 +275,14 @@ class ScreenEditor(EditorPage):
         if cell:
             c, r = cell
             s = self.screen
-            self.status.set_text(f"Col {c}  Row {r}  char {s.chars[r][c]}  colour {s.colours[r][c] & 15}  "
+            self.status.set_text(f"Col {c}  Row {r}  char {s.chars[r][c]}  colour {self._colour_of_cell(r, c)}  "
                                  f"offset {r * self.data.cols + c}")
 
     def _ink(self) -> tuple[int, int]:
-        colour = self.colour | (8 if self.mc_colour.get_active() else 0)
-        if self._button == 3:
-            return 32, colour
-        return self.char, colour
+        ch = 32 if self._button == 3 else self.char
+        if self.cell_colour:
+            return ch, self.cell_colour(ch)
+        return ch, self.colour | (8 if self.mc_colour.get_active() else 0)
 
     def _apply(self, x, y):
         cell = self._cell(x, y)
@@ -228,7 +311,7 @@ class ScreenEditor(EditorPage):
         self._invalidate()
 
     def _flood(self, c, r, old_ch, old_col, ch, col):
-        if (old_ch, old_col) == (ch, col):
+        if old_ch == ch and (self.cell_colour or old_col == col):
             return
         s = self.screen
         stack = [(c, r)]
@@ -236,7 +319,7 @@ class ScreenEditor(EditorPage):
             x, y = stack.pop()
             if not (0 <= x < self.data.cols and 0 <= y < self.data.rows):
                 continue
-            if s.chars[y][x] != old_ch or s.colours[y][x] != old_col:
+            if s.chars[y][x] != old_ch or (not self.cell_colour and s.colours[y][x] != old_col):
                 continue
             s.chars[y][x], s.colours[y][x] = ch, col
             stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
@@ -304,9 +387,10 @@ class ScreenEditor(EditorPage):
         self._invalidate()
 
     def _update_grid_colours(self):
-        s = self.screen
         g = self.grid
-        g.fg, g.bg, g.mc1, g.mc2 = self.colour, s.background, s.bk1, s.bk2
+        bg, _border, mc1, mc2, _mc = self._palette()
+        g.fg, g.bg, g.mc1, g.mc2 = self.colour, bg, mc1, mc2
+        g.colour_for = self.cell_colour
         g.invalidate()
 
     def _charset_changed(self, dd, _pspec):
@@ -331,7 +415,7 @@ class ScreenEditor(EditorPage):
         self.charset = cs
         self.grid.charset = cs
         self._update_grid_colours()
-        self._invalidate()
+        self._invalidate(glyphs=True)
 
     # ---------------------------------------------------------------- save/export
     def save(self):

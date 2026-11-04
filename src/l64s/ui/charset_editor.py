@@ -10,6 +10,7 @@ from gi.repository import Gdk, GLib, GObject, Gtk  # noqa: E402
 
 from ..gfx.charset import Charset, rom_charset  # noqa: E402
 from .editor import EditorPage  # noqa: E402
+from .exports import ExportLinks  # noqa: E402
 from .render import paint_scaled, render_charset_grid  # noqa: E402
 from .widgets import ColourButton, PixelCanvas  # noqa: E402
 
@@ -24,6 +25,8 @@ class CharGrid(Gtk.DrawingArea):
         self.charset = charset
         self.selected = 0
         self.fg, self.bg, self.mc1, self.mc2 = 1, 0, 1, 2
+        self.per_char = False  # colour each character from charset.attribs (CharPad per-char colouring)
+        self.colour_for = None  # or a function char -> colour RAM value
         self._surface = None
         self.set_draw_func(self._draw)
         click = Gtk.GestureClick()
@@ -36,7 +39,12 @@ class CharGrid(Gtk.DrawingArea):
 
     def _draw(self, _w, cr, w, h):
         if self._surface is None:
-            fg = self.fg | (8 if self.charset.multicolour else 0)
+            if self.colour_for:
+                fg = [self.colour_for(i) for i in range(len(self.charset.chars))]
+            elif self.per_char:
+                fg = [self.charset.colour_of(i) for i in range(len(self.charset.chars))]
+            else:
+                fg = self.fg | (8 if self.charset.multicolour else 0)
             bm = render_charset_grid(self.charset.chars, fg, self.bg, self.charset.multicolour, self.mc1, self.mc2)
             self._surface = bm.surface()
         s = min(w, h) / 128
@@ -59,9 +67,16 @@ class CharGrid(Gtk.DrawingArea):
 class CharsetEditor(EditorPage):
     kind = "charset"
 
-    def __init__(self, path: Path | None):
+    def __init__(self, path: Path | None, data: Charset | None = None, per_char_colour: bool = False,
+                 project=None):
         super().__init__(path)
-        if path and path.exists():
+        self.project = project
+        # per_char_colour: each character has its own colour (CharPad); colours 8-15 make a character
+        # multicolour when multicolour mode is on, 0-7 leave it hires.
+        self.per_char = per_char_colour and data is not None and data.attribs is not None
+        if data is not None:
+            self.data = data
+        elif path and path.exists():
             if path.suffix.lower() == ".cst":
                 self.data = Charset.load_cst(path)
             else:
@@ -98,6 +113,11 @@ class CharsetEditor(EditorPage):
             b.connect("clicked", cb)
             bar.append(b)
         bar.append(Gtk.Box(hexpand=True))
+        self.links = None
+        if self.path and self.path.suffix.lower() == ".cst":
+            self.links = ExportLinks(self.path, [("bin", "Character data (.bin)", self.path.stem + ".bin",
+                                                  lambda: self.data.to_bin())], self.project)
+            bar.append(self.links)
         bar.append(Gtk.Label(label="Export"))
         self.export_count = Gtk.SpinButton.new_with_range(1, 256, 1)
         self.export_count.set_value(self.data.count)
@@ -115,6 +135,7 @@ class CharsetEditor(EditorPage):
         self.append(body)
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.grid = CharGrid(self.data, scale=3)
+        self.grid.per_char = self.per_char
         self.grid.connect("selected", lambda _g, i: self._select(i))
         left.append(self.grid)
         self.status = Gtk.Label(xalign=0, css_classes=["dim-label"])
@@ -140,17 +161,21 @@ class CharsetEditor(EditorPage):
         for r, (pen, label, attr) in enumerate([(0, "Background ($D021)", "background"),
                                                  (1, "Multicolour 1 ($D022)", "mc1"),
                                                  (2, "Multicolour 2 ($D023)", "mc2"),
-                                                 (3, "Character colour (colour RAM)", "char_colour")]):
+                                                 (3, "This character's colour" if self.per_char
+                                                  else "Character colour (colour RAM)", "char_colour")]):
             rb = Gtk.CheckButton(label=label, group=group)
             group = group or rb
             rb.connect("toggled", self._pen_toggled, pen)
-            cb = ColourButton(getattr(self.data, attr), label)
+            cb = ColourButton(self._fg() if attr == "char_colour" else getattr(self.data, attr), label)
             cb.connect("changed", self._colour_changed, attr)
             g.attach(rb, 0, r, 1, 1)
             g.attach(cb, 1, r, 1, 1)
             self.pen_buttons.append(rb)
             self.colour_buttons[attr] = cb
         side.append(g)
+        if self.per_char:
+            side.append(Gtk.Label(label="Colours 8–15 make this character multicolour;\n0–7 keep it hires.",
+                                  xalign=0, css_classes=["dim-label", "caption"]))
         side.append(Gtk.Label(label="Preview (3x3 tiled)", xalign=0))
         self.preview = Gtk.DrawingArea(content_width=144, content_height=144)
         self.preview.set_draw_func(self._draw_preview)
@@ -162,18 +187,30 @@ class CharsetEditor(EditorPage):
         self._update_mode()
 
     # ---------------------------------------------------------------- state
+    def _fg(self, i: int | None = None) -> int:
+        """Colour RAM value of character i (the current one by default)."""
+        i = self.index if i is None else i
+        return self.data.colour_of(i) if self.per_char else self.data.char_colour
+
+    def _is_mc(self, i: int | None = None) -> bool:
+        """Whether character i is drawn in multicolour."""
+        if not self.data.multicolour:
+            return False
+        return self._fg(i) >= 8 if self.per_char else True
+
     def _colours(self):
-        return (self.data.background, self.data.mc1, self.data.mc2, self.data.char_colour & 7)
+        return (self.data.background, self.data.mc1, self.data.mc2, self._fg() & 7)
 
     def _colour_at(self, x, y):
-        v = self.data.get(self.index, x, y)
-        if self.data.multicolour:
+        mc = self._is_mc()
+        v = self.data.get(self.index, x, y, mc)
+        if mc:
             return self._colours()[v]
-        return self.data.char_colour if v else self.data.background
+        return self._fg() if v else self.data.background
 
     def _update_mode(self):
-        mc = self.data.multicolour
-        self.canvas.cols = self.data.pixel_width
+        mc = self._is_mc()
+        self.canvas.cols = 4 if mc else 8
         self.canvas.pixel_aspect = 2 if mc else 1
         for i in (1, 2):
             self.pen_buttons[i].set_visible(mc)
@@ -191,16 +228,25 @@ class CharsetEditor(EditorPage):
         self.index = i
         self.grid.selected = i
         self.grid.queue_draw()
-        self.status.set_text(f"Character {i} (${i:02X})")
+        self.status.set_text(f"Character {i} (${i:02X})" + (f"  colour {self._fg()}" if self.per_char else ""))
+        if self.per_char:
+            self.colour_buttons["char_colour"].colour = self._fg()
+            self._update_mode()
         self.canvas.queue_draw()
         self.preview.queue_draw()
 
     def _pen_toggled(self, btn, pen):
         if btn.get_active():
-            self.pen = (1 if pen == 3 else 0) if not self.data.multicolour else pen
+            self.pen = (1 if pen == 3 else 0) if not self._is_mc() else pen
 
     def _colour_changed(self, _b, colour, attr):
-        setattr(self.data, attr, colour)
+        if attr == "char_colour" and self.per_char:
+            was_mc = self._is_mc()
+            self.data.set_colour_of(self.index, colour)
+            if was_mc != self._is_mc():  # the pen means "character colour" in both modes
+                self.pen = {3: 1}.get(self.pen, 0) if was_mc else {1: 3}.get(self.pen, self.pen)
+        else:
+            setattr(self.data, attr, colour)
         self.set_modified(True)
         self._update_mode()
 
@@ -211,7 +257,7 @@ class CharsetEditor(EditorPage):
         self._update_mode()
 
     def _paint(self, _c, x, y, button):
-        self.data.set(self.index, x, y, 0 if button == 3 else self.pen)
+        self.data.set(self.index, x, y, 0 if button == 3 else self.pen, self._is_mc())
         self._changed()
 
     def _changed(self):
@@ -223,7 +269,7 @@ class CharsetEditor(EditorPage):
     def _draw_preview(self, _da, cr, w, h):
         from .render import Bitmap, draw_char_into
         bm = Bitmap(24, 24)
-        fg = self.data.char_colour | (8 if self.data.multicolour else 0)
+        fg = self._fg() if self.per_char else self.data.char_colour | (8 if self.data.multicolour else 0)
         for ty in range(3):
             for tx in range(3):
                 draw_char_into(bm, tx * 8, ty * 8, self.data.chars[self.index], fg, self.data.background,
@@ -284,6 +330,7 @@ class CharsetEditor(EditorPage):
         else:
             self.path.write_bytes(self.data.to_bin())
         self.set_modified(False)
+        return self.links.write_all() if self.links else []
 
     def _export(self, fmt: str):
         from gi.repository import Gio

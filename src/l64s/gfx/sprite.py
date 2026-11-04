@@ -20,6 +20,13 @@ class Sprite:
     expand_x: bool = False
     expand_y: bool = False
     description: str = ""
+    # SpritePad keeps an attribute byte in byte 63 of each sprite: bit 7 multicolour, bits 0-3 colour.
+    # Any other bits (e.g. SpritePad's overlay flag) are kept here so files round-trip unchanged.
+    attr_extra: int = 0
+
+    @property
+    def attribute(self) -> int:
+        return (0x80 if self.multi else 0) | (self.attr_extra & 0x70) | (self.colour & 0x0F)
 
     # -- pixel access. In multicolour mode x is 0-11 and values are 0-3 (bit pairs).
     def get(self, x: int, y: int) -> int:
@@ -75,7 +82,8 @@ class Sprite:
                 self.set(x, y, px[sy][sx])
 
     def copy(self) -> "Sprite":
-        return Sprite(list(self.rows), self.multi, self.colour, self.expand_x, self.expand_y, self.description)
+        return Sprite(list(self.rows), self.multi, self.colour, self.expand_x, self.expand_y, self.description,
+                      self.attr_extra)
 
 
 @dataclass
@@ -84,13 +92,18 @@ class SpriteSet:
     background: int = 0     # spbkgnd
     mcolour1: int = 1       # $D025
     mcolour2: int = 2       # $D026
+    # Set when loaded from SpritePad: its exports put the attribute byte in byte 63 of each sprite,
+    # where CBM prg Studio's exports put 0.
+    attribute_bytes: bool = False
+    animations: bytes = b""  # SpritePad animation table, kept verbatim
 
-    def to_bin(self, pad_to_64: bool = True) -> bytes:
+    def to_bin(self, pad_to_64: bool = True, attribute_bytes: bool | None = None) -> bytes:
+        attrs = self.attribute_bytes if attribute_bytes is None else attribute_bytes
         out = bytearray()
         for s in self.sprites:
             out += s.to_bytes()
             if pad_to_64:
-                out.append(0)
+                out.append(s.attribute if attrs else 0)
         return bytes(out)
 
     def to_source(self, label: str = "sprites") -> str:

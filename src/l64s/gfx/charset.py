@@ -38,16 +38,31 @@ class Charset:
     char_colour: int = 1  # colour RAM, pen 3 in multicolour mode (.cst <Col3>)
     uppercase: bool = True
     count: int = 256   # number of characters exported
+    # Per-character attribute bytes (CharPad's MMMMCCCC: material, colour), or None when every
+    # character uses char_colour (CBM prg Studio charsets).
+    attribs: list[int] | None = None
 
-    def get(self, ch: int, x: int, y: int) -> int:
+    def colour_of(self, ch: int) -> int:
+        """Colour RAM value for a character (bit 3 set = multicolour when multicolour mode is on)."""
+        if self.attribs is not None:
+            return self.attribs[ch] & 0x0F
+        return self.char_colour
+
+    def set_colour_of(self, ch: int, colour: int) -> None:
+        if self.attribs is not None:
+            self.attribs[ch] = (self.attribs[ch] & 0xF0) | (colour & 0x0F)
+        else:
+            self.char_colour = colour & 0x0F
+
+    def get(self, ch: int, x: int, y: int, multicolour: bool | None = None) -> int:
         row = self.chars[ch][y]
-        if self.multicolour:
+        if self.multicolour if multicolour is None else multicolour:
             return (row >> (6 - 2 * x)) & 3
         return (row >> (7 - x)) & 1
 
-    def set(self, ch: int, x: int, y: int, v: int) -> None:
+    def set(self, ch: int, x: int, y: int, v: int, multicolour: bool | None = None) -> None:
         row = self.chars[ch][y]
-        if self.multicolour:
+        if self.multicolour if multicolour is None else multicolour:
             s = 6 - 2 * x
             row = (row & ~(3 << s)) | ((v & 3) << s)
         else:

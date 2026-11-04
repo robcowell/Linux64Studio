@@ -11,7 +11,11 @@ can be followed on Linux.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
 * **Editor** with 6502 syntax highlighting, error navigation and breakpoints in the gutter.
 * **Sprite, character set and screen editors** that read and write CBM prg Studio's
-  `.spt`, `.cst` and `.sdd` files, and export `.bin` for `incbin` or `byte` source.
+  `.spt`, `.cst` and `.sdd` files, SpritePad `.spd` and CharPad `.ctm` projects (Vol 2), and
+  export `.bin` for `incbin` / `.import binary` or `byte` source.
+* **Linked exports**: saving a graphics file can rewrite its `.bin` exports, so you don't have
+  to export by hand after every change. A link is switched on automatically only when the
+  `.bin` already matches the source, so unrelated files are never overwritten.
 * **Run and debug in VICE**: breakpoints, step into/over/out, registers, disassembly
   with labels, memory view, and the current source line highlighted. Uses VICE's
   binary monitor.
@@ -53,12 +57,24 @@ line numbers or gutter breakpoints (F9 still sets breakpoints).
 Volume 2 uses **Kick Assembler** with VS Code, not CBM prg Studio. Kick Assembler is a Java
 program that already runs on Linux. Open a chapter's `.code-workspace` file, then set the
 path to `KickAss.jar` (included in the book's `Tools/KickAssembler` folder) under
-Preferences → Kick Assembler. SpritePad (`.spd`) and CharPad (`.ctm`) files aren't
-supported yet. Use their `.bin` exports.
+Preferences → Kick Assembler.
+
+The `Chapters/Content` folder appears in the project's file list, because the code imports
+from it. Open `BeachBarSprites*.spd` in the sprite editor, or `BeachBarScreens.ctm` in the
+CharPad editor (it has Characters and Map pages). When you save, the `.bin` files the chapters
+import are rewritten: `BeachBarSprites1.bin`, `BeachBarScreensCharset.bin`,
+`BeachBarScreensColors.bin`, and `BeachBarScreenTopLeft.bin` for the map. The sync button in
+the editor's toolbar shows these links and lets you change them.
+
+Supported: SpritePad format version 1 (SpritePad 2.0, as in the book) and CharPad CTM version 5
+(CharPad 2.0–2.3), with up to 256 characters. In CharPad projects that use tiles (the book's
+don't), you can edit the characters but the map is view-only. The tiles are kept intact when
+you save.
 
 ## Tests
 
 ```sh
-unzip c64edition-main.zip -d tests/book    # the book's Vol 1 download (optional)
+unzip c64edition-main.zip -d tests/book       # the book downloads (optional): Vol 1 sources
+unzip c64editionvol2-main.zip -d tests/book   # and Vol 2's SpritePad/CharPad files
 .venv/bin/python -m pytest
 ```
