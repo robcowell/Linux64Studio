@@ -61,6 +61,9 @@ can be followed on Linux.
   a message of your own). See [docs/basic.md](docs/basic.md#sys-call-generator).
 * **Data Generator**: byte, word or 5-byte float tables (sine waves, paths, curves) from a function
   of x, with a graph, deltas, x/y pairs and clamping. See [docs/binary.md](docs/binary.md#data-generator).
+* **String Formatter**: split long strings into lines of a set length, as BASIC `a$=a$+"…"`
+  lines or `text` lines (PETSCII or screen codes), with case changes and regular-expression find
+  and replace. See [docs/basic.md](docs/basic.md#string-formatter).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
   build (Project Properties → Disk Image), with the program first and any extra files after
   it, and run or debug from the disk on the matching drive. Disk images open in a directory

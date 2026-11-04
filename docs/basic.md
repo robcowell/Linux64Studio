@@ -162,3 +162,37 @@ into a BASIC file. In a Kick Assembler project the output uses `.byte` and `//` 
 back, and assembles the source. Its VICE tests (`L64S_VICE_TESTS=1`) RUN each style and check
 that the machine code ran. They also LIST the obfuscated line and check the screen shows only
 the message.
+
+## String Formatter
+
+**Menu → String Formatter** splits a long string into lines of a set length, as in CBM prg Studio.
+Type or paste the text into **Source**; the character count is how long it is on the C64 (a
+control code such as `{white}` is one character). **Output** shows the result as you type:
+
+* **BASIC**: lines that build the string in a variable, starting at **Start line** in steps of
+  **Step**: `100 a$="…"`, then `110 a$=a$+"…"`. Without **Initialise**, every line adds to the
+  variable. A `"` can't go in a BASIC string, so it's an error. You're warned if a line is longer
+  than the 80 characters the C64 lets you type, or the string is longer than BASIC's 255.
+* **Assembler**: `text` lines, either as **PETSCII** (`text "…"`, for printing with CHROUT) or
+  **screen codes** (`text '…'`, for writing straight to screen memory). Control codes become
+  numbers between the quoted runs (`text $05, "hello"`), so they only work in PETSCII. An
+  optional **Label** goes above the lines. In a Kick Assembler project it writes `.text`, with
+  an `.encoding` line for PETSCII and one to put the default (screen codes) back.
+
+**Characters per line** sets the length of each piece. **Keep words together** ends pieces after
+a space where it can. A control code is never split. The output starts as BASIC if the last
+file you edited is BASIC, and as assembler otherwise, as in CBM prg Studio. You can switch it.
+
+**Convert** changes the source text. **Upper**, **Lower** and **Mixed** (sentence case) leave
+control codes alone. Remember that lower case letters are the C64's normal letters, and
+capitals are the shifted ones. **Find** lists the matches of a regular expression and selects
+the first. **Replace All** replaces them; `\1` works in the replacement. Each change is one
+undo step (Ctrl+Z in the source box).
+
+**Copy** puts the output on the clipboard, and **Insert into Editor** puts it at the cursor of
+the last source file you used, if it's the same kind (BASIC or assembler).
+
+`tests/test_strformat.py` checks the splitting, case changes, find and replace, and both
+outputs, and that they tokenise and assemble. With `L64S_VICE_TESTS=1` it runs them in VICE: the
+BASIC program PRINTs the string, and the PETSCII text is printed with CHROUT, and the screen
+shows the message exactly.
