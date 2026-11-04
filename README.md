@@ -20,6 +20,7 @@ can be followed on Linux.
   A **Tasks** panel lists every TODO, FIXME and HACK in the project ([tasks](docs/dialect.md#tasks-todo)).
   `#region` … `#endregion` blocks fold away, as in CBM prg Studio ([folding](docs/dialect.md#folding-regions)).
   Source files can be **printed** (or previewed as a PDF) in their syntax colours ([printing](docs/dialect.md#printing)).
+  A selection becomes a Kick Assembler **Hashtable** or **List** ([kick tools](docs/dialect.md#kick-assembler-hash-tables-and-lists)).
   A **UTF-8 check** finds (and replaces) curly quotes, dashes and other non-ASCII characters pasted
   into source ([utf-8](docs/dialect.md#utf-8-check)).
   **Git**: create a repository with an ignore list, see each file's state in the file list, status,

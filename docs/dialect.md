@@ -222,6 +222,25 @@ and set the Disk Image page's **Program file to put on the disk** to `game.prg.e
 image is written after the build events. The project's VICE options (`vice_args` in the
 `.l64proj`) are added to the ones in Preferences whenever the project runs or is debugged.
 
+## Kick Assembler hash tables and lists
+
+CBM prg Studio's Kick Assembler tools: select some lines in an assembler file, right-click, and
+choose **Create Kick Hash Table…** or **Create Kick List…**. The selection appears as the source
+(still editable), and the Kick Assembler appears beside it as the options change; **Copy** it, or
+**Replace Selection** with it (one undo).
+
+* **Hash table**: a key and a value a line (`1 North`, `UP = $91`; separated by spaces, a tab, `=`,
+  `,` or `:`). Generate it as a table, `.define Name { .var Name = Hashtable() … .eval Name.put(1,
+  "North") … }`, or as a string with one put, `Hashtable().put(1,"North", 2,"South")`, or a put
+  each, `Hashtable().put(1, "North").put(2, "South")`.
+* **List**: an item a line (or several separated by commas). Generate it as a list,
+  `.var Name = List(4)` then `.eval Name.set(0, "North")` …, or as a string,
+  `List().add("North", "South")`, from a **start index** if you like.
+* **Add quotes** round the keys, the values (or the items) that aren't quoted already. Comments
+  and blank lines in the selection are skipped.
+
+Kick Assembler 5.25 reads all of these the same (`tests/test_kicktools.py` runs it).
+
 ## UTF-8 check
 
 **UTF-8 Check** in the main menu (CBM prg Studio's Tools → UTF-8 Check) finds the characters in

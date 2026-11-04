@@ -319,6 +319,30 @@ class SourceEditor(EditorPage):
             return True
         return False
 
+    def kick_tool(self, mode: str):
+        """Create Kick Hash Table / List from the selected lines (CBM prg Studio's Kick Assembler tools)."""
+        from .kicktools_dialog import KickToolDialog
+        buf = self.buffer
+        if buf.get_has_selection():
+            a, b = buf.get_selection_bounds()
+            text = buf.get_text(a, b, False)
+            marks = (buf.create_mark(None, a, True), buf.create_mark(None, b, False))
+        else:
+            text, marks = "", None
+
+        def replace(result):
+            if marks is None:
+                buf.insert_at_cursor(result)
+                return
+            s, e = buf.get_iter_at_mark(marks[0]), buf.get_iter_at_mark(marks[1])
+            buf.begin_user_action()
+            buf.delete(s, e)
+            buf.insert(s, result)
+            buf.end_user_action()
+        dlg = KickToolDialog(self.get_root(), mode, text, replace)
+        dlg.present()
+        return dlg
+
     def fold_selection(self):
         """Put the selected lines (or the cursor's) in a new region (CBM prg Studio's Selection → Fold).
         Kick Assembler sources get the markers as comments."""
@@ -353,7 +377,8 @@ class SourceEditor(EditorPage):
         act = Gio.SimpleAction.new("convert", GLib.VariantType.new("s"))
         act.connect("activate", lambda _a, v: self.convert_number(v.get_string()))
         group.add_action(act)
-        for name, fn in (("fold-selection", lambda: self.fold_selection()),
+        for name, fn in (("kick-hash", lambda: self.kick_tool("hash")), ("kick-list", lambda: self.kick_tool("list")),
+                         ("fold-selection", lambda: self.fold_selection()),
                          ("fold-all", lambda: self.folding.fold_all()),
                          ("unfold-all", lambda: self.folding.unfold_all())):
             a = Gio.SimpleAction.new(name, None)
@@ -368,6 +393,11 @@ class SourceEditor(EditorPage):
         menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
         menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
+        if not self.is_basic:
+            kick = Gio.Menu()
+            kick.append("Create Kick Hash Table…", "editor.kick-hash")
+            kick.append("Create Kick List…", "editor.kick-list")
+            menu.append_section(None, kick)
         folds = Gio.Menu()
         folds.append("Fold Selection (#region)", "editor.fold-selection")
         folds.append("Fold All Regions (Ctrl+P)", "editor.fold-all")
