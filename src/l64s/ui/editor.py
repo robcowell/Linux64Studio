@@ -54,6 +54,11 @@ class EditorPage(Gtk.Box):
         return bool(self.path) and self.path.suffix.lower() in (".bas", ".pbas")
 
     @property
+    def is_c(self) -> bool:
+        """C source or header (a cc65 project's)."""
+        return bool(self.path) and self.path.suffix.lower() in (".c", ".h")
+
+    @property
     def is_pbasic(self) -> bool:
         return bool(self.path) and self.path.suffix.lower() == ".pbas"
 
@@ -93,8 +98,9 @@ class SourceEditor(EditorPage):
             lm = GtkSource.LanguageManager.get_default()
             if str(DATA_DIR) not in lm.get_search_path():      # it can only be set before any language loads
                 lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
-            is_basic = bool(path) and path.suffix.lower() in (".bas", ".pbas")
-            lang = lm.get_language("cbmbasic" if is_basic else "cbmasm")
+            sfx = path.suffix.lower() if path else ""
+            lang = lm.get_language("cbmbasic" if sfx in (".bas", ".pbas") else "c" if sfx in (".c", ".h")
+                                   else "cbmasm")
             if lang:
                 self.buffer.set_language(lang)
             self._setup_marks()
@@ -137,8 +143,8 @@ class SourceEditor(EditorPage):
         self.view.connect("query-tooltip", self._on_tooltip)
         self._setup_convert_menu()
         from .completion import CompletionPopup
-        self.completion = CompletionPopup(self.view, self._completion_candidates,
-                                          lambda: getattr(self.settings, "auto_complete", True))
+        self.completion = CompletionPopup(self.view, self._completion_candidates,       # not for C (yet)
+                                          lambda: getattr(self.settings, "auto_complete", True) and not self.is_c)
         # Ctrl+click: go to the definition of the name clicked
         ctrl_click = Gtk.GestureClick(button=1)
         ctrl_click.connect("released", self._on_left_click)
@@ -464,8 +470,9 @@ class SourceEditor(EditorPage):
         menu.append("Go to Definition", "win.goto-definition")
         menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
-        menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
-        if not self.is_basic:
+        if not self.is_c:          # the analyser and Kick tables are for assembler and BASIC
+            menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
+        if not self.is_basic and not self.is_c:
             kick = Gio.Menu()
             kick.append("Create Kick Hash Table…", "editor.kick-hash")
             kick.append("Create Kick List…", "editor.kick-list")
@@ -563,6 +570,8 @@ class SourceEditor(EditorPage):
         self.buffer.select_range(end, it)
 
     def _completion_candidates(self, prefix: str) -> list[tuple[str, str]]:
+        if self.is_c:              # the project's labels and 6502 instructions aren't C
+            return []
         win = self.get_root()
         idx = win.symbol_index() if hasattr(win, "symbol_index") else None
         if idx is None:

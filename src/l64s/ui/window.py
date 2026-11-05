@@ -21,7 +21,7 @@ from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
-from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
+from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_CC65, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
                              new_project)
 from .cart_view import CartView  # noqa: E402
 from .charpad_editor import CharPadEditor  # noqa: E402
@@ -65,7 +65,7 @@ def _file_icon(path: Path) -> str:
     return "application-x-executable-symbolic"
 
 
-SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst", ".tkn"}
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst", ".tkn", ".c", ".h", ".cfg"}
 
 
 class MainWindow(Adw.ApplicationWindow):
@@ -430,7 +430,8 @@ class MainWindow(Adw.ApplicationWindow):
             self.file_list.set_model(None)
             return
         p = self.project
-        self.sidebar_title.set_text(p.name + ("  (Kick Assembler)" if p.toolchain == TOOLCHAIN_KICKASS else ""))
+        self.sidebar_title.set_text(p.name + {TOOLCHAIN_KICKASS: "  (Kick Assembler)",
+                                              TOOLCHAIN_CC65: "  (C, cc65)"}.get(p.toolchain, ""))
         self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
         roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
         tree = build_tree(p.directory, p.all_files(), self._build_order, roots, p.all_folders())
@@ -922,13 +923,18 @@ class MainWindow(Adw.ApplicationWindow):
         pick = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER)
         loc.add_suffix(pick)
         tool = Adw.ComboRow(title="Type", model=Gtk.StringList.new(
-            ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2", "Cartridge, 8K (assembler)"]))
+            ["Assembler (CBM prg Studio syntax)", "Kick Assembler", "BASIC V2", "Cartridge, 8K (assembler)",
+             "C (cc65)"]))
+        own_folder = Adw.SwitchRow(title="Make a folder for it", active=True,
+                                   subtitle="Off: the project goes in Location itself, e.g. a folder of C files you "
+                                            "already have")
         from ..gitrepo import available as git_available
         make_git = Adw.SwitchRow(title="Create a Git repository", active=False, sensitive=git_available(),
                                  subtitle="With an ignore list (Preferences → Git)")
         grp.add(name)
         grp.add(loc)
         grp.add(tool)
+        grp.add(own_folder)
         grp.add(make_git)
         page.add(grp)
         btn = Gtk.Button(label="Create", css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER,
@@ -952,12 +958,18 @@ class MainWindow(Adw.ApplicationWindow):
 
         def create(*_):
             n = name.get_text().strip() or "mygame"
-            directory = Path(loc.get_subtitle()) / n
+            directory = Path(loc.get_subtitle()) / n if own_folder.get_active() else Path(loc.get_subtitle())
             sel = tool.get_selected()
-            tc = TOOLCHAIN_KICKASS if sel == 1 else TOOLCHAIN_CBM
+            tc = TOOLCHAIN_KICKASS if sel == 1 else TOOLCHAIN_CC65 if sel == 4 else TOOLCHAIN_CBM
+            if (directory / f"{n}.l64proj").exists():
+                self.toast(f"There's already a project called {n} there")
+                return
             proj = new_project(directory, n, tc, basic=sel == 2, cartridge=sel == 3)
             win.close()
             self.open_project(proj.path)
+            if tc == TOOLCHAIN_CC65 and not proj.build_list:
+                self.toast("Add the program's .c and .s files to the build list: right-click each in the file tree "
+                           "and choose Add to Build")
             if make_git.get_active():
                 self.git_init()
         btn.connect("clicked", create)
@@ -970,14 +982,17 @@ class MainWindow(Adw.ApplicationWindow):
         dlg = Adw.AlertDialog(heading={"asm": "New source file", "bas": "New BASIC file",
                                        "pbas": "New pBASIC file (BASIC without line numbers)", "spt": "New sprite set",
                                        "cst": "New character set", "sdd": "New screen design",
-                                       "d64": "New disk image (.d64, .d71 or .d81)"}[kind])
+                                       "d64": "New disk image (.d64, .d71 or .d81)", "c": "New C file",
+                                       "h": "New C header file"}[kind])
         default = {"asm": "gameNew.asm", "bas": "main.bas", "pbas": "main.pbas", "spt": "sprites.spt", "cst": "characters.cst",
-                   "sdd": "screens.sdd", "d64": "disk.d64"}[kind]
+                   "sdd": "screens.sdd", "d64": "disk.d64", "c": "new.c", "h": "new.h"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
-        if kind in ("asm", "bas", "pbas") and self.project.toolchain == TOOLCHAIN_CBM:
-            add_build = Gtk.CheckButton(label="Add to the build list (before the last file)", active=True)
+        if (kind in ("asm", "bas", "pbas") and self.project.toolchain == TOOLCHAIN_CBM) or \
+                (kind == "c" and self.project.toolchain == TOOLCHAIN_CC65):
+            add_build = Gtk.CheckButton(label="Add to the build list" + ("" if kind == "c" else " (before the last file)"),
+                                        active=True)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             box.append(entry)
             box.append(add_build)
@@ -1001,7 +1016,17 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast(f"{fname} already exists")
                 self.open_file(path)
                 return
-            if kind in ("asm", "bas", "pbas"):
+            if kind in ("c", "h"):
+                if kind == "h":
+                    guard = re.sub(r"\W", "_", path.name).upper()
+                    path.write_text(f"#ifndef {guard}\n#define {guard}\n\n\n#endif\n")
+                else:
+                    path.write_text(f"/* {path.name} */\n\n")
+                if add_build and add_build.get_active():
+                    from ..project.fileops import build_add
+                    build_add(self.project, path)
+                    self.project.save()
+            elif kind in ("asm", "bas", "pbas"):
                 if kind == "asm":
                     path.write_text(f";===============================================================================\n; {path.stem}\n\n")
                 elif kind == "pbas":
@@ -1046,6 +1071,8 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast("Open a project or an .asm file first")
                 return
         only = None
+        if current_file and run and self.project.toolchain == TOOLCHAIN_CC65:
+            current_file = False      # one C file doesn't make a program: F5 builds and runs the project
         if current_file:
             if not isinstance(ed, SourceEditor) or not ed.path:
                 self.toast("The current tab isn't a source file")
@@ -1173,6 +1200,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _start_debug(self, res: BuildResult):
         if self.project and self.project.toolchain == TOOLCHAIN_KICKASS and not res.srcmap:
             self.toast("Kick Assembler didn't write a debug dump (.dbg), so the debugger can't show source lines")
+        if self.project and self.project.toolchain == TOOLCHAIN_CC65 and not res.srcmap:
+            self.toast("ld65 didn't write a debug file, so the debugger can't show C source lines")
         symbols = self._build_symbols(res)
         if res.asm_result:
             for key, value in res.asm_result.symbols.items():
@@ -1332,7 +1361,8 @@ class MainWindow(Adw.ApplicationWindow):
             overwrite=ed.view.get_overwrite(), word_wrap=self.settings.word_wrap,
             line=it.get_line() + 1, column=it.get_line_offset(),
             basic=ed.is_basic and not ed.is_pbasic, auto_line_numbers=self.settings.basic_auto_number,
-            kickass=bool(p and p.toolchain == TOOLCHAIN_KICKASS), git_branch=self._git_branch,
+            kickass=bool(p and p.toolchain == TOOLCHAIN_KICKASS), cc65=bool(p and p.toolchain == TOOLCHAIN_CC65),
+            git_branch=self._git_branch,
             has_project=p is not None)
         self.statusbar.show_fields(status_fields(state))
         self.statusbar.set_visible(True)
@@ -1613,7 +1643,10 @@ class MainWindow(Adw.ApplicationWindow):
                         addr = int(parts[1].split(":")[-1], 16)
                     except ValueError:
                         continue
-                    out.setdefault(addr, parts[2].lstrip("."))
+                    name = parts[2].lstrip(".")
+                    if name.startswith("__") and name.endswith("__"):
+                        continue      # ld65's own symbols (segment sizes, offsets): small numbers, not places
+                    out.setdefault(addr, name)
         return out
 
     # ------------------------------------------------------------------ Project Information panel
@@ -1934,7 +1967,7 @@ class MainWindow(Adw.ApplicationWindow):
                 if not end.ends_line():
                     end.forward_to_line_end()
                 current = buf.get_text(it, end, False)
-                kind = "pbasic" if ed.is_pbasic else \
+                kind = "pbasic" if ed.is_pbasic else "c" if ed.is_c else \
                     "kick" if self.project and self.project.toolchain == TOOLCHAIN_KICKASS else "cbm"
                 buf.begin_user_action()
                 buf.insert(it, todo_line(current, text, kind) + "\n")
@@ -2287,6 +2320,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _new_in_folder_menu(self, folder: Path) -> Gio.Menu:
         new = Gio.Menu()
         for label, kind in (("Source File…", "asm"), ("BASIC File…", "bas"), ("pBASIC File…", "pbas"),
+                            ("C File…", "c"), ("C Header File…", "h"),
                             ("Sprite Set…", "spt"), ("Character Set…", "cst"), ("Screen Design…", "sdd"),
                             ("Disk Image…", "d64")):
             new.append_item(self._file_op_item(label, f"new-{kind}", folder))
@@ -2330,9 +2364,11 @@ class MainWindow(Adw.ApplicationWindow):
             edit.append_item(self._file_op_item("Rename…", "rename", path))
             edit.append_item(self._file_op_item("Move to Trash…", "delete", path))
         menu.append_section(None, edit)
-        if not node.is_dir and path.suffix.lower() in SOURCE_EXTS:
+        cc65_source = self.project.toolchain == TOOLCHAIN_CC65 and path.suffix.lower() in (".c", ".s", ".asm")
+        if not node.is_dir and path.suffix.lower() in SOURCE_EXTS and \
+                (self.project.toolchain != TOOLCHAIN_CC65 or cc65_source):
             build = Gio.Menu()
-            if self.project.toolchain == TOOLCHAIN_CBM:
+            if self.project.toolchain in (TOOLCHAIN_CBM, TOOLCHAIN_CC65):
                 i = build_index(self.project, path)
                 if i is None:
                     build.append_item(self._file_op_item("Add to Build", "build-add", path))
@@ -3012,16 +3048,19 @@ class MainWindow(Adw.ApplicationWindow):
         exe = Adw.EntryRow(title="Program file (.prg)", text=p.executable)
         g.add(exe)
         page.add(g)
+        toolchains = [TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, TOOLCHAIN_CC65]
         tool = Adw.ComboRow(title="Assembler", model=Gtk.StringList.new(
-            ["Built-in (CBM prg Studio syntax)", "Kick Assembler"]),
-            selected=0 if p.toolchain == TOOLCHAIN_CBM else 1)
+            ["Built-in (CBM prg Studio syntax)", "Kick Assembler", "C (cc65)"]),
+            selected=toolchains.index(p.toolchain) if p.toolchain in toolchains else 0)
         g.add(tool)
         main = Adw.EntryRow(title="Main file (Kick Assembler)", text=p.main_file)
         g.add(main)
 
-        bg = Adw.PreferencesGroup(title="Build order",
-                                  description="Files are assembled together in this order, like CBM prg Studio's "
-                                              "build list. Labels and macros are shared between them.")
+        bg = Adw.PreferencesGroup(title="Build order", description=(
+            "The program's C (.c) and assembler (.s) files, compiled one by one and linked in this order."
+            if p.toolchain == TOOLCHAIN_CC65 else
+            "Files are assembled together in this order, like CBM prg Studio's build list. Labels and macros "
+            "are shared between them."))
         page.add(bg)
         order = list(p.build_list)
         rows: list[Adw.ActionRow] = []
@@ -3042,9 +3081,10 @@ class MainWindow(Adw.ApplicationWindow):
                 bg.add(r)
                 rows.append(r)
             add_row = Adw.ComboRow(title="Add file")
-            candidates = [str(f.relative_to(p.directory)) for f in p.all_files()
-                          if f.suffix.lower() in (".asm", ".s", ".bas", ".pbas")
-                          and str(f.relative_to(p.directory)) not in order]
+            from ..project.fileops import relative
+            kinds = (".c", ".s", ".asm") if p.toolchain == TOOLCHAIN_CC65 else (".asm", ".s", ".bas", ".pbas")
+            candidates = [relative(p, f) for f in p.all_files()
+                          if f.suffix.lower() in kinds and relative(p, f) not in order]
             add_row.set_model(Gtk.StringList.new(["—"] + candidates))
             add_row.connect("notify::selected", lambda r, _ps: (r.get_selected() > 0 and (
                 order.append(candidates[r.get_selected() - 1]), GLib.idle_add(rebuild))))
@@ -3066,19 +3106,28 @@ class MainWindow(Adw.ApplicationWindow):
         import shlex
         bpage = Adw.PreferencesPage(title="Build", icon_name="system-run-symbolic")
         win.add(bpage)
-        kg = Adw.PreferencesGroup(title="Kick Assembler")
+        is_c = p.toolchain == TOOLCHAIN_CC65
+        kg = Adw.PreferencesGroup(title="C (cc65)" if is_c else "Kick Assembler", description=(
+            "Every file is compiled with cl65 -t c64 -g and these options; the source folders are include "
+            "paths (#include and .include) and show in the file tree." if is_c else None))
         bpage.add(kg)
         k_jar = Adw.EntryRow(title="KickAss.jar for this project (empty = the one in Preferences)",
                              text=p.kickass_jar)
-        k_args = Adw.EntryRow(title="More command-line options, e.g. -define DEBUG",
+        k_args = Adw.EntryRow(title="Compiler options, e.g. -O -DDEBUG" if is_c else
+                              "More command-line options, e.g. -define DEBUG",
                               text=" ".join(shlex.quote(a) for a in p.assembler_args))
-        kg.add(k_jar)
+        k_dirs = Adw.EntryRow(title="More source folders, e.g. ../lib (separate them with ;)",
+                              text="; ".join(p.lib_dirs))
+        if not is_c:
+            kg.add(k_jar)
         kg.add(k_args)
+        if is_c:
+            kg.add(k_dirs)
         dd = Adw.SwitchRow(title="Write a debug dump (.dbg)",
                            subtitle="Kick Assembler's format, which C64 Debugger, RetroDebugger and VS64 read "
                                     "for source-level debugging. Kick Assembler projects always get one.",
                            active=p.debug_dump)
-        if p.toolchain != TOOLCHAIN_KICKASS:
+        if p.toolchain == TOOLCHAIN_CBM:          # the built-in assembler's; Kick and cc65 write their own
             dg = Adw.PreferencesGroup(title="Debugging in other tools")
             dg.add(dd)
             bpage.add(dg)
@@ -3249,7 +3298,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         def closed(*_):
             p.executable = exe.get_text().strip() or p.executable
-            p.toolchain = TOOLCHAIN_CBM if tool.get_selected() == 0 else TOOLCHAIN_KICKASS
+            p.toolchain = toolchains[tool.get_selected()]
+            if is_c:
+                p.lib_dirs = [d.strip() for d in k_dirs.get_text().split(";") if d.strip()]
             p.main_file = main.get_text().strip()
             p.build_list = list(order)
             p.disk_image = d_path.get_text().strip() if d_on.get_active() else ""
@@ -3263,7 +3314,7 @@ class MainWindow(Adw.ApplicationWindow):
             try:
                 p.assembler_args = shlex.split(k_args.get_text())
             except ValueError:
-                self.toast("The Kick Assembler options have an unmatched quote; they weren't changed")
+                self.toast("The options have an unmatched quote; they weren't changed")
             p.pre_build = lines_of(pre_tv)
             p.post_build = lines_of(post_tv)
             p.post_build_always = post_always.get_active()

@@ -6,6 +6,8 @@ A project is a folder of sources plus a settings file. Three formats can be open
 * `.cbmprj`   CBM prg Studio project (Vol 1 of the book), opened in place
 * `.code-workspace`  VS Code + Kick Assembler workspace (Vol 2 of the book)
 
+A project's toolchain is the built-in assembler, Kick Assembler, or cc65 for C (project/cc65.py).
+
 Opening a .cbmprj or .code-workspace never rewrites it. Linux64Studio settings for it are
 saved alongside as `<name>.l64proj`, which takes precedence the next time it's opened.
 """
@@ -23,8 +25,9 @@ _IMPORT_RE = re.compile(r'(?:\.import\s+(?:binary|source|c64|text)\s+|#import\s+
 
 TOOLCHAIN_CBM = "cbm"          # built-in CBM prg Studio-compatible assembler
 TOOLCHAIN_KICKASS = "kickass"  # external Kick Assembler (java -jar KickAss.jar)
+TOOLCHAIN_CC65 = "cc65"        # C with cc65 (cl65): see project/cc65.py
 
-SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".pbas", ".txt", ".tkn"}
+SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".bas", ".pbas", ".txt", ".tkn", ".c", ".h", ".cfg"}
 MUSIC_EXTS = {".sng", ".ins", ".sid"}
 GFX_EXTS = {".spt", ".cst", ".sdd", ".spr", ".chr", ".bin", ".l64spr", ".l64chr", ".l64scr", ".spd", ".ctm", ".prg",
             ".d64", ".d71", ".d81", ".crt"}
@@ -186,6 +189,11 @@ def load_project(path: str | Path) -> Project:
                        cart_type=c.cart_type, cart_name=c.cart_name)
     if sfx == ".code-workspace":
         return _load_vscode_workspace(path)
+    if sfx == ".c":                          # a C file on its own: a C project of one file
+        from .cc65 import DEFAULT_ARGS
+        return Project(path=path, name=path.stem, toolchain=TOOLCHAIN_CC65, build_list=[path.name],
+                       main_file=path.name, executable=path.stem + ".prg", output_dir="build",
+                       assembler_args=list(DEFAULT_ARGS))
     if sfx in (".asm", ".s", ".bas"):
         return Project(path=path, name=path.stem, build_list=[path.name], executable=path.stem + ".prg")
     raise ValueError(f"Don't know how to open {path.name}")
@@ -218,6 +226,8 @@ def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basi
     elif basic:
         main_name, starter = "main.bas", STARTER_BASIC
         toolchain = TOOLCHAIN_CBM
+    elif toolchain == TOOLCHAIN_CC65:
+        return _new_c_project(directory, name)
     else:
         main_name = "gameMain.asm"
         starter = STARTER_CBM if toolchain == TOOLCHAIN_CBM else STARTER_KICKASS
@@ -231,6 +241,47 @@ def new_project(directory: Path, name: str, toolchain: str = TOOLCHAIN_CBM, basi
     proj.save()
     return proj
 
+
+def _new_c_project(directory: Path, name: str) -> Project:
+    """A C project. In a folder that already has C files, none is written and the build list starts
+    empty (or with main.c, if there is one): add the program's files to it from the file tree."""
+    from .cc65 import DEFAULT_ARGS
+    existing = sorted(directory.glob("*.c"))
+    if not existing:
+        (directory / "main.c").write_text(STARTER_C.replace("{name}", name))
+        build = ["main.c"]
+    else:
+        build = ["main.c"] if (directory / "main.c").exists() else []
+    proj = Project(path=directory / f"{name}.l64proj", name=name, toolchain=TOOLCHAIN_CC65,
+                   build_list=build, main_file=build[0] if build else "", executable=f"{name}.prg",
+                   output_dir="build", assembler_args=list(DEFAULT_ARGS))
+    proj.save()
+    return proj
+
+
+STARTER_C = """\
+/* {name}: a C program for the C64, built with cc65.
+   Lower-case letters in strings show as capitals on the C64's start-up character set. */
+#include <conio.h>
+
+#define BORDER (*(unsigned char *)0xD020)
+
+int main(void)
+{
+    unsigned int i;
+
+    clrscr();
+    cputs("hello from c!\\r\\n");
+    cputs("press a key to stop.");
+    while (!kbhit()) {
+        ++BORDER;
+        for (i = 0; i < 2000; ++i) {
+        }
+    }
+    cgetc();
+    return 0;
+}
+"""
 
 STARTER_CBM = """\
 ;===============================================================================

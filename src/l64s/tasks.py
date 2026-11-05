@@ -20,7 +20,8 @@ TAGS = ("TODO", "FIXME", "HACK")
 _DIRECTIVE = re.compile(r"^\s*todo(?:\s+|:\s*|$)(.*)$", re.I)
 _TAG = re.compile(r"\b(TODO|FIXME|HACK)\b[\s:.-]*(.*)", re.I)
 BASIC_EXTS = (".bas", ".pbas")
-SOURCE_EXTS = (".asm", ".s", ".a", ".inc", ".i") + BASIC_EXTS
+C_EXTS = (".c", ".h")              # cc65 projects: only // and /* */ comments (; ends a statement)
+SOURCE_EXTS = (".asm", ".s", ".a", ".inc", ".i") + BASIC_EXTS + C_EXTS
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,7 @@ class Task:
     text: str          # what it says (may be empty)
 
 
-def _comments(line: str, in_block: bool) -> tuple[list[str], bool]:
+def _comments(line: str, in_block: bool, in_c: bool = False) -> tuple[list[str], bool]:
     """The comment text on an assembler line (`;`, `//`, `/* */`, outside quotes)."""
     out: list[str] = []
     i, n, quote = 0, len(line), None
@@ -51,7 +52,7 @@ def _comments(line: str, in_block: bool) -> tuple[list[str], bool]:
                 quote = None
         elif c in "'\"" and line.find(c, i + 1) != -1:
             quote = c
-        elif c == ";" or line.startswith("//", i):
+        elif (c == ";" and not in_c) or line.startswith("//", i):
             out.append(line[i + (1 if c == ";" else 2):])
             return out, False
         elif line.startswith("/*", i):
@@ -77,7 +78,8 @@ def _basic_rem(line: str) -> str | None:
     return None
 
 
-def scan(text: str, file: str = "", basic: bool = False) -> list[Task]:
+def scan(text: str, file: str = "", basic: bool = False, c: bool = False) -> list[Task]:
+    """The tasks in a file: BASIC REMs, C comments (``c``), or assembler comments and todo lines."""
     tasks: list[Task] = []
     in_block = False
     for n, raw in enumerate(text.splitlines(), start=1):
@@ -85,12 +87,12 @@ def scan(text: str, file: str = "", basic: bool = False) -> list[Task]:
             rem = _basic_rem(raw)
             texts = [rem] if rem is not None else []
         else:
-            if not in_block:
+            if not in_block and not c:
                 m = _DIRECTIVE.match(raw)
                 if m:
                     tasks.append(Task(file, n, "TODO", m.group(1).strip()))
                     continue
-            texts, in_block = _comments(raw, in_block)
+            texts, in_block = _comments(raw, in_block, c)
         for t in texts:
             m = _TAG.search(t)
             if m:
@@ -132,7 +134,8 @@ class TaskList:
                     text = data.decode("utf-8-sig")
                 except UnicodeDecodeError:
                     text = data.decode("cp1252")
-            self._files[key] = (stamp, scan(text, key, Path(key).suffix.lower() in BASIC_EXTS))
+            sfx = Path(key).suffix.lower()
+            self._files[key] = (stamp, scan(text, key, sfx in BASIC_EXTS, sfx in C_EXTS))
         for k in list(self._files):
             if k not in keep:
                 del self._files[k]
@@ -144,9 +147,9 @@ class TaskList:
 
 def todo_line(current: str, text: str, kind: str) -> str:
     """The line Add TODO puts above `current`: `kind` is "cbm" (the todo directive, indented
-    like the code), "kick" (a // comment) or "pbasic" (a REM)."""
+    like the code), "kick" or "c" (a // comment) or "pbasic" (a REM)."""
     indent = re.match(r"\s*", current).group(0) or "        "
-    if kind == "kick":
+    if kind in ("kick", "c"):
         return f"{indent}// TODO {text}".rstrip()
     if kind == "pbasic":
         return f"rem todo {text}".rstrip()

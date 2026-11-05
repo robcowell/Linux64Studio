@@ -12,7 +12,7 @@ from ..asm.assembler import Assembler, Options, Result
 from ..asm.errors import Diagnostic, SourceLoc
 from ..asm.output import source_map, write_outputs
 from ..basic.pbasic import PBasicOptions
-from .model import TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project
+from .model import TOOLCHAIN_CBM, TOOLCHAIN_CC65, TOOLCHAIN_KICKASS, Project
 
 
 @dataclass
@@ -180,6 +180,8 @@ def build_project(project: Project, overrides: dict[str, str] | None = None,
         jar = str((project.directory / project.kickass_jar).resolve()) if project.kickass_jar else \
             (kickass_jar or default_kickass_jar())
         res = _build_kickass(project, jar, java, only_file)
+    elif project.toolchain == TOOLCHAIN_CC65:
+        res = _build_cc65(project, only_file)
     else:
         res = _build_cbm(project, overrides, only_file, pbasic)
     if pre_log:
@@ -529,4 +531,82 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
             res.srcmap = source_map(res.kick_debug)
         except DebugDumpError as e:
             res.log += f"\n{e}"
+    return res
+
+
+def _build_cc65(project: Project, only_file) -> BuildResult:
+    """A C project: each file on the build list compiled (cc65/ca65) into <output>/obj, then linked
+    (ld65) with a VICE label file and a debug file. ``only_file``: just compile that one, to check it."""
+    from . import cc65
+    cl65 = shutil.which(cc65.CL65)
+    if not cl65:
+        d = Diagnostic("error", "cc65 isn't installed: sudo apt install cc65", None)
+        return BuildResult(False, None, None, [d], str(d))
+    sources = [Path(only_file)] if only_file else project.build_paths()
+    if not sources:
+        d = Diagnostic("error", "The build list is empty: right-click a .c file in the file tree and choose "
+                                "Add to Build", None)
+        return BuildResult(False, None, None, [d], str(d))
+    out = cc65.output_paths(project)
+    log: list[str] = []
+    diags: list[Diagnostic] = []
+    objs: list[Path] = []
+    compiled: dict[str, Path] = {}
+    failed = False
+
+    def run(cmd: list[str]) -> tuple[int, str]:
+        try:
+            proc = subprocess.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return -1, f"Couldn't run cl65: {e}"
+        return proc.returncode, proc.stdout + proc.stderr
+
+    for src in sources:
+        src = src.resolve()
+        if not src.is_file():
+            diags.append(Diagnostic("error", f"{src.name} is on the build list but doesn't exist", None))
+            failed = True
+            continue
+        if not cc65.is_source(src):
+            diags.append(Diagnostic("warning", f"{src.name} isn't C (.c) or assembler (.s), so it isn't built",
+                                    SourceLoc(str(src), 1)))
+            continue
+        obj = cc65.object_for(project, src)
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        cmd = cc65.compile_command(project, src, obj, cl65)
+        code, text = run(cmd)
+        log.append(" ".join(cmd))
+        if text.strip():
+            log.append(text.rstrip())
+        diags += cc65.parse_output(text, project.directory)
+        if code != 0:
+            failed = True
+            if not any(d.severity == "error" for d in diags):
+                diags.append(Diagnostic("error", f"Compiling {src.name} failed (exit code {code})", None))
+        if src.suffix.lower() in cc65.C_EXTS:
+            compiled[src.with_suffix(".s").name] = src
+        objs.append(obj)
+    if failed or only_file:
+        if only_file and not failed:
+            log.append(f"{Path(only_file).name} compiles (Build Project links the program)")
+        return BuildResult(not failed, None, None, diags, "\n".join(log))
+    cmd = cc65.link_command(project, objs, cl65)
+    code, text = run(cmd)
+    log.append(" ".join(cmd))
+    if text.strip():
+        log.append(text.rstrip())
+    diags += cc65.parse_output(text, project.directory, compiled)
+    prg = out["prg"]
+    ok = code == 0 and prg.is_file()
+    if not ok and not any(d.severity == "error" for d in diags):
+        diags.append(Diagnostic("error", f"Linking failed (exit code {code})", None))
+    res = BuildResult(ok, prg if ok else None, out["labels"] if ok and out["labels"].is_file() else None,
+                      diags, "\n".join(log))
+    if ok and out["dbg"].is_file():
+        from ..cc65dbg import DebugFileError, parse, source_map
+        try:
+            res.srcmap = source_map(parse(out["dbg"]), project.directory)
+        except DebugFileError as e:
+            res.log += f"\n{e}"
+        res.log += f"\nWrote {prg} ({prg.stat().st_size} bytes)"
     return res

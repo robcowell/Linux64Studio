@@ -26,6 +26,7 @@ class EditorState:
     basic: bool = False         # a BASIC file (not pBASIC): auto line numbering applies
     auto_line_numbers: bool = True
     kickass: bool = False       # the project builds with Kick Assembler
+    cc65: bool = False          # the project is C, built with cc65
     git_branch: str | None = None   # None: the project isn't in a Git repository
     has_project: bool = False
 
@@ -50,8 +51,11 @@ def fields(s: EditorState) -> list[Field]:
     if s.has_project:
         out.append(Field("git", f"Git: {s.git_branch}" if s.git_branch else "Git Repo: No",
                          "The project's Git branch" if s.git_branch else "The project isn't in a Git repository"))
-        out.append(Field("assembler", "Using Kick Assembler" if s.kickass else "Using native assembler",
-                         "Kick Assembler (KickAss.jar) builds this project" if s.kickass
-                         else "Linux64Studio's CBM prg Studio-compatible assembler builds this project"))
+        if s.cc65:
+            out.append(Field("assembler", "Using cc65", "cc65 (cl65) compiles and links this C project"))
+        else:
+            out.append(Field("assembler", "Using Kick Assembler" if s.kickass else "Using native assembler",
+                             "Kick Assembler (KickAss.jar) builds this project" if s.kickass
+                             else "Linux64Studio's CBM prg Studio-compatible assembler builds this project"))
     out.append(Field("debugger", "Using VICE debugger", "Debugging runs in VICE, over its binary monitor"))
     return out
