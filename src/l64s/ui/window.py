@@ -222,7 +222,16 @@ class MainWindow(Adw.ApplicationWindow):
         sw_bar = Gtk.CenterBox(start_widget=switcher)
         bottom.append(sw_bar)
         # output page
-        out = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, position=560)
+        out = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+
+        def split(paned, _pspec):
+            """The first time the panel has a width: the messages 45%, the build log the rest (a fixed
+            position left the log a sliver when the file tree and Project Information are open)."""
+            width = paned.get_width()
+            if width > 200 and not getattr(paned, "_split", False):
+                paned._split = True
+                paned.set_position(int(width * 0.45))
+        out.connect("notify::max-position", split)
         self.diag_list = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.SINGLE)
         self.diag_list.connect("row-activated", self._on_diag_activated)
         out.set_start_child(Gtk.ScrolledWindow(child=self.diag_list, min_content_height=140))
