@@ -8,7 +8,8 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GLib, GObject, Gtk, Pango  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..asm.disasm import disassemble  # noqa: E402
 from ..emu import vice  # noqa: E402
@@ -616,10 +617,12 @@ class DebuggerPanel(Gtk.Box):
                 head = Gtk.Label(label=group, xalign=0, css_classes=["dim-label", "caption-heading"], margin_top=2)
                 self.vars_list.append(Gtk.ListBoxRow(child=head, activatable=False))
                 last_group = group
+            data = b""
             if v.address is None:
                 value = ""
             else:
-                value = prog.show(v, read(v.address, max(1, min(v.size, 256))))
+                data = read(v.address, max(1, min(v.size, 256)))
+                value = prog.show(v, data)
             key = (v.group, v.name)
             values[key] = value
             box = Gtk.Box(spacing=8, margin_start=6)
@@ -635,16 +638,81 @@ class DebuggerPanel(Gtk.Box):
             box.append(val)
             box.append(Gtk.Label(label=f"${v.address:04X}" if v.address is not None else "", width_chars=6,
                                  css_classes=["dim-label", "caption", "monospace"]))
-            row = Gtk.ListBoxRow(child=box, activatable=v.address is not None)
+            row = Gtk.ListBoxRow(child=box, activatable=v.address is not None,
+                                 tooltip_text="Double-click to set it" if v.address is not None else None)
             row.var_address = v.address
+            row.variable, row.data = v, data
             self.vars_list.append(row)
         if snapshot:
             self._var_values = values
 
     def _variable_activated(self, _list, row):
-        """Double-click a variable: its bytes in the memory view."""
-        if getattr(row, "var_address", None) is not None:
-            self.refresh_memory(row.var_address)
+        """Double-click a variable: set its value (or show its bytes in the memory view)."""
+        s, prog, v = self.session, self.c_program, getattr(row, "variable", None)
+        if v is None or v.address is None or prog is None:
+            return
+        if not s or s.running:
+            self.refresh_memory(v.address)
+            return
+        from ..cvars import edit_text, encode_value
+        structs = prog.source.structs
+        size = max(1, min(v.size, 256))
+        dlg = Adw.AlertDialog(heading=f"Set {v.name}",
+                              body=f"{v.type_name} at ${v.address:04X} ({size} byte{'s' if size != 1 else ''})")
+        entry = Gtk.Entry(text=edit_text(v.ctype, row.data, structs), activates_default=True,
+                          css_classes=["monospace"])
+        hint = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
+            "A number: decimal, $hex, 0x hex, %binary or 'c'" if v.ctype and not v.ctype.dims and not v.ctype.pointer
+            and v.ctype.base not in ("struct", "union") else
+            "An address ($C000) or NULL" if v.ctype and v.ctype.pointer and not v.ctype.dims else
+            'Text in quotes ("hello"), or the items separated by commas' if v.ctype and v.ctype.dims else
+            "The bytes in hex, e.g. 05 00 FE FF"))
+        problem = Gtk.Label(xalign=0, wrap=True, css_classes=["error", "caption"], visible=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for w in (entry, hint, problem):
+            box.append(w)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("memory", "Show in Memory")
+        dlg.add_response("set", "Set")
+        dlg.set_default_response("set")
+        dlg.set_response_appearance("set", Adw.ResponseAppearance.SUGGESTED)
+
+        def check(*_):
+            try:
+                encode_value(v.ctype, entry.get_text(), size, structs)
+            except ValueError as e:
+                problem.set_text(str(e))
+                problem.set_visible(True)
+                dlg.set_response_enabled("set", False)
+                return
+            problem.set_visible(False)
+            dlg.set_response_enabled("set", True)
+        entry.connect("changed", check)
+        check()
+
+        def chosen(d, res):
+            r = d.choose_finish(res)
+            if r == "memory":
+                self.refresh_memory(v.address)
+            elif r == "set" and self.session is s:
+                try:
+                    self.set_variable(v, entry.get_text())
+                except ValueError:
+                    pass
+        dlg.choose(self.get_root(), None, chosen)
+
+    def set_variable(self, v, text: str) -> None:
+        """Write a C variable's new value (as typed) into memory, and show it. ValueError if the text
+        isn't a value of its type, or the program isn't stopped."""
+        from ..cvars import encode_value
+        s, prog = self.session, self.c_program
+        if not s or s.running or prog is None or v.address is None:
+            raise ValueError("Only while the program is stopped")
+        data = encode_value(v.ctype, text, max(1, min(v.size, 256)), prog.source.structs)
+        s.cmd(s.monitor.write_memory, v.address, data)
+        self._show_variables(s, self._regs.get("PC", 0), snapshot=False)   # "changed" stays since the stop
+        self.refresh_memory(v.address)
 
     def _show_watches(self, session):
         if not session.watches:

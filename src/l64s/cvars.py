@@ -597,3 +597,114 @@ class CProgram:
         if var.ctype is None:
             return data.hex(" ")
         return format_value(var.ctype, data, self.source.structs)
+
+
+# ------------------------------------------------------------------------ setting values
+def _petscii(ch: str) -> int:
+    """A character as cc65 puts it in a C string: lower-case letters $41-$5A, capitals $C1-$DA."""
+    if "a" <= ch <= "z":
+        return ord(ch) - 32
+    if "A" <= ch <= "Z":
+        return ord(ch) + 0x80
+    if ch == "\n":
+        return 0x0D
+    if 0x20 <= ord(ch) <= 0x3F or ch in "[]":
+        return ord(ch)
+    raise ValueError(f"{ch!r} has no PETSCII code")
+
+
+def _parse_int(text: str) -> int:
+    t = text.strip()
+    neg = t.startswith("-")
+    if neg:
+        t = t[1:].strip()
+    if len(t) == 3 and t[0] == t[2] == "'":
+        v = _petscii(t[1])
+    elif t.startswith("$"):
+        v = int(t[1:], 16)
+    elif t.lower().startswith("0x"):
+        v = int(t[2:], 16)
+    elif t.startswith("%"):
+        v = int(t[1:], 2)
+    elif t.isdigit():
+        v = int(t)
+    else:
+        raise ValueError(f"{text.strip()!r} isn't a number (decimal, $hex, 0x hex, %binary or 'c')")
+    return -v if neg else v
+
+
+def _int_bytes(v: int, size: int, unsigned: bool) -> bytes:
+    lo, hi = (0, (1 << 8 * size) - 1) if unsigned else (-(1 << (8 * size - 1)), (1 << 8 * size) - 1)
+    if not lo <= v <= hi:
+        raise ValueError(f"{v} doesn't fit in {size} byte{'s' if size > 1 else ''}")
+    return (v & ((1 << 8 * size) - 1)).to_bytes(size, "little")
+
+
+def _hex_bytes(text: str, size: int) -> bytes:
+    parts = text.replace(",", " ").split()
+    try:
+        data = bytes(int(p.lstrip("$"), 16) for p in parts)
+    except ValueError:
+        raise ValueError("Give the bytes in hex, e.g. 05 00 FE FF") from None
+    if len(data) != size:
+        raise ValueError(f"It's {size} byte{'s' if size != 1 else ''}: give {size} (you gave {len(data)})")
+    return data
+
+
+def encode_value(ctype: CType | None, text: str, size: int, structs: dict | None = None) -> bytes:
+    """``text`` (as edit_text writes it) as the variable's bytes, or ValueError saying what's wrong."""
+    structs = structs or {}
+    text = text.strip()
+    if not text:
+        raise ValueError("Type a value")
+    if ctype is None or ctype.base in ("struct", "union") and not ctype.pointer and not ctype.dims:
+        return _hex_bytes(text, size)
+    if ctype.dims:
+        elem = ctype.element()
+        esize = elem.size(structs)
+        if elem.base == "char" and not elem.pointer and not elem.dims and text.startswith('"'):
+            if len(text) < 2 or not text.endswith('"'):
+                raise ValueError('A string goes in quotes: "hello"')
+            data = bytes(_petscii(c) for c in text[1:-1])
+            if len(data) >= size:
+                raise ValueError(f"That's {len(data)} characters: there's room for {size - 1} and the 0 at the end")
+            return data + bytes(size - len(data))           # the rest zeroed
+        if not esize or elem.dims or elem.base in ("struct", "union"):
+            return _hex_bytes(text, size)
+        items = [x for x in text.strip("{}").split(",") if x.strip()]
+        if len(items) * esize > size:
+            raise ValueError(f"There's room for {size // esize} item{'s' if size // esize != 1 else ''}")
+        data = b"".join(encode_value(elem, x, esize, structs) for x in items)
+        return data + bytes(size - len(data))
+    if ctype.pointer:
+        if text.upper() == "NULL":
+            return b"\0\0"
+        return _int_bytes(_parse_int(text), 2, True)
+    csize = ctype.size(structs) or size
+    v = _parse_int(text)
+    unsigned = ctype.unsigned or ctype.base == "enum"
+    if v < 0 and unsigned:
+        raise ValueError(f"{str(ctype)} can't be negative")
+    return _int_bytes(v, csize, unsigned)
+
+
+def edit_text(ctype: CType | None, data: bytes, structs: dict | None = None) -> str:
+    """The value as it's typed when setting it (encode_value reads it back)."""
+    structs = structs or {}
+    if ctype is None or ctype.base in ("struct", "union") and not ctype.pointer and not ctype.dims:
+        return data.hex(" ").upper()
+    if ctype.dims:
+        elem = ctype.element()
+        esize = elem.size(structs)
+        if elem.base == "char" and not elem.pointer and not elem.dims:
+            text = data.split(b"\0", 1)[0]
+            if all(_char(b) for b in text):
+                return '"' + "".join(_char(b) for b in text) + '"'
+        if not esize or elem.dims or elem.base in ("struct", "union"):
+            return data.hex(" ").upper()
+        return ", ".join(edit_text(elem, data[i:i + esize], structs) for i in range(0, len(data), esize))
+    if ctype.pointer:
+        v = int.from_bytes(data[:2], "little")
+        return "NULL" if v == 0 else f"${v:04X}"
+    size = ctype.size(structs) or len(data)
+    return str(int.from_bytes(data[:size], "little", signed=not ctype.unsigned and ctype.base != "enum"))

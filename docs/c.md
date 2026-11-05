@@ -82,7 +82,17 @@ debugged ([debugger](debugger.md)):
 While a C program is stopped, the Debugger tab's **Variables** list (above Memory) shows the
 current function's parameters and local variables, then the program's global variables, each with
 its type, its value and its address. A value that changed since the last stop is highlighted, as
-changed registers are. Double-click a variable to see its bytes in the Memory view.
+changed registers are.
+
+**Double-click a variable to set it** (or to see its bytes: **Show in Memory**). Type the new value
+as its type takes it, and **Set** writes it into the C64's memory; the program carries on with it.
+
+* Numbers in decimal (`-2`), `$hex`, `0x` hex, `%binary`, or a character (`'a'`). A value that
+  doesn't fit the type (300 in an `unsigned char`, -1 in an `unsigned int`) is refused as you type.
+* Pointers as an address (`$C000`) or `NULL`.
+* `char` arrays as text in quotes (`"hi there"`), stored as cc65 stores a string (PETSCII, with the
+  0 at the end, the rest of the array cleared); other arrays as items with commas (`1, 2, 3`).
+* Structs, and variables whose type isn't known, as their bytes in hex (`05 00 FE FF`).
 
 * Values are shown as their types say: numbers in decimal and hex (a `char` with its character),
   pointers as addresses (or `NULL`), `char` arrays as text, other arrays and structs as `{…}`.

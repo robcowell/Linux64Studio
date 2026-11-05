@@ -144,3 +144,39 @@ def test_symbols_with_lines():
                            ("shared", "variable", 7), ("flags", "variable", 8), ("twice", "prototype", 9),
                            ("twice", "function", 10)]
     assert src.functions["twice"].param_lines == {"x": 10}
+
+
+def test_setting_values():
+    import pytest
+    from l64s.cvars import edit_text, encode_value
+    structs = parse_source("struct point { int x; int y; };").structs
+    i8, u8, i16, u16 = CType("char"), CType("char", True), CType("int"), CType("int", True)
+    assert encode_value(i16, "-2", 2) == b"\xfe\xff" and encode_value(u16, "$C000", 2) == b"\x00\xc0"
+    assert encode_value(u8, "%1010", 1) == b"\x0a" and encode_value(u8, "'a'", 1) == b"\x41"
+    assert encode_value(CType("long"), "0x10000", 4) == b"\x00\x00\x01\x00"
+    with pytest.raises(ValueError, match="doesn't fit in 1 byte"):
+        encode_value(u8, "256", 1)
+    with pytest.raises(ValueError, match="can't be negative"):
+        encode_value(u16, "-1", 2)
+    with pytest.raises(ValueError, match="isn't a number"):
+        encode_value(i16, "twelve", 2)
+    assert encode_value(i8, "-128", 1) == b"\x80"
+    ptr = CType("char", pointer=1)
+    assert encode_value(ptr, "NULL", 2) == b"\0\0" and encode_value(ptr, "$0400", 2) == b"\x00\x04"
+    name = CType("char", dims=(6,))
+    assert encode_value(name, '"Hi!"', 6) == b"\xc8\x49\x21\x00\x00\x00"
+    with pytest.raises(ValueError, match="room for 5"):
+        encode_value(name, '"toolong"', 6)
+    assert encode_value(CType("int", dims=(3,)), "1, -1", 6) == b"\x01\x00\xff\xff\x00\x00"
+    pos = CType("struct", tag="point")
+    assert encode_value(pos, "05 00 fe ff", 4, structs) == b"\x05\x00\xfe\xff"
+    with pytest.raises(ValueError, match="give 4"):
+        encode_value(pos, "05 00", 4, structs)
+    assert encode_value(None, "01 02 03", 3) == b"\x01\x02\x03"
+    # edit_text writes what encode_value reads back
+    for ctype, data, size in ((i16, b"\xfe\xff", 2), (u8, b"\x41", 1), (ptr, b"\x00\x04", 2), (ptr, b"\0\0", 2),
+                              (name, b"\xc8\x49\x21\x00\x00\x00", 6), (CType("int", dims=(3,)), b"\x01\x00\xff\xff\x07\x00", 6),
+                              (pos, b"\x05\x00\xfe\xff", 4), (None, b"\x01\x02", 2)):
+        text = edit_text(ctype, data, structs)
+        assert encode_value(ctype, text, size, structs) == data, (ctype, text)
+    assert edit_text(i16, b"\xfe\xff") == "-2" and edit_text(name, b"\xc8\x49\x21\x00\x00\x00") == '"Hi!"'
