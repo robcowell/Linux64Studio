@@ -213,6 +213,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.tasks_page = self.bottom_stack.add_titled_with_icon(self.tasks_panel, "tasks", "Tasks",
                                                                  "object-select-symbolic")
         GLib.timeout_add_seconds(2, self._tick_tasks)
+        from .find_panel import FindPanel
+        self.find_panel = FindPanel(self._find_texts, self._open_match,
+                                    lambda: self.project.directory if self.project else None)
+        self.bottom_stack.add_titled_with_icon(self.find_panel, "find", "Find Results", "edit-find-symbolic")
         bottom.append(self.bottom_stack)
         bottom.set_vexpand(True)
         right.set_end_child(bottom)
@@ -237,6 +241,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("save-all", lambda *_: self.save_all())
         add("close-tab", lambda *_: self._close_current_tab())
         add("edit", lambda _a, v: self._edit(v.get_string()), "s")
+        add("find-in-files", lambda *_: self.find_in_files())
         info = Gio.SimpleAction.new_stateful("project-info", None,
                                              GLib.Variant.new_boolean(self.settings.show_project_info))
         info.connect("change-state", self._show_project_info)
@@ -1730,6 +1735,52 @@ class MainWindow(Adw.ApplicationWindow):
             except Exception:  # never let the scanner stop the timer
                 pass
         return True
+
+    # ------------------------------------------------------------------ Find in Files
+    def find_in_files(self):
+        """Ctrl+Shift+F: the Find Results tab, searching for the selection or the word at the cursor."""
+        ed = self.current_editor()
+        text = ed.selected_or_word() if isinstance(ed, SourceEditor) else ""
+        self.bottom_stack.set_visible_child_name("find")
+        self.find_panel.start(text)
+
+    def _find_texts(self, scope: str) -> dict[str, str]:
+        """{file: text} to search: open files as they are in the editor (unsaved changes too)."""
+        open_texts = {str(Path(e.path).resolve()): e.get_text() for e in self.editors()
+                      if isinstance(e, SourceEditor) and e.path}
+        if scope == "current":
+            ed = self.current_editor()
+            ed = ed if isinstance(ed, SourceEditor) else self._last_source
+            if ed is None or ed not in self.editors() or not ed.path:
+                return {}
+            return {str(Path(ed.path).resolve()): ed.get_text()}
+        if scope == "open":
+            return dict(sorted(open_texts.items()))
+        texts: dict[str, str] = {}
+        files = self.project.all_files() if self.project else []
+        for f in sorted(files, key=lambda f: str(f).lower()):
+            if f.suffix.lower() not in SOURCE_EXTS:
+                continue
+            key = str(f.resolve())
+            if key in open_texts:
+                texts[key] = open_texts[key]
+                continue
+            try:
+                data = f.read_bytes()
+            except OSError:
+                continue
+            try:
+                texts[key] = data.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                texts[key] = data.decode("cp1252", errors="replace")
+        for key, text in open_texts.items():      # open files outside the project too
+            texts.setdefault(key, text)
+        return texts
+
+    def _open_match(self, m):
+        ed = self.open_file(Path(m.file))
+        if isinstance(ed, SourceEditor):
+            ed.select_match(m.line, m.col, m.length)
 
     def _open_task(self, task):
         ed = self.open_file(Path(task.file))

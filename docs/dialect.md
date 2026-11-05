@@ -74,6 +74,20 @@ under the label they follow); labels are any case. Kick Assembler: `name:`, `.co
 case-sensitive. Every label in the 12 Vol 1 chapters, and every label in Kick Assembler's debug
 dump of a Kick Assembler game, is found at the line that defines it (`tests/test_symindex.py`).
 
+### Find in Files
+
+**Edit → Find in Files…** (Ctrl+Shift+F, or the magnifier on the toolbar) searches the project's
+sources, as CBM prg Studio's does, and lists what it finds in the **Find Results** tab, grouped by
+file with each match highlighted. It starts with the selected text, or the name at the cursor.
+Results follow what you type. Double-click one to open its file with the match selected.
+
+* **Aa** matches case; **W** finds whole words only, so `loop` doesn't find `@loop` or `loop2`
+  (in a label, `_` and `@` count as part of the word); **.\*** reads the text as a regular
+  expression (Python's syntax), and says what's wrong with one that isn't valid.
+* **Project**, **Open Files** or **Current File** chooses where to look. Open files are searched as
+  they are in the editor, unsaved changes included.
+* The refresh button searches again (after files change). At most 2000 matches are listed.
+
 ### Folding regions
 
 As in CBM prg Studio, a block between a `#region` line and an `#endregion` line (with a name after

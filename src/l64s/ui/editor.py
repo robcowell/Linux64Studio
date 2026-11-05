@@ -243,6 +243,33 @@ class SourceEditor(EditorPage):
         GLib.idle_add(lambda: (self.view.scroll_to_mark(self.buffer.get_insert(), 0.2, True, 0, 0.4), False)[1])
         self.view.grab_focus()
 
+    def select_match(self, line: int, col: int, length: int):
+        """Go to a Find in Files result: the matched text selected."""
+        self.goto_line(line, select=False)
+        ok, start = self.buffer.get_iter_at_line_offset(max(0, line - 1), col)
+        if ok:
+            end = start.copy()
+            end.forward_chars(length)
+            self.buffer.select_range(end, start)      # the cursor at the start of the match
+            GLib.idle_add(lambda: (self.view.scroll_to_mark(self.buffer.get_insert(), 0.2, True, 0, 0.4),
+                                   False)[1])
+
+    def selected_or_word(self) -> str:
+        """The selected text (if on one line), or the name at the cursor: what to search for."""
+        b = self.buffer
+        if b.get_has_selection():
+            s, e = b.get_selection_bounds()
+            text = b.get_text(s, e, False)
+            return text if "\n" not in text else ""
+        from ..symindex import word_at
+        it = b.get_iter_at_mark(b.get_insert())
+        start = it.copy()
+        start.set_line_offset(0)
+        end = start.copy()
+        if not end.ends_line():
+            end.forward_to_line_end()
+        return word_at(b.get_text(start, end, False), it.get_line_offset())[2]
+
     def current_line(self) -> int:
         it = self.buffer.get_iter_at_mark(self.buffer.get_insert())
         return it.get_line() + 1

@@ -32,6 +32,7 @@ ACCELS = {
     "win.debug-into": ["F11"],
     "win.debug-out": ["<Shift>F11"],
     "win.goto-line": ["<Control>g"],
+    "win.find-in-files": ["<Control><Shift>f"],
     "win.goto-definition": ["F12"],
     "win.go-back": ["<Alt>Left"],
     "app.preferences": ["<Control>comma"],
@@ -41,7 +42,7 @@ ACCELS = {
 SHORTCUT_GROUPS = [
     ("Files", [("<Control>o", "Open project"), ("<Control>s", "Save"), ("<Control><Shift>s", "Save all"),
                ("<Control>w", "Close tab"), ("<Control>g", "Go to line")]),
-    ("Editing", [("<Control>space", "Complete the name"), ("F12", "Go to definition (or Ctrl+click)"),
+    ("Editing", [("<Control><Shift>f", "Find in files"), ("<Control>space", "Complete the name"), ("F12", "Go to definition (or Ctrl+click)"),
                  ("<Alt>Left", "Back to where you were")]),
     ("Build and run", [("F7", "Build project"), ("<Shift>F7", "Build current file"),
                        ("F5", "Build current file and run"), ("<Control>F5", "Build project and run"),

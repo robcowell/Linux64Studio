@@ -33,6 +33,8 @@ can be followed on Linux.
   works for both assembler dialects, include lines and BASIC line numbers
   ([details](docs/dialect.md#auto-complete-and-go-to-definition-in-the-editor)).
   A **Tasks** panel lists every TODO, FIXME and HACK in the project ([tasks](docs/dialect.md#tasks-todo)).
+  **Find in Files** (Ctrl+Shift+F) searches the project, with match case, whole word and regular
+  expressions, into a Find Results tab ([find in files](docs/dialect.md#find-in-files)).
   `#region` … `#endregion` blocks fold away, as in CBM prg Studio ([folding](docs/dialect.md#folding-regions)).
   Source files can be **printed** (or previewed as a PDF) in their syntax colours ([printing](docs/dialect.md#printing)).
   A **source converter** turns Develop 64, Genesis and TASM sources into CBM prg Studio's dialect

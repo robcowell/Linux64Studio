@@ -15,6 +15,7 @@ BUTTONS = (
     ("edit-cut-symbolic", "Cut (Ctrl+X)", "win.edit", "clipboard.cut"),
     ("edit-copy-symbolic", "Copy (Ctrl+C)", "win.edit", "clipboard.copy"),
     ("edit-paste-symbolic", "Paste (Ctrl+V)", "win.edit", "clipboard.paste"),
+    ("edit-find-symbolic", "Find in Files (Ctrl+Shift+F)", "win.find-in-files", None),
     ("go-jump-symbolic", "Go to Line (Ctrl+G)", "win.goto-line", None),
     None,
     ("emblem-system-symbolic", "Build Project (F7)", "win.build-project", None),
