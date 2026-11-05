@@ -41,11 +41,12 @@ def test_config_text():
 
 @pytest.mark.skipif(not HAVE_CC65, reason="cc65 isn't installed (sudo apt install cc65)")
 def test_the_standard_config_is_cc65_s(tmp_path):
+    src = tmp_path / "sf"
+    shutil.copytree(STARFALL, src, ignore=shutil.ignore_patterns("build"))      # (cl65 leaves .o files beside them)
     (tmp_path / "std.cfg").write_text(generate([]))
-    srcs = [str(STARFALL / f) for f in ("main.c", "sound.c", "sprites.s")]
     for name, cfg in (("ours", ["-C", str(tmp_path / "std.cfg")]), ("cc65", [])):
-        subprocess.run(["cl65", "-t", "c64", *cfg, "-o", str(tmp_path / f"{name}.prg"), "--obj-path", str(tmp_path),
-                        *srcs], check=True, cwd=STARFALL, capture_output=True)
+        subprocess.run(["cl65", "-t", "c64", *cfg, "-o", str(tmp_path / f"{name}.prg"), "main.c", "sound.c",
+                        "sprites.s"], check=True, cwd=src, capture_output=True)
     assert (tmp_path / "ours.prg").read_bytes() == (tmp_path / "cc65.prg").read_bytes()
 
 
