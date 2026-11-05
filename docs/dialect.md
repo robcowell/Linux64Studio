@@ -357,7 +357,9 @@ reveal it.
 
 Each project remembers what it had open when you left it (by opening another project, closing it
 or quitting): the files in tabs, the cursor in each, the tab in front and the sidebar's open folders.
-Opening the project again, from Open or Open Recent, brings them back. A project with nothing
+Opening the project again, from Open or Open Recent, brings them back. An imported `.cbmprj` or
+`.code-workspace` and the `.l64proj` its settings are saved to count as the same project, whichever
+you open, and have one entry in Open Recent. A project with nothing
 remembered opens its first source file. Files that have since gone are left out, with a note.
 The last ten projects are kept, in `~/.config/linux64studio/projects.json`.
 

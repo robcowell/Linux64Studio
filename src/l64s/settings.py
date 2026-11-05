@@ -69,7 +69,9 @@ class Settings:
         return PBasicOptions(self.pbasic_start, self.pbasic_step, self.pbasic_prefix or "@")
 
     def add_recent(self, path: str) -> None:
-        if path in self.recent_projects:
-            self.recent_projects.remove(path)
+        """Put ``path`` first, replacing any entry for the same project: an imported .cbmprj or
+        .code-workspace and the .l64proj beside it that holds its settings are one project."""
+        same = Path(path).with_suffix(".l64proj")
+        self.recent_projects = [r for r in self.recent_projects if Path(r).with_suffix(".l64proj") != same]
         self.recent_projects.insert(0, path)
         del self.recent_projects[10:]

@@ -380,12 +380,14 @@ class MainWindow(Adw.ApplicationWindow):
         self._remember_project()
         self._close_all_tabs(force=True)
         self.project = proj
-        self.settings.add_recent(str(path.resolve()))
+        # the .l64proj once there is one (opening the original loads it anyway), else what was opened
+        settings_file = proj.settings_path()
+        self.settings.add_recent(str((settings_file if settings_file.exists() else path).resolve()))
         self.settings.save()
         self._refresh_recent()
         self._populate_files()
         self._update_title()
-        state = load_project_state(self._project_key()) if reopen_tabs else None
+        state = self._project_state() if reopen_tabs else None
         files, selected, missing = state.restorable() if state else ([], -1, [])
         if files:
             self._reopen_tabs(files, selected)
@@ -427,7 +429,7 @@ class MainWindow(Adw.ApplicationWindow):
         first_time = self._tree_project != self._project_key()
         self._tree_project = self._project_key()
         if first_time:                   # a project just opened: its folders as they were left
-            state = load_project_state(self._tree_project)
+            state = self._project_state()
             saved = state.folders if state else None
             expanded = ({Path(f) for f in saved} if saved is not None else      # else its top-level folders
                         {c.path for c in tree.children if c.is_dir and c.path.is_relative_to(tree.path)})
@@ -449,7 +451,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.file_list.set_model(Gtk.NoSelection(model=model))
 
     def _project_key(self) -> str:
-        return str(Path(self.project.path).resolve())
+        return self.project.identity()
+
+    def _project_state(self) -> ProjectState | None:
+        for key in [self._project_key()] + self.project.old_identities():
+            if (state := load_project_state(key)) is not None:
+                return state
+        return None
 
     def _open_folders(self) -> set[Path]:
         tree = self._file_tree

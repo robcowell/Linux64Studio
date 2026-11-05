@@ -105,6 +105,17 @@ class Project:
     def settings_path(self) -> Path:
         return self.path if self.path.suffix == ".l64proj" else self.path.with_suffix(".l64proj")
 
+    def identity(self) -> str:
+        """One name for the project however it was opened: an imported .cbmprj or .code-workspace
+        and the .l64proj its settings go to are the same project (for remembering its tabs)."""
+        return str(self.settings_path().resolve())
+
+    def old_identities(self) -> list[str]:
+        """Names it may have been remembered under before ``identity`` (the imported file's path)."""
+        if not self.imported_from:
+            return []
+        return [str((self.directory / self.imported_from).resolve())]
+
     def referenced_dirs(self) -> list[Path]:
         """Folders that the project's sources import files from (e.g. Vol 2's ../../Content)."""
         dirs: list[Path] = []
