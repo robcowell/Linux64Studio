@@ -269,14 +269,38 @@ def prepare_music(project: Project, goattracker_dir: str = "") -> tuple[str, lis
         try:
             if src.suffix.lower() == ".ins":
                 data = convert_sfx(src, out, link.get("label", ""), goattracker_dir,
-                                   kickass=project.toolchain == TOOLCHAIN_KICKASS)
+                                   kickass=project.toolchain == TOOLCHAIN_KICKASS,
+                                   c_project=project.toolchain == TOOLCHAIN_CC65)
                 lines.append(f"Sound effect {src.name} -> {out.name} ({len(data)} bytes)")
             else:
-                r = pack_song(src, out, PackOptions.from_dict(link), goattracker_dir)
+                opts = PackOptions.from_dict(link)
+                r = pack_song(src, out, opts, goattracker_dir)
                 lines.append(f"Packed {src.name} -> {out.name} (${r.start:04X}-${r.end - 1:04X}, {r.size} bytes)")
+                if link.get("c_glue") and project.toolchain == TOOLCHAIN_CC65:
+                    lines += _music_glue(project, link, opts, r.size)
         except MusicError as e:
             return "\n".join(lines), [Diagnostic("error", f"Music: {e}", where)]
     return "\n".join(lines), []
+
+
+def _music_glue(project: Project, link: dict, opts, size: int) -> list[str]:
+    """A song added to a C project (Add to Project): its music.s, music.h and fixed area kept up to date
+    with the packing options and the packed size."""
+    from ..sid import cmusic
+    from ..sid.goattracker import MusicError
+    e = opts.entry_points()
+    out = link.get("output", "")
+    tune = cmusic.Tune(Path(link.get("source", "")).stem, out, opts.address, size, e["init"], e["play"],
+                       skip={".sid": 126, ".prg": 2}.get(Path(out).suffix.lower(), 0), sfx=e.get("sfx", 0),
+                       volume=e.get("volume", 0))
+    areas = [dict(a) for a in project.c_areas]
+    try:
+        done = cmusic.install(project, tune, link["c_glue"])
+    except cmusic.InstallError as err:
+        raise MusicError(str(err)) from None
+    if project.c_areas != areas:
+        project.save()
+    return [f"  {d}" for d in done if not d.startswith("Your linker config")]
 
 
 BASIC_EXTS = {".bas", ".pbas"}
@@ -650,7 +674,16 @@ def _build_cc65(project: Project, only_file) -> BuildResult:
         if only_file and not failed:
             log.append(f"{Path(only_file).name} compiles (Build Project links the program)")
         return BuildResult(not failed, None, None, diags, "\n".join(log))
-    cmd = cc65.link_command(project, objs, cl65)
+    from .ldcfg import LayoutError
+    try:
+        config = cc65.linker_config(project)
+    except LayoutError as e:
+        d = Diagnostic("error", f"Fixed areas: {e}", None)
+        return BuildResult(False, None, None, diags + [d], "\n".join(log + [str(d)]))
+    if config is not None and not config.is_file():
+        d = Diagnostic("error", f"The linker config {project.linker_config} doesn't exist", None)
+        return BuildResult(False, None, None, diags + [d], "\n".join(log + [str(d)]))
+    cmd = cc65.link_command(project, objs, cl65, config)
     code, text = run(cmd)
     log.append(" ".join(cmd))
     if text.strip():

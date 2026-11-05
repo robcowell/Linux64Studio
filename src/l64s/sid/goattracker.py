@@ -150,11 +150,13 @@ def pack_song(song: Path, output: Path, options: PackOptions, folder: str = "") 
 
 # ---------------------------------------------------------------------- sound effects
 
-def convert_sfx(instrument: Path, output: Path, label: str = "", folder: str = "", kickass: bool = False) -> bytes:
+def convert_sfx(instrument: Path, output: Path, label: str = "", folder: str = "", kickass: bool = False,
+                c_project: bool = False) -> bytes:
     """Turn a GoatTracker instrument into sound effect data (ins2snd2).
 
     A .bin output gets the raw data; .asm/.s gets byte lines in the project's syntax (ins2snd2's
-    own source output is DASM syntax, which neither assembler here reads).
+    own source output is DASM syntax, which neither assembler here reads). In a C project a .c gets
+    a C array and a .s an exported ca65 table, both named ``label`` for C.
     """
     tool = find_tool("ins2snd2", folder)
     if not tool:
@@ -171,10 +173,19 @@ def convert_sfx(instrument: Path, output: Path, label: str = "", folder: str = "
         data = tmp.read_bytes()
     finally:
         tmp.unlink(missing_ok=True)
-    if output.suffix.lower() == ".bin":
+    sfx = output.suffix.lower()
+    name = label or re.sub(r"\W", "_", instrument.stem)
+    if sfx == ".bin":
         output.write_bytes(data)
+    elif c_project and sfx in (".c", ".s"):
+        from ..syntax import C, CA65, table
+        head = f"Sound effect from {instrument.name} (ins2snd2)"
+        if sfx == ".c":
+            output.write_text(table(C, name, data, comment_text=head))
+        else:
+            output.write_text(f"; {head}\n        .export _{name}\n        .segment \"RODATA\"\n"
+                              + table(CA65, "_" + name, data))
     else:
-        name = label or re.sub(r"\W", "_", instrument.stem)
         directive = ".byte" if kickass else "byte"
         lines = [f"{name}:" if kickass else name]
         lines += [f"        {directive} " + ", ".join(f"${b:02X}" for b in data[i:i + 16])

@@ -28,6 +28,7 @@ _MSG = re.compile(r"^(?P<file>[^\s(:][^(]*?)(?:\((?P<line>\d+)\)|:(?P<line2>\d+)
                   r"(?P<sev>Error|Warning|Fatal|Note):\s*(?P<msg>.*)$")
 _UNRESOLVED = re.compile(r"^Unresolved external [`'](?P<sym>[^`']+)' referenced in:")
 _REFERENCED = re.compile(r"^\s+(?P<file>\S+?)\((?P<line>\d+)\)\s*$")
+_AT_LINE = re.compile(r"^(?P<file>[^\s(][^(]*)\((?P<line>\d+)\):\s*(?P<msg>.*)$")
 _LD65 = re.compile(r"^(?:ld65|ca65|cc65|cl65): (?P<sev>Error|Warning|Fatal): (?P<msg>.*)$")
 
 
@@ -69,10 +70,28 @@ def compile_command(project: Project, src: Path, obj: Path, cl65: str = CL65) ->
     return [cl65, "-t", TARGET, "-g", *_includes(project), *project.assembler_args, "-c", "-o", str(obj), str(src)]
 
 
-def link_command(project: Project, objs: list[Path], cl65: str = CL65) -> list[str]:
+def link_command(project: Project, objs: list[Path], cl65: str = CL65, config: Path | None = None) -> list[str]:
     out = output_paths(project)
-    return [cl65, "-t", TARGET, "-g", "-o", str(out["prg"]), "-Ln", str(out["labels"]), "-m", str(out["map"]),
+    cfg = ["-C", str(config)] if config else []
+    return [cl65, "-t", TARGET, *cfg, "-g", "-o", str(out["prg"]), "-Ln", str(out["labels"]), "-m", str(out["map"]),
             "-Wl", f"--dbgfile,{out['dbg']}", *[str(o) for o in objs]]
+
+
+def linker_config(project: Project) -> Path | None:
+    """The config to link with: the project's own .cfg, else one made from its fixed areas (written
+    into the output folder), else None (cc65's standard C64 layout). Raises ldcfg.LayoutError."""
+    from . import ldcfg
+    if project.linker_config:
+        return (project.directory / project.linker_config).resolve()
+    if not project.c_areas:
+        return None
+    text = ldcfg.generate([ldcfg.Area.from_dict(a) for a in project.c_areas],
+                          title=f"{project.executable or project.name}: made from the project's fixed areas")
+    out = output_paths(project)["prg"].with_suffix(".cfg")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists() or out.read_text() != text:
+        out.write_text(text)
+    return out
 
 
 def parse_output(text: str, cwd: Path, compiled: dict[str, Path] | None = None) -> list[Diagnostic]:
@@ -111,6 +130,11 @@ def parse_output(text: str, cwd: Path, compiled: dict[str, Path] | None = None) 
                     if loc is None and f.exists():
                         loc = SourceLoc(str(f), int(r.group("line")))
             used = f" (used in {', '.join(dict.fromkeys(where))})" if where else ""
+            if sym.startswith("__") and sym.endswith("__"):
+                out.append(Diagnostic("error", f"{sym} comes from the linker config, which doesn't define it{used}: "
+                                               "cc65's runtime needs the memory areas and segments of the standard "
+                                               "C64 config (with define = yes)", loc))
+                continue
             out.append(Diagnostic("error", f"'{name}' isn't defined anywhere{used}: is a file missing from the "
                                            "build list, or a name misspelt?", loc))
             continue
@@ -119,7 +143,14 @@ def parse_output(text: str, cwd: Path, compiled: dict[str, Path] | None = None) 
             msg = m.group("msg").strip()
             if "unresolved external" in msg and any("isn't defined anywhere" in d.message for d in out):
                 continue                     # already said, name by name
-            out.append(Diagnostic("warning" if m.group("sev") == "Warning" else "error", msg, None))
+            loc = None
+            at = _AT_LINE.match(msg)         # the linker config's own errors: game.cfg(21): ...
+            if at:
+                f = Path(at.group("file"))
+                f = f if f.is_absolute() else (cwd / f).resolve()
+                if f.exists():
+                    loc, msg = SourceLoc(str(f), int(at.group("line"))), f"{f.name}: {at.group('msg')}"
+            out.append(Diagnostic("warning" if m.group("sev") == "Warning" else "error", msg, loc))
     return out
 
 

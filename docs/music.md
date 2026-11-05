@@ -62,6 +62,47 @@ Switch on **Convert on every build** and `ins2snd2` turns it into data before ea
 source output is DASM syntax, so Linux64Studio writes the byte lines itself. Waveforms above
 $81, relative notes, pulse modulation and filters don't carry over into sound effects.
 
+## Music in C projects
+
+In a C project, the SID file and GoatTracker song pages have **Use it from C → Add to Project**. It does
+four things:
+
+* makes a fixed area `MUSIC` at the tune's address, the size of the tune rounded up to a page
+  ([memory layout](c.md#memory-layout-and-linker-configs)), so the program is linked round it;
+* writes `music.s`, which puts the tune's data in that area and has C functions round the player;
+* writes `music.h`, which declares them;
+* puts `music.s` on the build list.
+
+For a song, it also switches on **Pack on every build**. From then on each build brings `music.s`,
+`music.h` and the area up to date with the packing settings: switch on sound effect support, and
+`music_sfx` appears. For a `.sid`, it extracts the music as `<name>.bin` beside the project.
+
+```c
+#include "music.h"
+
+    music_init(0);          /* the tune, from 0 */
+    music_start();          /* plays once a frame from now on */
+    ...
+    music_sfx(gun, 3);      /* a sound effect on voice 3 (songs packed with sound effect support) */
+    music_volume(8);        /* 0-15 (songs packed with volume change support) */
+    music_stop();           /* stop, and silence the SID */
+```
+
+`music_start` plays the tune from a raster interrupt at line 0, in the border and out of a game's
+way. The interrupt goes on to the KERNAL's handler, so the keyboard and the clock still work. It
+takes over from the CIA timer's interrupt, so the KERNAL's handler runs 50 times a second on PAL
+instead of 60. Call `music_play()` once a frame yourself instead, if the program has its own
+interrupt. A tune whose `.sid` has no play address plays itself once `music_init` has started it.
+
+There's one `music.s` per project: adding another tune replaces it. `music.s` and `music.h` say
+they were made by Linux64Studio. If you write a `music.s` of your own, Add to Project won't
+overwrite it. With a linker config of your own, the area isn't made: the page says which lines to
+add to the config instead.
+
+A sound effect (`.ins`) in a C project converts to a C array (output `.c`, the default) or an
+exported ca65 table (`.s`), named with the **Label**. Switching on **Convert on every build** puts
+the file on the build list. Use it from C with `extern const unsigned char gun[];`.
+
 ## SID Designer
 
 **Tools → Music → SID Designer** opens CBM prg Studio's SID tool, in two tabs.

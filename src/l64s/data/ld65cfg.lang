@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- GtkSourceView 5 language definition for ld65 linker configs (.cfg in C projects) -->
+<language id="ld65cfg" name="ld65 linker config" version="2.0" _section="Other">
+  <metadata>
+    <property name="globs">*.cfg</property>
+    <property name="line-comment-start">#</property>
+  </metadata>
+
+  <styles>
+    <style id="comment" name="Comment" map-to="def:comment"/>
+    <style id="section" name="Section" map-to="def:keyword"/>
+    <style id="attribute" name="Attribute" map-to="def:type"/>
+    <style id="value" name="Value" map-to="def:special-constant"/>
+    <style id="number" name="Number" map-to="def:number"/>
+    <style id="string" name="String" map-to="def:string"/>
+    <style id="name" name="Area or segment" map-to="def:function"/>
+    <style id="symbol" name="Linker symbol" map-to="def:preprocessor"/>
+  </styles>
+
+  <definitions>
+    <context id="comment" style-ref="comment" end-at-line-end="true">
+      <start>#</start>
+      <include><context ref="def:in-comment"/></include>
+    </context>
+    <context id="string" style-ref="string" end-at-line-end="true">
+      <start>"</start>
+      <end>"</end>
+    </context>
+    <context id="section" style-ref="section">
+      <keyword>MEMORY</keyword><keyword>SEGMENTS</keyword><keyword>SYMBOLS</keyword>
+      <keyword>FEATURES</keyword><keyword>FILES</keyword><keyword>FORMATS</keyword>
+    </context>
+    <context id="name" style-ref="name">
+      <match>^\s*[A-Za-z_][A-Za-z0-9_]*(?=\s*:)</match>
+    </context>
+    <context id="attribute" style-ref="attribute">
+      <match case-sensitive="false">\b(file|start|size|load|run|type|define|fill|fillval|align|align_load|offset|optional|value|default|label|count|segment|import|order|bank|format|addrsize|startaddress|condes|startaddr)\b(?=\s*=)</match>
+    </context>
+    <context id="value" style-ref="value">
+      <keyword>ro</keyword><keyword>rw</keyword><keyword>bss</keyword><keyword>zp</keyword>
+      <keyword>yes</keyword><keyword>no</keyword><keyword>weak</keyword><keyword>import</keyword>
+      <keyword>export</keyword><keyword>constructor</keyword><keyword>destructor</keyword>
+      <keyword>interruptor</keyword><keyword>absolute</keyword><keyword>zeropage</keyword>
+    </context>
+    <context id="symbol" style-ref="symbol">
+      <match>__[A-Za-z0-9_]+__|%[OS]</match>
+    </context>
+    <context id="number" style-ref="number">
+      <match>\$[0-9A-Fa-f]+|\b[0-9]+\b</match>
+    </context>
+    <context id="ld65cfg" class="no-spell-check">
+      <include>
+        <context ref="comment"/>
+        <context ref="string"/>
+        <context ref="section"/>
+        <context ref="symbol"/>
+        <context ref="attribute"/>
+        <context ref="name"/>
+        <context ref="value"/>
+        <context ref="number"/>
+      </include>
+    </context>
+  </definitions>
+</language>

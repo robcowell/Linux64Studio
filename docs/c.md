@@ -59,6 +59,48 @@ script does ([several programs](dialect.md#several-programs-in-one-project)).
 (defines), `-W …` (warnings) and so on. Every file is compiled with `cl65 -t c64 -g`: the target is
 always the C64.
 
+### Memory layout and linker configs
+
+The linker (ld65) places the program with cc65's standard C64 layout: from `$0801` (the BASIC
+line, `10 SYS 2061`) up to `$D000`, with the 2K C stack at the top. That's enough until something
+has to be at a set address: music packed for `$1000`, or a character set where the VIC-II can
+see it.
+
+**Fixed areas** (**Project → Properties… → Build → Memory layout**) handle that. Give each one a
+name, a start and a size (`MUSIC`, `$1000`, `$0800`). Linux64Studio then writes a linker config
+for the build (`build/<program>.cfg`). The program goes in the biggest space left, and whatever is
+in the way is padded in the `.prg`, so each area loads at its address. If the program has to start
+above an area, cc65's start-up code stays at `$080D` in a small area of its own. Each area has a
+segment of the same name, to put things in:
+
+```
+; music.s (ca65)
+        .segment "MUSIC"
+        .incbin "music.bin"
+```
+
+```c
+/* or in C */
+#pragma rodata-name (push, "MUSIC")
+const unsigned char tune[] = { 0x4C, 0x00, 0x10 };
+#pragma rodata-name (pop)
+```
+
+An area must start at `$088D` or above (after the start-up code), and areas can't overlap. The
+program needs at least 1K for itself. An area above `$D000` loads under the I/O or the KERNAL,
+like any other data there. The Memory Viewer shows each area's contents under the file that put
+them there. The padding counts as free, because the program can use it once it has loaded.
+
+For full control, use a linker config of your own. **File → New → Linker Config…** writes one: cc65's
+C64 layout with the fixed areas in it, and comments. It is then linked with, in place of the fixed
+areas. Its errors open at their line, like a compiler error. In the file tree, right-click a
+`.cfg` file and choose **Use as Linker Config** or **Stop Using as Linker Config**, or type its
+name into the **Linker config** setting. With several programs, each program has its own config
+and areas. `.cfg` files have their own highlighting.
+
+GoatTracker songs and `.sid` tunes go into a C project this way, with C functions to play them:
+see [music in C projects](music.md#music-in-c-projects).
+
 ## Building and errors
 
 **F7** (Build Project) compiles each file on the build list, then links them. Errors and warnings
@@ -228,5 +270,4 @@ language.
 * Output for a fixed address (`*=$C000` in CBM prg Studio) becomes a comment in C and ca65, because
   the linker places code there.
 
-The SID file player and the GoatTracker music code still write CBM prg Studio or Kick Assembler
-source.
+Music has its own way in: [music in C projects](music.md#music-in-c-projects).

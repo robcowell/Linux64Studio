@@ -623,12 +623,15 @@ class MainWindow(Adw.ApplicationWindow):
                 return self._open_prg(path)
             elif sfx == ".sid":
                 ed = SidFileView(path, self.settings, self.project)
+                ed.files_changed = self._populate_files
             elif sfx == ".l64sid":
                 ed = self._sid_designer(path)
             elif sfx == ".sng":
                 ed = SongView(path, self.settings, self.project, self._save_project_quietly)
+                ed.files_changed = self._populate_files
             elif sfx == ".ins":
                 ed = SfxView(path, self.settings, self.project, self._save_project_quietly)
+                ed.files_changed = self._populate_files
             elif sfx == ".crt":
                 ed = CartView(path)
                 ed.connect("run-cart", lambda e: self._launch(e.path))
@@ -1052,16 +1055,27 @@ class MainWindow(Adw.ApplicationWindow):
                                        "pbas": "New pBASIC file (BASIC without line numbers)", "spt": "New sprite set",
                                        "cst": "New character set", "sdd": "New screen design",
                                        "d64": "New disk image (.d64, .d71 or .d81)", "c": "New C file",
-                                       "h": "New C header file"}[kind])
+                                       "h": "New C header file", "cfg": "New linker config (ld65)"}[kind])
         default = {"asm": "gameNew.asm", "bas": "main.bas", "pbas": "main.pbas", "spt": "sprites.spt", "cst": "characters.cst",
-                   "sdd": "screens.sdd", "d64": "disk.d64", "c": "new.c", "h": "new.h"}[kind]
+                   "sdd": "screens.sdd", "d64": "disk.d64", "c": "new.c", "h": "new.h",
+                   "cfg": Path(self.project.executable or self.project.name + ".prg").stem + ".cfg"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
-        if (kind in ("asm", "bas", "pbas") and self.project.toolchain == TOOLCHAIN_CBM) or \
+        if kind == "cfg":
+            dlg.set_body("cc65's C64 layout, with the program's fixed areas (Project Settings → Build) in it, to "
+                         "change by hand.")
+            add_build = Gtk.CheckButton(label="Link the program with it", active=True)
+            dlg.set_extra_child(None)            # (the entry moves into the box)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            box.append(entry)
+            box.append(add_build)
+            dlg.set_extra_child(box)
+        elif (kind in ("asm", "bas", "pbas") and self.project.toolchain == TOOLCHAIN_CBM) or \
                 (kind == "c" and self.project.toolchain == TOOLCHAIN_CC65):
             add_build = Gtk.CheckButton(label="Add to the build list" + ("" if kind == "c" else " (before the last file)"),
                                         active=True)
+            dlg.set_extra_child(None)            # (the entry moves into the box)
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             box.append(entry)
             box.append(add_build)
@@ -1085,7 +1099,20 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast(f"{fname} already exists")
                 self.open_file(path)
                 return
-            if kind in ("c", "h"):
+            if kind == "cfg":
+                from ..project import ldcfg
+                areas = [ldcfg.Area.from_dict(a) for a in self.project.c_areas]
+                try:
+                    text = ldcfg.generate(areas, title=path.name)
+                except ldcfg.LayoutError as e:
+                    self.toast(f"The fixed areas don't fit: {e}. Wrote cc65's standard layout")
+                    text = ldcfg.generate([], title=path.name)
+                path.write_text(text)
+                if add_build.get_active():
+                    from ..project.fileops import relative
+                    self.project.linker_config = relative(self.project, path)
+                    self.project.save()
+            elif kind in ("c", "h"):
                 if kind == "h":
                     guard = re.sub(r"\W", "_", path.name).upper()
                     path.write_text(f"#ifndef {guard}\n#define {guard}\n\n\n#endif\n")
@@ -2643,7 +2670,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _new_in_folder_menu(self, folder: Path) -> Gio.Menu:
         new = Gio.Menu()
         for label, kind in (("Source File…", "asm"), ("BASIC File…", "bas"), ("pBASIC File…", "pbas"),
-                            ("C File…", "c"), ("C Header File…", "h"),
+                            ("C File…", "c"), ("C Header File…", "h"), ("Linker Config…", "cfg"),
                             ("Sprite Set…", "spt"), ("Character Set…", "cst"), ("Screen Design…", "sdd"),
                             ("Disk Image…", "d64")):
             new.append_item(self._file_op_item(label, f"new-{kind}", folder))
@@ -2704,6 +2731,13 @@ class MainWindow(Adw.ApplicationWindow):
             elif (self.project.directory / self.project.main_file).resolve() != path:
                 build.append_item(self._file_op_item("Set as Main File", "set-main", path))
             menu.append_section(None, build)
+        if not node.is_dir and path.suffix.lower() == ".cfg" and self.project.toolchain == TOOLCHAIN_CC65:
+            link = Gio.Menu()
+            used = self.project.linker_config and \
+                (self.project.directory / self.project.linker_config).resolve() == path.resolve()
+            link.append_item(self._file_op_item("Stop Using as Linker Config" if used else "Use as Linker Config",
+                                                "linker-off" if used else "linker-on", path))
+            menu.append_section(None, link)
         reveal = Gio.Menu()
         reveal.append_item(self._file_op_item("Reveal in File Manager", "reveal", path))
         menu.append_section(None, reveal)
@@ -2746,6 +2780,12 @@ class MainWindow(Adw.ApplicationWindow):
                               lambda name: self._rename(path, path.parent / name), current=path)
         elif op == "delete":
             self._confirm_trash(path)
+        elif p is not None and op in ("linker-on", "linker-off"):
+            p.linker_config = fileops.relative(p, path) if op == "linker-on" else ""
+            p.save()
+            self._populate_files()
+            self.toast(f"The program links with {path.name}" if op == "linker-on" else
+                       "The program links with cc65's standard layout" + (" and its fixed areas" if p.c_areas else ""))
         elif p is not None and op.startswith(("build-", "set-main")):
             changed = {"build-add": lambda: fileops.build_add(p, path),
                        "build-remove": lambda: fileops.build_remove(p, path),
@@ -3451,6 +3491,59 @@ class MainWindow(Adw.ApplicationWindow):
         kg.add(k_args)
         if is_c:
             kg.add(k_dirs)
+        areas = [dict(a) for a in p.c_areas]
+        l_cfg = Adw.EntryRow(title="Linker config (.cfg); empty = cc65's C64 layout with the fixed areas below",
+                             text=p.linker_config)
+        if is_c:
+            lg = Adw.PreferencesGroup(title="Memory layout" + prog, description=(
+                "Fixed areas put things at set addresses: music packed for $1000, a character set where the "
+                "VIC-II sees it. Each has a segment of the same name (.segment \"MUSIC\" in ca65, #pragma "
+                "rodata-name in C); the program goes round them. A linker config of your own replaces all "
+                "this (File → New → Linker Config writes one to start from)."))
+            bpage.add(lg)
+            lg.add(l_cfg)
+            area_rows: list = []
+
+            def rebuild_areas():
+                for r in area_rows:
+                    lg.remove(r)
+                area_rows.clear()
+                for i, a in enumerate(areas):
+                    row = Adw.ActionRow(title=a["name"], subtitle=f"${a['start']:04X}-${a['start'] + a['size'] - 1:04X}"
+                                                                  f" ({a['size']} bytes)")
+                    rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Remove")
+                    rm.add_css_class("flat")
+                    rm.connect("clicked", lambda _b, i=i: (areas.pop(i), rebuild_areas()))
+                    row.add_suffix(rm)
+                    lg.add(row)
+                    area_rows.append(row)
+                add = Adw.ActionRow(title="Add a fixed area")
+                a_name = Gtk.Entry(placeholder_text="MUSIC", width_chars=9, valign=Gtk.Align.CENTER)
+                a_start = Gtk.Entry(placeholder_text="$1000", width_chars=7, valign=Gtk.Align.CENTER)
+                a_size = Gtk.Entry(placeholder_text="$0800", width_chars=7, valign=Gtk.Align.CENTER)
+                a_btn = Gtk.Button(icon_name="list-add-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Add")
+
+                def add_area(*_):
+                    from ..project import ldcfg
+                    try:
+                        new = ldcfg.Area(a_name.get_text().strip().upper(), ldcfg.parse_address(a_start.get_text()),
+                                         ldcfg.parse_address(a_size.get_text()))
+                        ldcfg.layout([ldcfg.Area.from_dict(x) for x in areas] + [new])
+                    except ValueError as e:      # (LayoutError too)
+                        self.toast(str(e) if isinstance(e, ldcfg.LayoutError) else
+                                   "Give the start and size in hex ($1000) or decimal (#4096)")
+                        return
+                    areas.append(new.to_dict())
+                    areas.sort(key=lambda x: x["start"])
+                    rebuild_areas()
+                a_btn.connect("clicked", add_area)
+                for w in (a_name, a_start, a_size):
+                    w.connect("activate", add_area)
+                    add.add_suffix(w)
+                add.add_suffix(a_btn)
+                lg.add(add)
+                area_rows.append(add)
+            rebuild_areas()
         dd = Adw.SwitchRow(title="Write a debug dump (.dbg)",
                            subtitle="Kick Assembler's format, which C64 Debugger, RetroDebugger and VS64 read "
                                     "for source-level debugging. Kick Assembler projects always get one.",
@@ -3629,6 +3722,8 @@ class MainWindow(Adw.ApplicationWindow):
             p.toolchain = toolchains[tool.get_selected()]
             if is_c:
                 p.lib_dirs = [d.strip() for d in k_dirs.get_text().split(";") if d.strip()]
+                p.linker_config = l_cfg.get_text().strip()
+                p.c_areas = areas
             p.main_file = main.get_text().strip()
             p.build_list = list(order)
             p.disk_image = d_path.get_text().strip() if d_on.get_active() else ""

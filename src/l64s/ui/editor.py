@@ -102,7 +102,7 @@ class SourceEditor(EditorPage):
                 lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
             sfx = path.suffix.lower() if path else ""
             lang = lm.get_language("cbmbasic" if sfx in (".bas", ".pbas") else "c" if sfx in (".c", ".h")
-                                   else "ca65" if self.ca65 else "cbmasm")
+                                   else "ld65cfg" if sfx == ".cfg" else "ca65" if self.ca65 else "cbmasm")
             if lang:
                 self.buffer.set_language(lang)
             self._setup_marks()
@@ -472,9 +472,10 @@ class SourceEditor(EditorPage):
         menu.append("Go to Definition", "win.goto-definition")
         menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
-        if not self.is_c and not self.ca65:      # the analyser reads CBM prg Studio, Kick and BASIC
+        is_cfg = bool(self.path) and self.path.suffix.lower() == ".cfg"
+        if not self.is_c and not self.ca65 and not is_cfg:      # the analyser reads CBM prg Studio, Kick and BASIC
             menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
-        if not self.is_basic and not self.is_c and not self.ca65:
+        if not self.is_basic and not self.is_c and not self.ca65 and not is_cfg:
             kick = Gio.Menu()
             kick.append("Create Kick Hash Table…", "editor.kick-hash")
             kick.append("Create Kick List…", "editor.kick-list")

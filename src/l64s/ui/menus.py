@@ -58,7 +58,8 @@ def new_menu() -> Gio.Menu:
     return _menu([("_Project…", "win.new-project")],
                  [("_Source File…", "win.new-file::asm"), ("_BASIC File…", "win.new-file::bas"),
                   ("p_BASIC File (no line numbers)…", "win.new-file::pbas")],
-                 [("C _File…", "win.new-file::c"), ("C _Header File…", "win.new-file::h")],
+                 [("C _File…", "win.new-file::c"), ("C _Header File…", "win.new-file::h"),
+                  ("_Linker Config…", "win.new-file::cfg")],
                  [("Sp_rite Set…", "win.new-file::spt"), ("_Character Set…", "win.new-file::cst"),
                   ("Screen _Design…", "win.new-file::sdd"), ("Dis_k Image…", "win.new-file::d64")])
 

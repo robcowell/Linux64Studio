@@ -15,6 +15,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from ..sid.goattracker import (MusicError, PackOptions, launch_editor, pack_song, player_code,  # noqa: E402
                                read_instrument_name, read_song_info)
+from ..sid import cmusic  # noqa: E402
 from ..sid.sidfile import SidError, load_sid, usage_code  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
@@ -87,6 +88,35 @@ class _MusicPage(EditorPage):
     def _kickass(self) -> bool:
         return bool(self.project) and getattr(self.project, "toolchain", "") == "kickass"
 
+    def _is_c(self) -> bool:
+        return bool(self.project) and getattr(self.project, "toolchain", "") == "cc65"
+
+    files_changed = staticmethod(lambda: None)      # (the window refreshes its file tree)
+
+    def _c_group(self, add) -> None:
+        """In a C project: Add to Project, which writes music.s and music.h and makes the fixed area."""
+        g = Adw.PreferencesGroup(title="Use it from C", description=(
+            "Add to Project makes a fixed area for the music at its address (Project → Properties → Build), "
+            "writes music.s (the data, and C functions to play it from a raster interrupt) and music.h, "
+            "and puts music.s on the build list."))
+        row = Adw.ActionRow(title="music.s and music.h")
+        b = Gtk.Button(label="Add to Project", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        b.connect("clicked", lambda *_: add())
+        row.add_suffix(b)
+        g.add(row)
+        self.page.add(g)
+
+    def _install(self, tune) -> bool:
+        try:
+            done = cmusic.install(self.project, tune)
+        except cmusic.InstallError as e:
+            self.status.set_text(str(e))
+            return False
+        self.project.save()
+        self.files_changed()
+        self.status.set_text(". ".join(done) + ".")
+        return True
+
     def save(self):
         self.set_modified(False)
 
@@ -129,11 +159,31 @@ class SidFileView(_MusicPage):
             row.add_suffix(b)
         ex.add(row)
         self.page.add(ex)
+        if self._is_c():
+            self._c_group(self._add_to_c)
         self.code = self._code_group("Code to play it")
-        self.code.get_buffer().set_text(usage_code(s, f"{path.stem}.bin" if not self._kickass() else path.name,
-                                                   kickass=self._kickass()))
+        if self._is_c():
+            self.code.get_buffer().set_text(cmusic.usage(self._tune()))
+        else:
+            self.code.get_buffer().set_text(usage_code(s, f"{path.stem}.bin" if not self._kickass() else path.name,
+                                                       kickass=self._kickass()))
         if s.magic == "RSID" or not s.play:
             self.status.set_text("This tune sets up its own interrupt (no play address), so call init only.")
+
+    def _tune(self) -> cmusic.Tune:
+        s = self.sid
+        return cmusic.Tune(f"{s.name or self.path.stem} by {s.author}".strip(), f"{self.path.stem}.bin", s.load,
+                           len(s.data), s.init, s.play)
+
+    def _add_to_c(self):
+        """Extract the data beside the project as <name>.bin, then install it."""
+        out = self.project.directory / f"{self.path.stem}.bin"
+        try:
+            out.write_bytes(self.sid.data)
+        except OSError as e:
+            self.status.set_text(f"Couldn't write {out.name}: {e}")
+            return
+        self._install(self._tune())
 
     def _play(self, *_):
         err = self.player.play(self.path, int(self.tune.get_value()))
@@ -185,6 +235,7 @@ class SongView(_MusicPage):
         self.page.add(head)
 
         link = self._link() or {}
+        self._c_glue = link.get("c_glue", "")      # (added to a C project: music.s kept up to date)
         opts = PackOptions.from_dict(link)
         g = Adw.PreferencesGroup(title="Pack for this project",
                                  description="GoatTracker's gt2reloc packs the song with its playroutine before "
@@ -205,6 +256,8 @@ class SongView(_MusicPage):
         pack.connect("clicked", self._pack_now)
         g.set_header_suffix(pack)
         self.page.add(g)
+        if self._is_c():
+            self._c_group(self._add_to_c)
         self.code = self._code_group("Code to play it")
         self._update_code()
         if not project:
@@ -235,10 +288,36 @@ class SongView(_MusicPage):
         self.project.music = [m for m in self.project.music if m.get("source") != self._key()]
         if self.on.get_active():
             self.project.music.append({"source": self._key(), "output": self.out.get_text().strip(),
-                                       **self.options().to_dict()})
+                                       **self.options().to_dict(), **({"c_glue": self._c_glue} if self._c_glue else {})})
         self.save_project()
 
+    def _tune(self, size: int = 0) -> cmusic.Tune:
+        o = self.options()
+        e = o.entry_points()
+        out = self.out.get_text().strip() or self.path.with_suffix(".bin").name
+        skip = {".sid": 126, ".prg": 2}.get(Path(out).suffix.lower(), 0)
+        return cmusic.Tune(self.info.name or self.path.stem, out, o.address, size, e["init"], e["play"], skip=skip,
+                           sfx=e.get("sfx", 0), volume=e.get("volume", 0))
+
+    def _add_to_c(self):
+        """Pack it now (to know its size), pack it on every build from now on, and install it."""
+        out = (self._base() / (self.out.get_text().strip() or self.path.with_suffix(".bin").name)).resolve()
+        try:
+            r = pack_song(self.path, out, self.options(), self.settings.goattracker_dir)
+        except MusicError as e:
+            self.status.set_text(str(e))
+            return
+        if self._install(self._tune(r.size)):
+            self._c_glue = "music"              # (each build keeps music.s up to date with the settings)
+            if self.on.get_active():
+                self._changed()
+            else:
+                self.on.set_active(True)        # (saves the link: packed before every build)
+
     def _update_code(self):
+        if self._is_c():
+            self.code.get_buffer().set_text(cmusic.usage(self._tune()))
+            return
         out = self.out.get_text().strip() or "music.bin"
         sfx = Path(out).suffix.lower()
         self.code.get_buffer().set_text(player_code(Path(out).name, self.options(), sfx if sfx in (".sid", ".prg", ".bin")
@@ -290,8 +369,9 @@ class SfxView(_MusicPage):
                                              "before every build. Waveforms above $81, relative notes, pulse "
                                              "modulation and filters aren't kept.")
         self.on = Adw.SwitchRow(title="Convert on every build", active=bool(link))
-        default = path.with_suffix(".asm")
-        self.out = Adw.EntryRow(title="Output (.asm for byte lines, or .bin)",
+        default = path.with_suffix(".c" if self._is_c() else ".asm")
+        self.out = Adw.EntryRow(title="Output (.c for a C array, .s for ca65, or .bin)" if self._is_c() else
+                                "Output (.asm for byte lines, or .bin)",
                                 text=link.get("output") or _rel(default, self._base()))
         self.label = Adw.EntryRow(title="Label", text=link.get("label") or path.stem.replace("-", "_"))
         for w in (self.on, self.out, self.label):
@@ -320,11 +400,24 @@ class SfxView(_MusicPage):
             return
         self.project.music = [m for m in self.project.music if m.get("source") != self._key()]
         if self.on.get_active():
-            self.project.music.append({"source": self._key(), "output": self.out.get_text().strip(),
-                                       "label": self.label.get_text().strip()})
+            out = self.out.get_text().strip()
+            self.project.music.append({"source": self._key(), "output": out, "label": self.label.get_text().strip()})
+            switched_on = bool(_) and _[0] is self.on       # (not while the name is being typed)
+            if self._is_c() and switched_on and Path(out).suffix.lower() in (".c", ".s"):
+                from ..project.fileops import build_add
+                if build_add(self.project, self._base() / out):       # (compiled with the program)
+                    self.status.set_text(f"{out} is on the build list: it's written before every build")
+                    self.files_changed()
         self.save_project()
 
     def _update_code(self):
+        if self._is_c():
+            label = self.label.get_text().strip() or "effect"
+            self.code.get_buffer().set_text(
+                f"/* Needs a song added to the project with sound effect support (music.h) */\n"
+                f'#include "music.h"\n\nextern const unsigned char {label}[];\n\n'
+                f"    music_sfx({label}, 3);    /* on voice 3 (1-3) */\n")
+            return
         # The song packed with sound effect support says where the player's effect entry is.
         song = next((m for m in (self.project.music if self.project else []) if m.get("sfx")), None)
         entry = PackOptions.from_dict(song).entry_points()["sfx"] if song else None

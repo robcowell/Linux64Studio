@@ -199,7 +199,7 @@ def _kind(seg_name: str) -> str | None:
         return "data"
     if seg_name in _RESERVED_SEGMENTS:
         return "variables"
-    return "code" if seg_name else None
+    return "data" if seg_name else None       # (a segment of your own, e.g. a fixed area: see memory_map)
 
 
 def lbl_values(labels: Path | None) -> dict[str, int]:
@@ -290,13 +290,12 @@ def memory_map(prg: bytes, info: DebugInfo, base: Path, name: str = "program", l
     srcmap = source_map(info, base)
     segments: list[Segment] = []
     owners: dict[int, int] = {}
+    used = bytearray(m.used)
     for a in range(0x10000):
         o = owner[a]
         if o is None:
-            if m.used[a]:
-                o = (name, "data")                       # (bytes no module claims: the load address)
-            else:
-                continue
+            used[a] = 0          # in no segment: padding (fill = yes) before a fixed area, free once loaded
+            continue
         last = segments[-1] if segments else None
         if last and (last.owner, last.kind) == o and last.end + 1 == a:
             last.end = a
@@ -309,4 +308,4 @@ def memory_map(prg: bytes, info: DebugInfo, base: Path, name: str = "program", l
     for seg in segments:
         if not seg.lines and seg.owner in paths:
             seg.lines.append((paths[seg.owner], 1))          # (data and variables: the file itself)
-    return MemoryMap(m.memory, m.used, segments, owners, bytes(reserved))
+    return MemoryMap(m.memory, bytes(used), segments, owners, bytes(reserved))

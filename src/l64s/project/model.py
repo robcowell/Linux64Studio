@@ -88,6 +88,11 @@ class Project:
     # the project is one program. The fields above always hold the current program's values.
     programs: list[dict] = field(default_factory=list)
     current_program: str = ""
+    # C projects: the linker config (relative .cfg; "" = cc65's standard C64 layout, or one made from
+    # c_areas), and fixed areas for things at set addresses: [{"name": "MUSIC", "start": 4096,
+    # "size": 2048}] (see project.ldcfg)
+    linker_config: str = ""
+    c_areas: list[dict] = field(default_factory=list)
 
     @property
     def directory(self) -> Path:
@@ -379,12 +384,12 @@ loop:
 # (a library's demos, say), each with its own build list, .prg name, options and (Kick) main file.
 # One program is current: it's what Build, Run and Debug use, and its values are in the project's
 # own fields, so everything that reads project.build_list works on it unchanged.
-PROGRAM_FIELDS = ("build_list", "main_file", "executable", "assembler_args")
+PROGRAM_FIELDS = ("build_list", "main_file", "executable", "assembler_args", "linker_config", "c_areas")
 
 
 def _values(project: Project) -> dict:
-    return {f: list(getattr(project, f)) if isinstance(getattr(project, f), list) else getattr(project, f)
-            for f in PROGRAM_FIELDS}
+    import copy
+    return {f: copy.deepcopy(getattr(project, f)) for f in PROGRAM_FIELDS}
 
 
 def program_names(project: Project) -> list[str]:
@@ -412,7 +417,7 @@ def select_program(project: Project, name: str) -> bool:
     store_program(project)
     for f in PROGRAM_FIELDS:
         v = prog.get(f, getattr(Project, f, None) if not isinstance(getattr(project, f), list) else [])
-        setattr(project, f, list(v) if isinstance(v, list) else (v or ""))
+        setattr(project, f, __import__("copy").deepcopy(v) if isinstance(v, list) else (v or ""))
     project.current_program = name
     return True
 

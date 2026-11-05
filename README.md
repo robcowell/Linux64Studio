@@ -16,7 +16,8 @@ can be followed on Linux.
   breakpoints on C lines, stepping over and into C lines, and the C variables (locals and
   globals, with their types) at every stop. In the editor, C gets auto-complete, Go to Definition
   (including `#include`s) and the Project Information panel, and ca65 assembler files get their
-  own highlighting and completion. The code tools write C or ca65 in C projects
+  own highlighting and completion. Fixed memory areas (music at $1000, say) or a linker config
+  of your own place things at set addresses, and GoatTracker songs and SID tunes play from C. The code tools write C or ca65 in C projects
   ([docs/c.md](docs/c.md)).
   **Continue where you left off**: at start it opens the last project again, with the same files in
   tabs, the same tab in front and the cursor where it was (Preferences → Editor to turn it off;
