@@ -1,6 +1,6 @@
 # Binary Import/Export and the Disassembler
 
-**Binary Import/Export** in the main menu, or **Import as Source** when you open a `.bin` from
+**Tools → Binary Import/Export**, or **Import as Source** when you open a `.bin` from
 the sidebar.
 
 ## Import
@@ -51,7 +51,7 @@ BASIC loader in VICE and checks that it `POKE`s the right bytes into memory.
 
 # Disassembler
 
-**Disassembler** in the main menu, or **Disassemble** when you open a `.prg` from the sidebar.
+**Tools → Disassembler**, or **Disassemble** when you open a `.prg` from the sidebar.
 Where Binary Import turns a whole file into source in one go, the Disassembler is for working
 through a program and improving the result as you go.
 
@@ -99,7 +99,7 @@ and rebuilds byte for byte (`tests/test_disassembler.py`).
 
 # Data Generator
 
-**Menu → Data Generator** makes a table of values from a function of x, as in CBM prg Studio. It's
+**Tools → Data Generator** makes a table of values from a function of x, as in CBM prg Studio. It's
 useful for sine waves, movement paths, curves and look-up tables. Type the function (`y =`), and
 choose where x starts and ends (both are included) and its step (a whole number). The graph
 shows the values with the origin at the top left and y growing downwards, like screen
@@ -131,7 +131,7 @@ The 5-byte floats are checked against values the C64 stores itself: an opt-in VI
 
 # Source Analyser
 
-**Menu → Source Analyser** gives statistics about the instructions in assembler source, as in CBM
+**Tools → Source Analyser** gives statistics about the instructions in assembler source, as in CBM
 prg Studio: instruction counts, addressing modes and estimated cycle times. Choose what to
 analyse: **the project** (its build list), **the current file**, or **the selected lines**. Or
 right-click in the editor and choose **Analyse…**, which analyses the selected lines if there

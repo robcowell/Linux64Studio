@@ -56,7 +56,7 @@ Code, the screen and the disassembly refresh after every change.
 
 ## Snapshots
 
-**Snapshots** in the main menu saves and restores the whole machine (memory, registers, chips,
+**Debugger → Snapshots** saves and restores the whole machine (memory, registers, chips,
 drives), like CBM prg Studio's State Manager. Snapshots are VICE snapshot files (`.vsf`), kept in
 the project's `snapshots` folder with a small `.json` beside each for its name, note, PC and which
 build it came from.

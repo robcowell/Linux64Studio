@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
+from .menus import build_menubar  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
@@ -83,10 +84,14 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_content(tv)
         hb = Adw.HeaderBar()
         tv.add_top_bar(hb)
+        self.recent_menu = Gio.Menu()
+        # the menu bar, as in CBM prg Studio, at the start of the header bar
+        self.user_tools_menu = Gio.Menu()
+        self.menubar = Gtk.PopoverMenuBar.new_from_model(build_menubar(self.recent_menu, self.user_tools_menu))
+        hb.pack_start(self.menubar)
 
         open_btn = Adw.SplitButton(label="Open", tooltip_text="Open a project (Ctrl+O)",
                                    action_name="win.open-project")
-        self.recent_menu = Gio.Menu()
         open_btn.set_menu_model(self.recent_menu)
         hb.pack_start(open_btn)
         new_menu = Gio.Menu()
@@ -105,63 +110,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.title_widget = Adw.WindowTitle(title="Linux64Studio", subtitle="")
         hb.set_title_widget(self.title_widget)
 
-        menu = Gio.Menu()
-        sec = Gio.Menu()
-        sec.append("Build Project", "win.build-project")
-        sec.append("Build Current File", "win.build-file")
-        sec.append("Build Project and Run", "win.run-project")
-        sec.append("Build Current File and Run", "win.run-file")
-        sec.append("Debug Project", "win.debug-project")
-        menu.append_section(None, sec)
-        sec2 = Gio.Menu()
-        sec2.append("Project Properties…", "win.project-properties")
-        sec2.append("Open File…", "win.open-file")
-        sec2.append("Add TODO…", "win.add-todo")
-        sec2.append("List BASIC Program (.prg)…", "win.list-prg")
-        sec2.append("Renumber BASIC…", "win.renumber")
-        sec2.append("Reformat BASIC…", "win.reformat-basic")
-        sec2.append("Screen Code Builder", "win.screen-codes")
-        sec2.append("Screen Calculator", "win.screen-calculator")
-        sec2.append("Code Snippets", "win.snippets")
-        sec2.append("SYS() Call Generator", "win.sys-call")
-        sec2.append("Data Generator", "win.data-generator")
-        sec2.append("String Formatter", "win.string-formatter")
-        sec2.append("Source Analyser", "win.source-analyser")
-        sec2.append("UTF-8 Check", "win.utf8-check")
-        sec2.append("Create Token File…", "win.create-token-file")
-        sec2.append("Convert Source (Develop 64, Genesis, TASM)…", "win.convert-source")
-        sec2.append("Statistics (BASIC)", "win.basic-statistics")
-        sec2.append("Import CharPad Binaries…", "win.import-charpad")
-        sec2.append("Memory Viewer", "win.memory-viewer")
-        sec2.append("Memory Manager", "win.memory-manager")
-        sec2.append("Snapshots", "win.snapshots")
-        sec2.append("Binary Import/Export", "win.binary-tool")
-        sec2.append("Disassembler", "win.disassembler")
-        sec2.append("SID Designer", "win.sid-designer")
-        sec2.append("Compose in SidMonkey", "win.music-app::sidmonkey")
-        sec2.append("Open GoatTracker", "win.music-app::goattrk2")
-        sec2.append("Print…", "win.print")
-        sec2.append("Print Preview…", "win.print-preview")
-        sec2.append("Save All", "win.save-all")
-        sec2.append("Close Project", "win.close-project")
-        menu.append_section(None, sec2)
-        self.user_tools_menu = Gio.Menu()
-        tools_sec = Gio.Menu()
-        git_menu = Gio.Menu()
-        for label, act in (("Status", "win.git-status"), ("Changes (diff)", "win.git-diff"),
-                           ("History (log)", "win.git-log"), ("Commit…", "win.git-commit"),
-                           ("Add All Files", "win.git-add-all"), ("Manage Ignore List", "win.git-ignore"),
-                           ("Create a Repository for the Project", "win.git-init")):
-            git_menu.append(label, act)
-        tools_sec.append_submenu("Git", git_menu)
-        tools_sec.append_submenu("User Tools", self.user_tools_menu)
-        menu.append_section(None, tools_sec)
-        sec3 = Gio.Menu()
-        sec3.append("Preferences", "app.preferences")
-        sec3.append("Keyboard Shortcuts", "app.shortcuts")
-        sec3.append("About Linux64Studio", "app.about")
-        menu.append_section(None, sec3)
-        hb.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True))
         hb.pack_end(Gtk.Button(icon_name="system-run-symbolic", tooltip_text="Debug project (Shift+F5)",
                                action_name="win.debug-project"))
         run = Gtk.Button(icon_name="media-playback-start-symbolic", tooltip_text="Build project and run (Ctrl+F5)",
@@ -276,6 +224,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("save", lambda *_: self.save_current())
         add("save-all", lambda *_: self.save_all())
         add("close-tab", lambda *_: self._close_current_tab())
+        add("edit", lambda _a, v: self._edit(v.get_string()), "s")
         add("tab-close", lambda *_: self._close_tabs("this"))
         add("tab-close-others", lambda *_: self._close_tabs("others"))
         add("tab-close-right", lambda *_: self._close_tabs("right"))
@@ -663,6 +612,12 @@ class MainWindow(Adw.ApplicationWindow):
         for ed in self.editors():
             if ed.modified:
                 self._save(ed)
+
+    def _edit(self, action: str):
+        """Edit menu: run a text action (text.undo, clipboard.copy, ...) on whatever has the focus."""
+        focus = self.get_focus()
+        if focus is not None:
+            focus.activate_action(action, None)
 
     def _close_current_tab(self):
         page = self.tab_view.get_selected_page()

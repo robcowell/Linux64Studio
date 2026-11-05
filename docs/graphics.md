@@ -276,7 +276,7 @@ The room size and material names are kept in the Linux64Studio project (`charpad
 
 ### Games whose data is CharPad's binary exports
 
-**Menu → Import CharPad Binaries…** makes a `.ctm` from a game's four files: characters (8 bytes
+**Tools → Import CharPad Binaries…** makes a `.ctm` from a game's four files: characters (8 bytes
 each), attributes (colour in the low nibble, material in the high one), tiles (8-bit, row by
 row) and the map (8-bit, row by row). It guesses the files by name. Give it the tile size and
 the map's width, and it shows the size of the map you'll get. The new project's exports are

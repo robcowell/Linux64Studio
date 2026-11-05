@@ -51,7 +51,7 @@ The page shows the entry points for those settings:
 | Sound effect | start+6 | A/Y = effect address, X = 0, 7 or 14 (voice 1–3) |
 | Volume | start+6, or +9 with sound effects | A = 0–15 |
 
-**Compose in SidMonkey** and **Open GoatTracker** in the main menu start those programs in the
+**Tools → Music → Compose in SidMonkey** and **Open GoatTracker** start those programs in the
 project folder.
 
 ## Sound effects (.ins)
@@ -64,7 +64,7 @@ $81, relative notes, pulse modulation and filters don't carry over into sound ef
 
 ## SID Designer
 
-**Menu → SID Designer** opens CBM prg Studio's SID tool, in two tabs.
+**Tools → Music → SID Designer** opens CBM prg Studio's SID tool, in two tabs.
 
 **Voices & Filter**: each of the three voices has a note and octave (shown as Hz and as the
 frequency register value), waveforms (triangle, sawtooth, pulse, noise), ring modulation, sync,

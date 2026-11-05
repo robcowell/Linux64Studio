@@ -13,6 +13,8 @@ can be followed on Linux.
   **Continue where you left off**: at start it opens the last project again, with the same files in
   tabs, the same tab in front and the cursor where it was (Preferences → Editor to turn it off;
   a file named on the command line opens instead) ([session](docs/dialect.md#continue-where-you-left-off)).
+  A **menu bar** laid out like CBM prg Studio's (File, Edit, Project, Build, Debugger, Tools, Git,
+  Window, Help) ([menus](docs/dialect.md#menus)).
   The sidebar shows the project's files as an expandable **folder tree**, as in VS Code
   ([project files](docs/dialect.md#project-files)). Each project reopens with the **tabs and folders
   it had open** when you left it ([per project](docs/dialect.md#each-projects-tabs-and-folders)).
@@ -35,7 +37,7 @@ can be followed on Linux.
   into source ([utf-8](docs/dialect.md#utf-8-check)).
   **Git**: create a repository with an ignore list, see each file's state in the file list, status,
   changes and history, add and commit ([git](docs/dialect.md#git)).
-  A **User Tools** menu runs your own programs with arguments naming the project's files
+  **Tools → User Tools** runs your own programs with arguments naming the project's files
   ([user tools](docs/dialect.md#user-tools)).
   Hover over a number to see it in hex, decimal and binary, and right-click it to convert it
   ([base conversion](docs/dialect.md#base-conversion-in-the-editor)).

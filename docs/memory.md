@@ -1,6 +1,6 @@
 # Memory Viewer
 
-**Memory Viewer** in the main menu shows where everything is in the C64's 64K.
+**Debugger → Memory Viewer** shows where everything is in the C64's 64K.
 
 ## The map
 
@@ -90,7 +90,7 @@ Studio's help.
 
 # Memory Manager
 
-**Memory Manager** in the main menu plans what the VIC-II sees, which is the part of C64 memory
+**Tools → Memory Manager** plans what the VIC-II sees, which is the part of C64 memory
 that most often goes wrong: a character set that won't show, or sprites that come out as garbage.
 
 ## Choosing a layout
@@ -134,7 +134,7 @@ describes (`tests/test_vicmem.py`, with `L64S_VICE_TESTS=1`).
 
 # Screen Calculator
 
-**Menu → Screen Calculator** works out where a character cell is in memory, as CBM prg Studio's
+**Tools → Screen Calculator** works out where a character cell is in memory, as CBM prg Studio's
 tool does. Click a cell on the 40×25 screen, or type its row (0-24) and column (0-39). The
 results, each with a Copy button, are:
 

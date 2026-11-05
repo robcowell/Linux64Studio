@@ -85,7 +85,7 @@ BASIC** turns it off and sets the step. It's one undo step, and pBASIC files are
 
 ## Renumbering
 
-*Renumber BASIC…* in the menu (or `l64bas --renumber`) renumbers the whole file and updates
+**Tools → BASIC → Renumber…** (or `l64bas --renumber`) renumbers the whole file and updates
 line numbers after `GOTO`, `GO TO`, `GOSUB`, `THEN`, `ON … GOTO/GOSUB`, `RUN` and `LIST`.
 References inside strings, REM or DATA are left alone. A reference to a line that doesn't
 exist is kept, with a warning. Ctrl+Z undoes the whole renumber.
@@ -144,7 +144,7 @@ pBASIC file without its line numbers, with labels for any jumps.
 
 ## Reformatting
 
-**Reformat BASIC…** (main menu, or right-click in a BASIC file) is CBM prg Studio's Reformat BASIC
+**Reformat BASIC…** (**Tools → BASIC → Reformat…**, or right-click in a BASIC file) is CBM prg Studio's Reformat BASIC
 Code:
 
 * **General formatting:** a space after each line number; blank lines removed; quoted strings and
@@ -197,7 +197,7 @@ keywords is enough. A token can be two bytes (`FE02`), as the Mega65's are. Abbr
 C64's do (`gR` for GRAPHIC). Renumbering, pBASIC, reformatting and folding keep the `tokenfile`
 line where it is.
 
-**Create Token File…** in the main menu writes BASIC V2's table (with abbreviations) to a `.tkn`
+**Tools → BASIC → Create Token File…** writes BASIC V2's table (with abbreviations) to a `.tkn`
 in the project folder, opens it, and copies the `tokenfile` line to paste at the top of a BASIC
 file. CBM prg Studio's tutorial 18 (give PRINT the token `A1` and see it in the `.prg`) works as it
 describes.
@@ -216,7 +216,7 @@ For example, `10 sys 49152` in `main.bas` with `*=$c000` code in `code.asm`.
 
 ## Screen Code Builder
 
-**Screen Code Builder** in the main menu builds the strings that are awkward to type: colour
+**Tools → Screen Code Builder** builds the strings that are awkward to type: colour
 changes, cursor moves, reverse video, and the graphics on the Commodore and SHIFT keys.
 
 * Type text, or use one of the three tabs, as in CBM prg Studio:
@@ -255,7 +255,7 @@ comparison itself.
 
 ## Code Snippets
 
-**Menu → Code Snippets** is a library of small routines to insert into a program, as in CBM prg
+**Tools → Code Snippets** is a library of small routines to insert into a program, as in CBM prg
 Studio. The snippets are grouped by CBM's six types: Sprites, Characters, Hi-res, Sound, Misc and
 Machine Code. Machine Code snippets are assembler; all the others are BASIC. Search filters by
 description, code or type. Double-click a snippet, or press **Insert into Editor**, to insert it
@@ -293,7 +293,7 @@ a bitmap, and the raster interrupt.
 
 ## SYS() call generator
 
-**Menu → SYS() Call Generator** writes the one-line BASIC program that starts a machine code
+**Tools → SYS() Call Generator** writes the one-line BASIC program that starts a machine code
 program when you RUN it, as `byte` lines for the top of an assembler source. This is the same
 thing the book's chapters start with (`10 SYS (2064)`). It has three styles, as in CBM prg Studio:
 
@@ -322,7 +322,7 @@ the message.
 
 ## String Formatter
 
-**Menu → String Formatter** splits a long string into lines of a set length, as in CBM prg Studio.
+**Tools → String Formatter** splits a long string into lines of a set length, as in CBM prg Studio.
 Type or paste the text into **Source**; the character count is how long it is on the C64 (a
 control code such as `{white}` is one character). **Output** shows the result as you type:
 
@@ -356,7 +356,7 @@ shows the message exactly.
 
 ## Statistics
 
-**Menu → Statistics (BASIC)** breaks down the BASIC file you're editing, as CBM prg Studio's tool
+**Tools → BASIC → Statistics** breaks down the BASIC file you're editing, as CBM prg Studio's tool
 does. At the top: how many lines it has, where it sits in memory, its size, and how much of
 the 38911 bytes of BASIC memory is left. Then:
 

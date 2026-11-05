@@ -91,7 +91,7 @@ in BASIC `rem #region`, work too.
 
 ### Printing
 
-**Print…** in the main menu prints the source file being edited (assembler or BASIC), as CBM prg
+**File → Print…** prints the source file being edited (assembler or BASIC), as CBM prg
 Studio's File → Print does: in its syntax colours, with a header (the file name, "Page 1 of 6")
 and a footer (its folder and the date). The print dialog's **Source** tab turns line numbers (on
 for assembler, off for BASIC, which has its own), the colours, line wrapping and the header and
@@ -109,7 +109,7 @@ BASIC it's a REM (`100 rem todo speed this up`). Search the list, or tick **Curr
 double-click a task to open its line. The tab's badge shows how many there are. The list follows
 your edits (unsaved ones too) every couple of seconds.
 
-**Add TODO…** (main menu, or right-click in the editor) puts one above the cursor's line: the
+**Add TODO…** (**Edit → Add TODO…**, or right-click in the editor) puts one above the cursor's line: the
 `todo` directive in CBM prg Studio projects, a `// TODO` comment in Kick Assembler ones, and in
 BASIC a `rem todo` line between two line numbers (or on the end of the line when there's no
 number free).
@@ -224,7 +224,7 @@ image is written after the build events. The project's VICE options (`vice_args`
 
 ## Converting sources from other assemblers
 
-**Convert Source (Develop 64, Genesis, TASM)…** in the main menu is CBM prg Studio's Source File
+**Tools → Convert Source (Develop 64, Genesis, TASM)…** is CBM prg Studio's Source File
 Converter. Choose the source file and its type (guessed from the name: `.prg` Genesis, `.seq`
 Develop 64, others TASM), see the converted source with the converter's notes and what the assembler
 makes of it, and **Convert** writes it as a `.asm` (and adds it to the build list if you like).
@@ -265,7 +265,7 @@ Kick Assembler 5.25 reads all of these the same (`tests/test_kicktools.py` runs 
 
 ## UTF-8 check
 
-**UTF-8 Check** in the main menu (CBM prg Studio's Tools → UTF-8 Check) finds the characters in
+**Tools → UTF-8 Check** (CBM prg Studio's Tools → UTF-8 Check) finds the characters in
 the source that aren't plain ASCII: the ones that slip in when code is pasted from a web page, a PDF
 or a word processor, which the assembler and the C64 can't take. Each is listed with where it is,
 its Unicode name, and the ASCII for it: curly quotes become straight ones, dashes `-`, `…` `...`,
@@ -279,7 +279,7 @@ is reported too, from where it stops being UTF-8; saving it from the editor writ
 
 ## Git
 
-As in CBM prg Studio, a project can be kept in Git, from the main menu's **Git** submenu and the
+As in CBM prg Studio, a project can be kept in Git, from the **Git** menu and the
 file list's right-click menu. It uses the `git` command (install it with `sudo apt install git`).
 
 * **Create a Repository for the Project** (or tick *Create a Git repository* when making a new
@@ -301,7 +301,7 @@ A project inside a bigger repository uses that one.
 
 ## User tools
 
-As CBM prg Studio's Tools → User menu does, the main menu's **User Tools** runs programs of your
+As CBM prg Studio's Tools → User menu does, **Tools → User Tools** runs programs of your
 own: an editor, a cruncher, another emulator, git. Set them up in **Preferences → User Tools**: a
 name, the program (a name on the PATH or a path), its arguments, the folder to run it in (the
 project's if empty), and whether to wait and show what it prints in the build output (otherwise
@@ -337,6 +337,14 @@ deleted is left out, with a note saying so.
   instead of the last session.
 * Turn it off in Preferences → Editor → **Continue where I left off**. The session is kept in
   `~/.config/linux64studio/session.json`.
+
+## Menus
+
+A menu bar laid out like CBM prg Studio's sits at the left of the title bar: **File**, **Edit**,
+**Project**, **Build**, **Debugger**, **Tools**, **Git**, **Window** and **Help**. Each item shows its
+keyboard shortcut. The tools are under **Tools**, with the BASIC ones in **Tools → BASIC** and the
+music ones in **Tools → Music**. **Preferences** is at the bottom of Tools (Ctrl+,). The Open, New,
+Save, Build, Run and Debug buttons stay in the title bar as a toolbar.
 
 ## Project files
 
