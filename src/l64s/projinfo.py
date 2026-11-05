@@ -75,8 +75,10 @@ def _c_detail(s: Symbol, value_of) -> str:
 
 
 def collect(symbols: list[Symbol], basic_texts: dict[str, str] | None = None, project_dir: Path | None = None,
-            value_of: Callable[[Symbol], int | None] | None = None) -> dict[str, list[Group]]:
-    """Each tab's groups, one per file that defines something, in path order; items in line order."""
+            value_of: Callable[[Symbol], int | None] | None = None, c: bool = False) -> dict[str, list[Group]]:
+    """Each tab's groups, one per file that defines something, in path order; items in line order.
+    ``c``: a C project, whose tabs are Functions, Variables, and Types & Macros (so an assembler
+    file's scopes, structs and enums go with the types)."""
     tabs: dict[str, dict[str, Group]] = {key: {} for key, _ in TABS}
 
     def add(tab: str, item: Item):
@@ -89,6 +91,8 @@ def collect(symbols: list[Symbol], basic_texts: dict[str, str] | None = None, pr
         tab = _TAB_OF.get(s.kind)
         if tab is None:
             continue
+        if c and s.kind == "namespace":
+            tab = "macros"
         if s.kind.startswith("c-"):
             detail = _c_detail(s, value_of)
         elif tab == "variables":

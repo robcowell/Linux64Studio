@@ -152,5 +152,23 @@ debugger does, not the next instruction:
 Find, Replace, Find in Files, the Tasks list (`// TODO`, `/* FIXME */`) and Go to Line work as for
 assembler.
 
+### Assembler files (ca65)
+
+In a C project, assembler files (`.s`, `.asm`, `.inc`) are ca65's, cc65's assembler, and the editor
+treats them that way (in other projects a `.s` file is CBM prg Studio or Kick Assembler source, as
+before):
+
+* ca65 syntax highlighting: control commands (`.proc`, `.segment`, `.importzp`, `.lobyte`…),
+  `name:` labels, `@cheap` local labels, unnamed `:` labels and their `:+` / `:-` references, and
+  numbers in `$hex`, `%binary` and decimal.
+* Auto-complete offers ca65's control commands (type the dot: `.seg` gives `.segment`), the
+  instructions and the file's names.
+* Go to Definition, hover and the Project Information panel know ca65's definitions: labels and
+  `.proc`s (under Functions), `@cheap` locals (the one belonging to the label above), `=`, `:=`,
+  `.set` and `.define` (Variables), and `.macro`, `.struct`, `.union`, `.enum` and `.scope`
+  (Types & Macros). ca65's names are case-sensitive. F12 on `jsr _twice` goes to the C function
+  `twice`, and on an `.include` or `.incbin` line opens the file, looking in the file's folder, the
+  project's source folders and cc65's own `asminc` folder.
+
 Strings are PETSCII on the C64: with the C64's start-up character set, lower-case letters in a
 string show as capitals, and capitals as graphics characters.

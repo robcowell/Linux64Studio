@@ -607,7 +607,8 @@ class MainWindow(Adw.ApplicationWindow):
             elif sfx == ".bin":
                 return self._open_bin(path)
             else:
-                ed = SourceEditor(path, self.settings)
+                ed = SourceEditor(path, self.settings,
+                                  ca65=bool(self.project and self.project.toolchain == TOOLCHAIN_CC65))
                 self._watch_breakpoints(ed)
         except Exception as e:  # unreadable/corrupt file
             self.toast(f"Couldn't open {path.name}: {e}")
@@ -1703,7 +1704,8 @@ class MainWindow(Adw.ApplicationWindow):
                                                       for d in self.project.lib_dirs]
         mine = [sym for sym in self.symbol_index().symbols()
                 if any(Path(sym.file).is_relative_to(r) for r in roots)]
-        return collect(mine, basic, self.project.directory, self._symbol_value)
+        return collect(mine, basic, self.project.directory, self._symbol_value,
+                       c=self.project.toolchain == TOOLCHAIN_CC65)
 
     def _open_source_line(self, file: str, line: int):
         ed = self.open_file(Path(file))
@@ -2027,7 +2029,8 @@ class MainWindow(Adw.ApplicationWindow):
         overrides = {str(e.path): e.get_text() for e in self.editors()
                      if isinstance(e, SourceEditor) and e.path and e.modified}
         kick = None if not self.project else self.project.toolchain == TOOLCHAIN_KICKASS
-        self._symbols.update(files, overrides, kick)
+        self._symbols.update(files, overrides, kick,
+                             ca65=bool(self.project and self.project.toolchain == TOOLCHAIN_CC65))
         return self._symbols
 
     def _symbol_value(self, sym) -> int | None:
@@ -2097,6 +2100,15 @@ class MainWindow(Adw.ApplicationWindow):
             self._goto_c_definition(ed, line_no, col, line_text)
             return
         inc = include_at(line_text, ed.path.parent) if ed.path else None
+        if inc is not None and not inc.exists() and getattr(ed, "ca65", False):
+            # ca65 looks in the project's source folders, then cc65's own asminc folder
+            for d in self.c_include_dirs():
+                for cand in (d / inc.name, d.parent / "asminc" / inc.name):
+                    if cand.is_file():
+                        inc = cand.resolve()
+                        break
+                if inc.exists():
+                    break
         _s, _e, word = word_at(line_text, col)
         if inc is not None and (not word or line_text.find(word) > line_text.find(" ")):
             if inc.exists():

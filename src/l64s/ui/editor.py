@@ -88,9 +88,11 @@ class SourceEditor(EditorPage):
 
     __gsignals__ = {"breakpoints-changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
 
-    def __init__(self, path: Path | None, settings):
+    def __init__(self, path: Path | None, settings, ca65: bool = False):
         super().__init__(path)
         self.settings = settings
+        # an assembler file of a C project: ca65's syntax, not CBM prg Studio's
+        self.ca65 = ca65 and bool(path) and path.suffix.lower() in (".s", ".asm", ".inc", ".a")
         if HAVE_SOURCEVIEW:
             self.buffer = GtkSource.Buffer()
             self.view = GtkSource.View(buffer=self.buffer, show_line_numbers=True, highlight_current_line=True,
@@ -100,7 +102,7 @@ class SourceEditor(EditorPage):
                 lm.set_search_path([str(DATA_DIR)] + list(lm.get_search_path()))
             sfx = path.suffix.lower() if path else ""
             lang = lm.get_language("cbmbasic" if sfx in (".bas", ".pbas") else "c" if sfx in (".c", ".h")
-                                   else "cbmasm")
+                                   else "ca65" if self.ca65 else "cbmasm")
             if lang:
                 self.buffer.set_language(lang)
             self._setup_marks()
@@ -472,7 +474,7 @@ class SourceEditor(EditorPage):
         menu.append_submenu("Convert Number", sub)
         if not self.is_c:          # the analyser and Kick tables are for assembler and BASIC
             menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
-        if not self.is_basic and not self.is_c:
+        if not self.is_basic and not self.is_c and not self.ca65:
             kick = Gio.Menu()
             kick.append("Create Kick Hash Table…", "editor.kick-hash")
             kick.append("Create Kick List…", "editor.kick-list")

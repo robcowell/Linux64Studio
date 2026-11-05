@@ -9,6 +9,9 @@ written and doesn't compile. Both dialects are read:
   `.pseudocommand name`, `.namespace name`. Everything is case-sensitive; `!name:` labels are
   skipped (there are many of each).
 
+* ca65, cc65's assembler (.s files in C projects): `name:` labels, `@cheap` locals (belonging to
+  the label before them), `NAME = value` / `:=` / `.set`, `.define`, `.macro`, `.proc` (a label
+  too), `.scope`/`.struct`/`.union`/`.enum` (and an enum's members). Names are case-sensitive.
 * C (.c and .h, cc65 projects), read by cvars: functions (a definition before a prototype),
   global variables, macros, typedefs, struct/union/enum tags and enum constants, and each
   function's parameters and locals (found first from inside that function). C names are
@@ -46,6 +49,22 @@ _KICK_LABEL = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*):")
 _KICK_CONST = re.compile(r"^\s*\.(const|var|label)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=")
 _KICK_MACRO = re.compile(r"^\s*\.(macro|function|pseudocommand)\s+@?([A-Za-z_][A-Za-z0-9_]*)")
 _KICK_NAMESPACE = re.compile(r"^\s*\.(namespace|filenamespace)\s+([A-Za-z_][A-Za-z0-9_]*)")
+CA65_DIRECTIVES = sorted("." + d for d in (
+    "a16 a8 addr align asciiz assert autoimport bankbytes bss byt byte case charmap code condes constructor "
+    "cpu data dbyt debuginfo define delmac delmacro destructor dword else elseif end endenum endif endmac "
+    "endmacro endproc endrep endrepeat endscope endstruct endunion enum error exitmac exitmacro export "
+    "exportzp faraddr fatal feature fileopt fopt forceimport global globalzp hibytes i16 i8 if ifblank "
+    "ifconst ifdef ifnblank ifndef ifnref ifp02 ifp816 ifpc02 ifref import importzp incbin include "
+    "interruptor linecont list listbytes literal lobytes local localchar macpack mac macro org out p02 "
+    "p816 pagelen pagelength pc02 popcpu popseg proc pushcpu pushseg referto reloc repeat res rodata "
+    "scope segment set setcpu smart struct tag undef undefine union warning word zeropage "
+    "addrsize bank bankbyte blank concat const def defined definedmacro hibyte hiword ident ismnemonic "
+    "left lobyte loword match max mid min ref referenced right sizeof sprintf strat string strlen tcount "
+    "time version xmatch").split())
+_CA65_LABEL = re.compile(r"^\s*(@?[A-Za-z_]\w*):(?![:=+\-<>])")      # (not "bne :-")
+_CA65_CONST = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::?=|\.set\b)")
+_CA65_NAMED = re.compile(r"^\s*(?:[A-Za-z_]\w*\s*:\s*)?\.(define|macro|mac|proc|scope|struct|union|enum)\s+"
+                         r"([A-Za-z_]\w*)", re.I)
 _C_INCLUDE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]')
 C_EXTS = (".c", ".h")
 C_KEYWORDS = sorted({"auto", "break", "case", "char", "const", "continue", "default", "do", "else", "enum",
@@ -60,7 +79,8 @@ C_KINDS = {"c-function": "function", "c-prototype": "function declaration", "c-v
            "c-local": "local variable"}
 _C_DEFINITION_ORDER = ["c-local", "c-param", "c-function", "c-variable", "c-typedef", "c-struct", "c-union",
                        "c-enum", "c-enumconst", "c-macro", "c-prototype", "c-extern"]
-_INCLUDE = re.compile(r"^\s*(?:[A-Za-z_][\w.]*:?\s+)?(incasm|incbin|#import|#importif\s+\S+|\.import\s+\w+)"
+_INCLUDE = re.compile(r"^\s*(?:[A-Za-z_][\w.]*:?\s+)?(incasm|incbin|\.include|\.incbin|#import|#importif\s+\S+|"
+                      r"\.import\s+\w+)"
                       r"\s+\"?([^\",;]+?)\"?\s*(?:[,;]|//|$)", re.I)
 
 
@@ -135,6 +155,53 @@ def scan(text: str, file: str = "", kickass: bool = False) -> list[tuple[Symbol,
             else:
                 scope = low
                 out.append((Symbol(name, "label", file, n, 0, shown), ""))
+    return out
+
+
+CA65_EXTS = (".s", ".asm", ".inc", ".a")
+
+
+def scan_ca65(text: str, file: str = "") -> list[tuple[Symbol, str]]:
+    """The definitions in a ca65 file, each with its scope (for @cheap locals: the label before)."""
+    out: list[tuple[Symbol, str]] = []
+    scope = ""
+    in_enum = False
+    for n, raw in enumerate(text.splitlines(), start=1):
+        line = _strip_comment(raw)
+        if not line.strip():
+            continue
+        shown = raw.strip()
+        low = line.strip().lower()
+        if in_enum:
+            if low.startswith(".endenum"):
+                in_enum = False
+                continue
+            m = re.match(r"\s*([A-Za-z_]\w*)", line)
+            if m:
+                out.append((Symbol(m.group(1), "const", file, n, m.start(1), shown), ""))
+            continue
+        m = _CA65_NAMED.match(line)
+        if m:
+            kind = {"define": "const", "macro": "macro", "mac": "macro", "proc": "label"}.get(m.group(1).lower(),
+                                                                                          "namespace")
+            out.append((Symbol(m.group(2), kind, file, n, m.start(2), shown), ""))
+            if kind == "label":
+                scope = m.group(2).lower()
+            in_enum = m.group(1).lower() == "enum"
+            continue
+        m = _CA65_LABEL.match(line)
+        if m and m.group(1).lower() not in OPCODES:
+            name = m.group(1)
+            if name.startswith("@"):
+                out.append((Symbol(name, "local", file, n, m.start(1), shown), scope))
+            else:
+                scope = name.lower()
+                out.append((Symbol(name, "label", file, n, m.start(1), shown), ""))
+            continue
+        m = _CA65_CONST.match(line)
+        if m and m.group(1).lower() not in OPCODES:
+            kind = "var" if ".set" in line[m.end(1):m.end()].lower() else "const"
+            out.append((Symbol(m.group(1), kind, file, n, m.start(1), shown), ""))
     return out
 
 
@@ -219,11 +286,13 @@ class SymbolIndex:
     def __init__(self):
         self._files: dict[str, tuple[object, bool, list[tuple[Symbol, str]]]] = {}   # file -> (stamp, kick, syms)
         self._c_funcs: dict[str, list[tuple[str, int, int]]] = {}   # C file -> its functions' line ranges
+        self._ca65: set[str] = set()                                 # the files read as ca65
         self._by_name: dict[str, list[Symbol]] = {}       # lower-case name -> its definitions (not locals)
 
-    def update(self, files: list[Path], overrides: dict[str, str] | None = None, kickass: bool | None = None):
+    def update(self, files: list[Path], overrides: dict[str, str] | None = None, kickass: bool | None = None,
+               ca65: bool = False):
         """Scan `files` (paths as strings in `overrides` give their unsaved text). `kickass` None
-        means decide per file from its contents."""
+        means decide per file from its contents. `ca65`: a C project, whose assembler is ca65."""
         overrides = {str(Path(k).resolve()): v for k, v in (overrides or {}).items()}
         keep = set()
         for p in files:
@@ -239,7 +308,7 @@ class SymbolIndex:
                     continue
                 stamp = (st.st_mtime_ns, st.st_size)
                 if key in self._files and self._files[key][0] == stamp and \
-                        (kickass is None or self._files[key][1] == kickass):
+                        (kickass is None or self._files[key][1] == kickass or (ca65 and key in self._ca65)):
                     continue
                 try:
                     data = Path(key).read_bytes()
@@ -250,13 +319,18 @@ class SymbolIndex:
                 except UnicodeDecodeError:
                     text = data.decode("cp1252")
             if key in self._files and self._files[key][0] == stamp and \
-                    (kickass is None or self._files[key][1] == kickass):
+                    (kickass is None or self._files[key][1] == kickass or (ca65 and key in self._ca65)):
                 continue
             if is_c(key):
                 syms, funcs = scan_c(text, key)
                 self._files[key] = (stamp, False, syms)
                 self._c_funcs[key] = funcs
                 continue
+            if ca65 and Path(key).suffix.lower() in CA65_EXTS:
+                self._files[key] = (stamp, True, scan_ca65(text, key))     # (case-sensitive, as Kick's)
+                self._ca65.add(key)
+                continue
+            self._ca65.discard(key)
             kick = looks_like_kick(text) if kickass is None else kickass
             self._files[key] = (stamp, kick, scan(text, key, kick))
         for k in list(self._files):
@@ -364,7 +438,10 @@ class SymbolIndex:
                 add(0 if s.file == here else 1, s.name, f"{s.kind} · {Path(s.file).name}:{s.line}", s)
             for m in _MNEMONICS:
                 add(2, m, "instruction")
-            if kick:
+            if here in self._ca65:
+                for d in CA65_DIRECTIVES:
+                    add(3, d, "ca65 control command")
+            elif kick:
                 for d in KICK_DIRECTIVES:
                     add(3, d.lstrip(".#") if prefix[:1] not in ".#" else d, "directive")
             else:
