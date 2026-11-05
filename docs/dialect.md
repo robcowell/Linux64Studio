@@ -343,8 +343,14 @@ deleted is left out, with a note saying so.
 A menu bar laid out like CBM prg Studio's sits at the left of the title bar: **File**, **Edit**,
 **Project**, **Build**, **Debugger**, **Tools**, **Git**, **Window** and **Help**. Each item shows its
 keyboard shortcut. The tools are under **Tools**, with the BASIC ones in **Tools → BASIC** and the
-music ones in **Tools → Music**. **Preferences** is at the bottom of Tools (Ctrl+,). The Open, New,
-Save, Build, Run and Debug buttons stay in the title bar as a toolbar.
+music ones in **Tools → Music**. **Preferences** is at the bottom of Tools (Ctrl+,).
+
+Under the menu bar is a toolbar row, as in CBM prg Studio's: New, Open Project (its arrow lists
+recent projects), Save and Save All; Undo, Redo, Cut, Copy, Paste and Go to Line; Build Project,
+Build Current File, Build and Run, and Debug; the debugger's Toggle Breakpoint, Continue, Step Over,
+Step Into and Step Out; Memory Viewer, Memory Manager, Disassembler, Screen Code Builder and SID
+Designer; and at the right, Preferences and Keyboard Shortcuts. Hover over a button for its name
+and shortcut.
 
 ## Status bar
 

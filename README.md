@@ -14,7 +14,7 @@ can be followed on Linux.
   tabs, the same tab in front and the cursor where it was (Preferences → Editor to turn it off;
   a file named on the command line opens instead) ([session](docs/dialect.md#continue-where-you-left-off)).
   A **menu bar** laid out like CBM prg Studio's (File, Edit, Project, Build, Debugger, Tools, Git,
-  Window, Help) ([menus](docs/dialect.md#menus)), and CBM's **status bar** under source files
+  Window, Help) and toolbar row ([menus](docs/dialect.md#menus)), and CBM's **status bar** under source files
   (CAPS, INS/OVR, word wrap, line and column, auto line numbering, Git) ([status bar](docs/dialect.md#status-bar)).
   The sidebar shows the project's files as an expandable **folder tree**, as in VS Code
   ([project files](docs/dialect.md#project-files)). Each project reopens with the **tabs and folders

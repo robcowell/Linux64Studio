@@ -14,6 +14,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
 from .menus import build_menubar  # noqa: E402
+from .toolbar import build_toolbar  # noqa: E402
 from .statusbar import StatusBar  # noqa: E402
 from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
@@ -92,34 +93,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.menubar = Gtk.PopoverMenuBar.new_from_model(build_menubar(self.recent_menu, self.user_tools_menu))
         hb.pack_start(self.menubar)
 
-        open_btn = Adw.SplitButton(label="Open", tooltip_text="Open a project (Ctrl+O)",
-                                   action_name="win.open-project")
-        open_btn.set_menu_model(self.recent_menu)
-        hb.pack_start(open_btn)
-        new_menu = Gio.Menu()
-        new_menu.append("New Project…", "win.new-project")
-        new_menu.append("New Source File…", "win.new-file::asm")
-        new_menu.append("New BASIC File…", "win.new-file::bas")
-        new_menu.append("New pBASIC File (no line numbers)…", "win.new-file::pbas")
-        new_menu.append("New Sprite Set…", "win.new-file::spt")
-        new_menu.append("New Character Set…", "win.new-file::cst")
-        new_menu.append("New Screen Design…", "win.new-file::sdd")
-        new_menu.append("New Disk Image…", "win.new-file::d64")
-        hb.pack_start(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu, tooltip_text="New"))
-        save_btn = Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Save (Ctrl+S)", action_name="win.save")
-        hb.pack_start(save_btn)
-
         self.title_widget = Adw.WindowTitle(title="Linux64Studio", subtitle="")
         hb.set_title_widget(self.title_widget)
 
-        hb.pack_end(Gtk.Button(icon_name="system-run-symbolic", tooltip_text="Debug project (Shift+F5)",
-                               action_name="win.debug-project"))
-        run = Gtk.Button(icon_name="media-playback-start-symbolic", tooltip_text="Build project and run (Ctrl+F5)",
-                         action_name="win.run-project")
-        run.add_css_class("suggested-action")
-        hb.pack_end(run)
-        hb.pack_end(Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Build project (F7)",
-                               action_name="win.build-project"))
+        # the toolbar row under it, as in CBM prg Studio
+        self.toolbar = build_toolbar(self.recent_menu)
+        tv.add_top_bar(self.toolbar)
 
         self.toasts = Adw.ToastOverlay()
         tv.set_content(self.toasts)

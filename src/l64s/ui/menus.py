@@ -51,12 +51,17 @@ def _edit_menu() -> Gio.Menu:
     return _menu(*sections)
 
 
+def new_menu() -> Gio.Menu:
+    """File → New, and the toolbar's New button."""
+    return _menu([("_Project…", "win.new-project")],
+                 [("_Source File…", "win.new-file::asm"), ("_BASIC File…", "win.new-file::bas"),
+                  ("p_BASIC File (no line numbers)…", "win.new-file::pbas")],
+                 [("Sp_rite Set…", "win.new-file::spt"), ("_Character Set…", "win.new-file::cst"),
+                  ("Screen _Design…", "win.new-file::sdd"), ("Dis_k Image…", "win.new-file::d64")])
+
+
 def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel) -> Gio.Menu:
-    new = _menu([("_Project…", "win.new-project")],
-                [("_Source File…", "win.new-file::asm"), ("_BASIC File…", "win.new-file::bas"),
-                 ("p_BASIC File (no line numbers)…", "win.new-file::pbas")],
-                [("Sp_rite Set…", "win.new-file::spt"), ("_Character Set…", "win.new-file::cst"),
-                 ("Screen _Design…", "win.new-file::sdd"), ("Dis_k Image…", "win.new-file::d64")])
+    new = new_menu()
     file = _menu([("_New", new), ("_Open Project…", "win.open-project"), ("Open _File…", "win.open-file"),
                   ("Open _Recent", recent)],
                  [("_Save", "win.save"), ("Save A_ll", "win.save-all")],
