@@ -143,7 +143,8 @@ can be followed on Linux.
   address you choose, with ready-to-paste player code. The **SID Designer** (CBM prg Studio's
   SID tool) sets up the three voices and the filter, plays them live through VICE's reSID, with
   a two-octave keyboard or a MIDI keyboard, and generates BASIC POKEs or assembler. See [docs/music.md](docs/music.md).
-* **Run and debug in VICE**: breakpoints, step into/over/out, disassembly with labels,
+* **Run and debug in VICE**: breakpoints (kept with the project, switched on and off in a
+  **Breakpoints** list: [breakpoints](docs/debugger.md#the-breakpoints-list)), step into/over/out, disassembly with labels,
   and the current source line highlighted. You can **edit registers and flags** and **edit
   memory** in a hex editor (type over bytes, go to an address or label, write byte lists or
   text); changes since the last stop are highlighted. Uses VICE's binary monitor. See

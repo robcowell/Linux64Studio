@@ -11,6 +11,25 @@ and memory. The editor highlights the source line, or the line that called the m
 | F10 / F11 / Shift+F11 | Step over / into / out |
 | F9 | Toggle breakpoint |
 
+## The Breakpoints list
+
+The **Breakpoints** tab of the bottom panel lists every breakpoint in the project, as CBM prg
+Studio's Breakpoints window does: in open files and closed ones, each with its file and line, the
+line's text and, after a build, the address it stops at. A breakpoint on a comment or label line
+stops at the first instruction after it.
+
+* The tick switches a breakpoint on or off. One that's off stays where it is (a hollow circle in the
+  margin, its line greyed) but doesn't stop the program, so it's easy to bring back. **All On** and
+  **All Off** switch every one.
+* The × removes one; **Remove All** removes every breakpoint in the project.
+* Double-click a breakpoint to go to its line.
+
+Breakpoints belong to the project: they stay when a file is closed, come back when the project is
+opened again, follow a file that's renamed or moved, and go when it's moved to the Trash. Their
+lines move with the code as you add or remove lines above them. A debug session uses every one
+that's on, whether its file is open or not, and changes take effect at once while it runs.
+Breakpoints written in the source (below) come from the build, so they aren't in the list.
+
 ## Breakpoints and watches in the source
 
 As in CBM prg Studio, the source can set up the debugger:

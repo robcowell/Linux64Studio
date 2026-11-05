@@ -115,8 +115,10 @@ class SourceEditor(EditorPage):
         self.pc_tag = self.buffer.create_tag("pc-line", paragraph_background="rgba(255,200,0,0.30)")
         self.error_tag = self.buffer.create_tag("error-line", underline=Pango.Underline.ERROR)
         self.bp_tag = self.buffer.create_tag("bp-line", paragraph_background="rgba(220,40,40,0.18)")
+        self.bp_off_tag = self.buffer.create_tag("bp-off-line", paragraph_background="rgba(128,128,128,0.12)")
         self.pc_tag.set_priority(self.buffer.get_tag_table().get_size() - 1)  # PC highlight wins over breakpoints
         self._breakpoints: list[Gtk.TextMark] = []
+        self._bp_off: set[Gtk.TextMark] = set()        # breakpoints switched off (kept, but not stopping)
 
         self.find_bar = None
         if HAVE_SOURCEVIEW:                 # Find and Replace (Ctrl+F, Ctrl+H) across the top
@@ -180,6 +182,9 @@ class SourceEditor(EditorPage):
         bp = GtkSource.MarkAttributes()
         bp.set_icon_name("media-record-symbolic")
         self.view.set_mark_attributes("breakpoint", bp, 10)
+        off = GtkSource.MarkAttributes()
+        off.set_icon_name("radio-symbolic")              # a hollow circle: there, but switched off
+        self.view.set_mark_attributes("breakpoint-off", off, 9)
         err = GtkSource.MarkAttributes()
         err.set_icon_name("dialog-error-symbolic")
         self.view.set_mark_attributes("error", err, 5)
@@ -311,35 +316,66 @@ class SourceEditor(EditorPage):
                 self.goto_line(line, select=False)
 
     def breakpoint_lines(self) -> list[int]:
-        lines = sorted({self.buffer.get_iter_at_mark(m).get_line() + 1 for m in self._breakpoints})
-        return lines
+        """The lines with a breakpoint that's on."""
+        return [ln for ln, on in self.breakpoints() if on]
+
+    def breakpoints(self) -> list[tuple[int, bool]]:
+        """(line, on) for each breakpoint, in line order (marks move with the text as lines change)."""
+        seen: dict[int, bool] = {}
+        for m in self._breakpoints:
+            seen.setdefault(self.buffer.get_iter_at_mark(m).get_line() + 1, m not in self._bp_off)
+        return sorted(seen.items())
+
+    def set_breakpoints(self, lines: list[tuple[int, bool]]):
+        """Show these breakpoints (the project's, as the file opens). Doesn't signal a change."""
+        for m in list(self._breakpoints):
+            self._remove_bp(m)
+        for line, on in lines:
+            self._add_bp(line, on)
+
+    def _mark_at(self, line: int):
+        return next((m for m in self._breakpoints if self.buffer.get_iter_at_mark(m).get_line() + 1 == line), None)
 
     def toggle_breakpoint(self, line: int | None = None):
         line = line or self.current_line()
-        for m in list(self._breakpoints):
-            if self.buffer.get_iter_at_mark(m).get_line() + 1 == line:
-                self._remove_bp(m)
-                self.emit("breakpoints-changed")
-                return
+        m = self._mark_at(line)
+        if m is not None:
+            self._remove_bp(m)
+        elif not self._add_bp(line, True):
+            return
+        self.emit("breakpoints-changed")
+
+    def set_breakpoint_enabled(self, line: int, on: bool):
+        m = self._mark_at(line)
+        if m is not None and (m not in self._bp_off) != on:
+            self._remove_bp(m)
+            self._add_bp(line, on)
+            self.emit("breakpoints-changed")
+
+    def _add_bp(self, line: int, on: bool) -> bool:
         ok, it = self.buffer.get_iter_at_line(line - 1)
         if not ok:
-            return
+            return False
         if HAVE_SOURCEVIEW:
-            m = self.buffer.create_source_mark(None, "breakpoint", it)
+            m = self.buffer.create_source_mark(None, "breakpoint" if on else "breakpoint-off", it)
         else:
             m = self.buffer.create_mark(None, it, True)
         self._breakpoints.append(m)
+        if not on:
+            self._bp_off.add(m)
         end = it.copy()
         end.forward_line()
-        self.buffer.apply_tag(self.bp_tag, it, end)
-        self.emit("breakpoints-changed")
+        self.buffer.apply_tag(self.bp_tag if on else self.bp_off_tag, it, end)
+        return True
 
     def _remove_bp(self, m):
         it = self.buffer.get_iter_at_mark(m)
         end = it.copy()
         end.forward_line()
         self.buffer.remove_tag(self.bp_tag, it, end)
+        self.buffer.remove_tag(self.bp_off_tag, it, end)
         self._breakpoints.remove(m)
+        self._bp_off.discard(m)
         self.buffer.delete_mark(m)
 
     def _on_line_mark_activated(self, _view, it, button, _state, n_presses):

@@ -213,6 +213,17 @@ class MainWindow(Adw.ApplicationWindow):
         self.tasks_page = self.bottom_stack.add_titled_with_icon(self.tasks_panel, "tasks", "Tasks",
                                                                  "object-select-symbolic")
         GLib.timeout_add_seconds(2, self._tick_tasks)
+        from ..breakpoints import Breakpoints
+        from .breakpoints_panel import BreakpointsPanel
+        self.breakpoints = Breakpoints()
+        self.bp_panel = BreakpointsPanel(
+            items=lambda: (self._sync_breakpoints(), self.breakpoints.all())[1], line_text=self._line_text,
+            address=self._breakpoint_address, base=lambda: self.project.directory if self.project else None,
+            set_enabled=self._bp_set_enabled, set_all=self._bp_set_all, remove=self._bp_remove,
+            remove_all=self._bp_remove_all, go_to=lambda bp: self._open_source_line(bp.file, bp.line))
+        self.bottom_stack.add_titled_with_icon(self.bp_panel, "breakpoints", "Breakpoints", "media-record-symbolic")
+        self.bottom_stack.connect("notify::visible-child-name", lambda st, _p: st.get_visible_child_name()
+                                  == "breakpoints" and self.bp_panel.refresh())
         from .find_panel import FindPanel
         self.find_panel = FindPanel(self._find_texts, self._open_match,
                                     lambda: self.project.directory if self.project else None)
@@ -361,6 +372,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._remember_project()
         self._close_all_tabs(force=True)
         self.project = proj
+        from ..breakpoints import Breakpoints
+        state = self._project_state()                # its breakpoints, before any of its files open
+        self.breakpoints = Breakpoints.from_list(state.breakpoints if state else [])
+        self.bp_panel.refresh()
         # the .l64proj once there is one (opening the original loads it anyway), else what was opened
         settings_file = proj.settings_path()
         self.settings.add_recent(str((settings_file if settings_file.exists() else path).resolve()))
@@ -388,6 +403,9 @@ class MainWindow(Adw.ApplicationWindow):
             return
         self._remember_project()
         self._close_all_tabs(force=True)
+        from ..breakpoints import Breakpoints
+        self.breakpoints = Breakpoints()
+        self.bp_panel.refresh()
         self.project = None
         self._populate_files()
         self._update_title()
@@ -461,8 +479,10 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project or self._tree_project != self._project_key():
             return
         tabs = self.capture_session()
+        self._sync_breakpoints()
         save_project_state(self._tree_project,
-                           ProjectState([str(f) for f in self._open_folders()], tabs.files, tabs.selected))
+                           ProjectState([str(f) for f in self._open_folders()], tabs.files, tabs.selected,
+                                        self.breakpoints.to_list()))
 
     def _file_row_setup(self, _f, li):
         box = Gtk.Box(spacing=6)
@@ -585,7 +605,7 @@ class MainWindow(Adw.ApplicationWindow):
                 return self._open_bin(path)
             else:
                 ed = SourceEditor(path, self.settings)
-                ed.connect("breakpoints-changed", self._on_breakpoints_changed)
+                self._watch_breakpoints(ed)
         except Exception as e:  # unreadable/corrupt file
             self.toast(f"Couldn't open {path.name}: {e}")
             return None
@@ -1056,6 +1076,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_done(self, res: BuildResult, run: bool, debug: bool):
         self.last_build = res
+        self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
         self.refresh_tasks()
         self._set_log(res.log)
@@ -1140,13 +1161,13 @@ class MainWindow(Adw.ApplicationWindow):
 
     # ================================================================== debugging
     def _all_breakpoint_addresses(self, session: DebugSession) -> set[int]:
+        """Where every breakpoint that's on stops, in open files and closed ones."""
+        self._sync_breakpoints()
         addrs = set()
-        for ed in self.editors():
-            if isinstance(ed, SourceEditor) and ed.path:
-                for line in ed.breakpoint_lines():
-                    a = session.address_for_line(str(ed.path), line)
-                    if a is not None:
-                        addrs.add(a)
+        for bp in self.breakpoints.enabled():
+            a = session.address_for_line(bp.file, bp.line)
+            if a is not None:
+                addrs.add(a)
         return addrs
 
     def _start_debug(self, res: BuildResult):
@@ -1185,9 +1206,80 @@ class MainWindow(Adw.ApplicationWindow):
             self.toast(str(e))
             self.debug = None
 
-    def _on_breakpoints_changed(self, _ed):
+    def _on_breakpoints_changed(self, ed):
+        if getattr(ed, "path", None):
+            self.breakpoints.set_file(ed.path, ed.breakpoints())
+        self._breakpoints_updated()
+
+    # ------------------------------------------------------------------ the project's breakpoints
+    def _watch_breakpoints(self, ed: SourceEditor):
+        """A source file opening: show the project's breakpoints in it, and follow its changes."""
+        if ed.path:
+            ed.set_breakpoints(self.breakpoints.for_file(ed.path))
+        ed.connect("breakpoints-changed", self._on_breakpoints_changed)
+
+    def _sync_breakpoints(self):
+        """Take the breakpoints' lines from the open editors (their marks move as lines are added)."""
+        for ed in self.editors():
+            if isinstance(ed, SourceEditor) and ed.path:
+                self.breakpoints.set_file(ed.path, ed.breakpoints())
+
+    def _breakpoints_updated(self):
+        """After any change: the Breakpoints list, and VICE if a debug session is running."""
+        self.bp_panel.refresh()
         if self.debug and self.debug.monitor.connected:
             self.debug.cmd(self.debug.set_breakpoints, self._all_breakpoint_addresses(self.debug))
+
+    def _open_editor_for(self, file: str) -> SourceEditor | None:
+        want = Path(file).resolve()
+        return next((e for e in self.editors() if isinstance(e, SourceEditor) and e.path
+                     and Path(e.path).resolve() == want), None)
+
+    def _line_text(self, file: str, line: int) -> str:
+        ed = self._open_editor_for(file)
+        try:
+            lines = ed.get_text().splitlines() if ed else Path(file).read_text(errors="replace").splitlines()
+        except OSError:
+            return ""
+        return lines[line - 1] if 0 < line <= len(lines) else ""
+
+    def _breakpoint_address(self, file: str, line: int) -> int | None:
+        from ..breakpoints import address_for, line_addresses
+        res = self.last_build
+        if res is None or not res.srcmap:
+            return None
+        if getattr(self, "_line_addr_for", None) is not res:
+            self._line_addr_for, self._line_addr = res, line_addresses(res.srcmap)
+        return address_for(self._line_addr, file, line)
+
+    def _bp_set_enabled(self, bp, on: bool):
+        ed = self._open_editor_for(bp.file)
+        if ed is not None:
+            ed.set_breakpoint_enabled(bp.line, on)          # (signals the change)
+        elif self.breakpoints.set_enabled(bp.file, bp.line, on):
+            self._breakpoints_updated()
+
+    def _bp_set_all(self, on: bool):
+        self._sync_breakpoints()
+        self.breakpoints.set_all_enabled(on)
+        for ed in self.editors():
+            if isinstance(ed, SourceEditor) and ed.path:
+                ed.set_breakpoints(self.breakpoints.for_file(ed.path))
+        self._breakpoints_updated()
+
+    def _bp_remove(self, bp):
+        ed = self._open_editor_for(bp.file)
+        if ed is not None:
+            ed.toggle_breakpoint(bp.line)                   # (signals the change)
+        elif self.breakpoints.remove(bp.file, bp.line):
+            self._breakpoints_updated()
+
+    def _bp_remove_all(self):
+        self.breakpoints.clear()
+        for ed in self.editors():
+            if isinstance(ed, SourceEditor):
+                ed.set_breakpoints([])
+        self._breakpoints_updated()
 
     def _toggle_breakpoint(self):
         ed = self.current_editor()
@@ -1665,7 +1757,7 @@ class MainWindow(Adw.ApplicationWindow):
             dest = base.with_name(f"{base.stem}_{n}.bas")
             n += 1
         ed = SourceEditor(dest, self.settings)
-        ed.connect("breakpoints-changed", self._on_breakpoints_changed)
+        self._watch_breakpoints(ed)
         ed.replace_text(text)
         self._add_page(ed)
         self.toast(f"Listed {label}. Save to keep it as {dest.name}")
@@ -2427,6 +2519,8 @@ class MainWindow(Adw.ApplicationWindow):
             self.toast(f"Couldn't rename {old.name}: {e.strerror}")
             return
         new_r = new.resolve()
+        self._sync_breakpoints()
+        self.breakpoints.rename(old_r, new_r)
         if fileops.rename(self.project, old_r, new_r):
             self.project.save()
         for ed in affected:
@@ -2513,6 +2607,8 @@ class MainWindow(Adw.ApplicationWindow):
             if page is not None:
                 self.tab_view.close_page(page)
         self._force_close = False
+        self.breakpoints.forget(path)
+        self._breakpoints_updated()
         if forget(self.project, path):
             self.project.save()
         self._populate_files()
@@ -2882,7 +2978,7 @@ class MainWindow(Adw.ApplicationWindow):
             dest = ed.path.with_name(f"{ed.path.stem}_{n}.pbas")
             n += 1
         new = SourceEditor(dest, self.settings)
-        new.connect("breakpoints-changed", self._on_breakpoints_changed)
+        self._watch_breakpoints(new)
         new.replace_text(text)
         self._add_page(new)
         self.toast(f"Save to keep it as {dest.name}" + (f". {warnings[0].message}" if warnings else ""))

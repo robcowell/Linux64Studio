@@ -84,6 +84,7 @@ class ProjectState:
     folders: list[str] | None = None                    # None = never recorded (show the default)
     files: list[OpenFile] = field(default_factory=list)
     selected: int = -1
+    breakpoints: list[dict] = field(default_factory=list)   # breakpoints.Breakpoints.to_list()
 
     def restorable(self) -> tuple[list[OpenFile], int, list[str]]:
         """The files that still exist, the one in front among them, and the names of those gone."""
@@ -112,8 +113,9 @@ def load_project_state(project: str) -> ProjectState | None:
         folders = d.get("folders")
         files = [OpenFile(str(f["path"]), int(f.get("line", 1)), int(f.get("column", 0)))
                  for f in d.get("files", []) if isinstance(f, dict) and f.get("path")]
+        bps = d.get("breakpoints", [])
         return ProjectState([str(f) for f in folders] if isinstance(folders, list) else None,
-                            files, int(d.get("selected", -1)))
+                            files, int(d.get("selected", -1)), bps if isinstance(bps, list) else [])
     except (TypeError, ValueError, KeyError, AttributeError):
         return None
 
