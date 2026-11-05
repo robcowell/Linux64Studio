@@ -74,6 +74,20 @@ under the label they follow); labels are any case. Kick Assembler: `name:`, `.co
 case-sensitive. Every label in the 12 Vol 1 chapters, and every label in Kick Assembler's debug
 dump of a Kick Assembler game, is found at the line that defines it (`tests/test_symindex.py`).
 
+### Find and Replace
+
+**Edit → Find…** (Ctrl+F) opens a bar across the top of the file, starting with the selected text
+or the name at the cursor; every match is highlighted and the count shows which one you're on
+("2 of 5"). Enter or F3 goes to the next match and Shift+Enter or Shift+F3 to the one before,
+wrapping round at the ends. Escape closes the bar. **Aa**, **W** and **.\*** work as in Find in
+Files below.
+
+**Edit → Replace…** (Ctrl+H, or the bar's replace button) adds a second line: **Replace** changes
+the selected match and goes to the next, **Replace All** changes every match in the file. One
+Ctrl+Z undoes a Replace All. With **.\*** on, `\1` in the replacement is the first group in
+brackets (`flowScore(\w)` → `FS_\1` turns `flowScoreX` into `FS_X`); otherwise the replacement goes
+in exactly as typed, backslashes and all.
+
 ### Find in Files
 
 **Edit → Find in Files…** (Ctrl+Shift+F, or the magnifier on the toolbar) searches the project's

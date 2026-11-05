@@ -45,7 +45,8 @@ def _edit_menu() -> Gio.Menu:
             item.set_attribute_value("accel", GLib.Variant.new_string(accel))
         cur.append((label, item))
     sections.append(cur)
-    sections.append([("_Find in Files…", "win.find-in-files")])
+    sections.append([("_Find…", "win.find"), ("R_eplace…", "win.replace"), ("Find _Next", "win.find-next"),
+                     ("Find Pre_vious", "win.find-previous"), ("Find in F_iles…", "win.find-in-files")])
     sections.append([("_Go to Line…", "win.goto-line"), ("Go to _Definition", "win.goto-definition"),
                      ("Go _Back", "win.go-back")])
     sections.append([("Add _TODO…", "win.add-todo")])

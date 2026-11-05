@@ -118,6 +118,11 @@ class SourceEditor(EditorPage):
         self.pc_tag.set_priority(self.buffer.get_tag_table().get_size() - 1)  # PC highlight wins over breakpoints
         self._breakpoints: list[Gtk.TextMark] = []
 
+        self.find_bar = None
+        if HAVE_SOURCEVIEW:                 # Find and Replace (Ctrl+F, Ctrl+H) across the top
+            from .find_bar import FindBar
+            self.find_bar = FindBar(self.view)
+            self.append(self.find_bar)
         scroller = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
         scroller.set_child(self.view)
         self.append(scroller)

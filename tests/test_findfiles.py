@@ -1,6 +1,6 @@
 import pytest
 
-from l64s.findfiles import Match, Options, excerpt, pattern, search
+from l64s.findfiles import Match, Options, editor_search, excerpt, pattern, search
 
 TEXTS = {
     "main.asm": "start   lda #0\n        sta SCREEN\n@loop   jsr Start_Game\n        bne @loop\n",
@@ -57,3 +57,13 @@ def test_excerpt():
     long = "x" * 100 + "HIT" + " end"
     before, hit, after = excerpt(Match("f", 1, 100, 3, long), context=10)
     assert before == "…" + "x" * 10 and hit == "HIT" and after == " end"
+
+
+def test_editor_search_matches_find_in_files():
+    text, case = editor_search(Options("@loop", whole_word=True))
+    assert text == r"(?<![\w@])@loop(?![\w@])" and not case
+    assert editor_search(Options("$0400", match_case=True)) == (r"\$0400", True)
+    assert editor_search(Options("")) == ("", False)
+    with pytest.raises(ValueError):
+        editor_search(Options("[x", regex=True))
+

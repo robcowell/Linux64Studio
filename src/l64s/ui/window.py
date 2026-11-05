@@ -242,6 +242,10 @@ class MainWindow(Adw.ApplicationWindow):
         add("close-tab", lambda *_: self._close_current_tab())
         add("edit", lambda _a, v: self._edit(v.get_string()), "s")
         add("find-in-files", lambda *_: self.find_in_files())
+        add("find", lambda *_: self.find_in_file(replace=False))
+        add("replace", lambda *_: self.find_in_file(replace=True))
+        add("find-next", lambda *_: self._find_step(True))
+        add("find-previous", lambda *_: self._find_step(False))
         info = Gio.SimpleAction.new_stateful("project-info", None,
                                              GLib.Variant.new_boolean(self.settings.show_project_info))
         info.connect("change-state", self._show_project_info)
@@ -1743,6 +1747,26 @@ class MainWindow(Adw.ApplicationWindow):
         text = ed.selected_or_word() if isinstance(ed, SourceEditor) else ""
         self.bottom_stack.set_visible_child_name("find")
         self.find_panel.start(text)
+
+    def find_in_file(self, replace: bool):
+        """Ctrl+F / Ctrl+H: the find bar in the source file in front, with the selection or word."""
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor):
+            return
+        if ed.find_bar is None:
+            self.toast("Find needs GtkSourceView: sudo apt install gir1.2-gtksource-5")
+            return
+        ed.find_bar.open(ed.selected_or_word(), replace)
+
+    def _find_step(self, forward: bool):
+        ed = self.current_editor()
+        if isinstance(ed, SourceEditor) and ed.find_bar is not None:
+            if not ed.find_bar.settings.get_search_text():
+                ed.find_bar.open(ed.selected_or_word())
+            elif forward:
+                ed.find_bar.next()
+            else:
+                ed.find_bar.previous()
 
     def _find_texts(self, scope: str) -> dict[str, str]:
         """{file: text} to search: open files as they are in the editor (unsaved changes too)."""

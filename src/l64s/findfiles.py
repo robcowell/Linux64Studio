@@ -72,3 +72,13 @@ def excerpt(m: Match, context: int = 40) -> tuple[str, str, str]:
     tidy = lambda t: t.replace("\t", "    ")  # noqa: E731
     before = ("…" if start > indent else "") + tidy(line[start:m.col])
     return before, tidy(line[m.col:m.col + m.length]), tidy(line[m.col + m.length:])
+
+
+# ------------------------------------------------------------------------ Find and Replace in a file
+def editor_search(opts: Options) -> tuple[str, bool]:
+    """What the editor's own search (GtkSourceView, regular expressions on) is given for ``opts``:
+    the same pattern Find in Files uses, so whole words mean the same; and whether case matters.
+    Raises ValueError for a bad regular expression."""
+    rx = pattern(opts)
+    return (rx.pattern if rx else ""), opts.match_case
+
