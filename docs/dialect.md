@@ -346,6 +346,20 @@ keyboard shortcut. The tools are under **Tools**, with the BASIC ones in **Tools
 music ones in **Tools → Music**. **Preferences** is at the bottom of Tools (Ctrl+,). The Open, New,
 Save, Build, Run and Debug buttons stay in the title bar as a toolbar.
 
+## Status bar
+
+While a source file (assembler or BASIC) is in front, a status bar along the bottom of the window
+shows, as CBM prg Studio's does:
+
+* **CAPS**, lit while Caps Lock is on.
+* **INS** or **OVR**: typing inserts, or overwrites (the Insert key switches; so does a click).
+* **Word Wrap: On/Off**: click to wrap long lines in every source file. It's kept in the preferences.
+* **Line** and **Col**: the cursor's line, and its column counted from 0 as in CBM prg Studio.
+* **Auto Line Num: On/Off** (BASIC files): whether Return at the end of a numbered line starts the
+  next one. Click to switch; it's the same setting as Preferences → BASIC.
+* **Target: C64**, the project's **Git** branch (or *Git Repo: No*), whether the native assembler or
+  Kick Assembler builds the project, and that debugging runs in VICE.
+
 ## Project files
 
 The sidebar shows the project's files as a folder tree, as in VS Code: click a folder to open or

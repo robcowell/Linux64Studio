@@ -110,6 +110,7 @@ class SourceEditor(EditorPage):
         self.view.set_left_margin(6)
         self.view.set_top_margin(4)
         self._apply_font(settings.font)
+        self.set_word_wrap(getattr(settings, "word_wrap", False))
 
         self.pc_tag = self.buffer.create_tag("pc-line", paragraph_background="rgba(255,200,0,0.30)")
         self.error_tag = self.buffer.create_tag("error-line", underline=Pango.Underline.ERROR)
@@ -150,6 +151,9 @@ class SourceEditor(EditorPage):
         self.view.add_controller(fold_keys)
 
     # ---------------------------------------------------------------- appearance
+    def set_word_wrap(self, on: bool):
+        self.view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR if on else Gtk.WrapMode.NONE)
+
     def _apply_font(self, font: str):
         desc = Pango.FontDescription.from_string(font or "Monospace 11")
         css = Gtk.CssProvider()

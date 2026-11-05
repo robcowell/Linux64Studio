@@ -14,6 +14,8 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
 from .menus import build_menubar  # noqa: E402
+from .statusbar import StatusBar  # noqa: E402
+from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
@@ -121,6 +123,16 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.toasts = Adw.ToastOverlay()
         tv.set_content(self.toasts)
+        self.statusbar = StatusBar(self._status_toggle)
+        self.statusbar.set_visible(False)
+        tv.add_bottom_bar(self.statusbar)
+        self._git_branch: str | None = None
+        self._status_editor = None
+        self._status_handlers: list[tuple[GObject.Object, int]] = []
+        seat = Gdk.Display.get_default().get_default_seat() if Gdk.Display.get_default() else None
+        self._keyboard = seat.get_keyboard() if seat else None
+        if self._keyboard is not None:
+            self._keyboard.connect("notify::caps-lock-state", lambda *_: self._refresh_status())
         if not HAVE_SOURCEVIEW:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             banner = Adw.Banner(title="Install gir1.2-gtksource-5 for syntax highlighting, line numbers and breakpoints",
@@ -363,6 +375,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _populate_files(self):
         """The project's files as a folder tree, keeping open the folders that were open."""
         self._git_states = self._git_status_map()
+        self._git_branch = self._git_branch_name()
         expanded = self._open_folders()
         if not self.project:
             self._tree_project = None
@@ -477,6 +490,7 @@ class MainWindow(Adw.ApplicationWindow):
         has_tabs = self.tab_view.get_n_pages() > 0
         self.stack.set_visible_child_name("tabs" if has_tabs else "empty")
         self.tab_bar.set_visible(has_tabs)
+        self._refresh_status()          # the project, its Git branch and toolchain may have changed
 
     # ================================================================== files and tabs
     def choose_file(self):
@@ -1154,7 +1168,57 @@ class MainWindow(Adw.ApplicationWindow):
         ed = self.current_editor()
         if isinstance(ed, SourceEditor):
             self._last_source = ed
+        self._watch_status(ed if isinstance(ed, SourceEditor) else None)
         self._update_title()
+
+    # ------------------------------------------------------------------ status bar
+    def _watch_status(self, ed):
+        """Follow the cursor and insert/overwrite mode of the source file in front."""
+        if ed is self._status_editor:
+            return
+        for obj, hid in self._status_handlers:
+            obj.disconnect(hid)
+        self._status_handlers = []
+        self._status_editor = ed
+        if ed is not None:
+            refresh = lambda *_: self._refresh_status()    # noqa: E731
+            self._status_handlers = [(ed.buffer, ed.buffer.connect("notify::cursor-position", refresh)),
+                                     (ed.view, ed.view.connect("notify::overwrite", refresh))]
+        self._refresh_status()
+
+    def _refresh_status(self):
+        ed = self._status_editor
+        if ed is None or ed not in self.editors():
+            self.statusbar.set_visible(False)
+            return
+        it = ed.buffer.get_iter_at_mark(ed.buffer.get_insert())
+        p = self.project
+        state = EditorState(
+            caps_lock=bool(self._keyboard and self._keyboard.get_caps_lock_state()),
+            overwrite=ed.view.get_overwrite(), word_wrap=self.settings.word_wrap,
+            line=it.get_line() + 1, column=it.get_line_offset(),
+            basic=ed.is_basic and not ed.is_pbasic, auto_line_numbers=self.settings.basic_auto_number,
+            kickass=bool(p and p.toolchain == TOOLCHAIN_KICKASS), git_branch=self._git_branch,
+            has_project=p is not None)
+        self.statusbar.show_fields(status_fields(state))
+        self.statusbar.set_visible(True)
+
+    def _status_toggle(self, key: str):
+        ed = self._status_editor
+        if key == "overwrite" and ed is not None:
+            ed.view.set_overwrite(not ed.view.get_overwrite())
+        elif key == "wrap":
+            self.settings.word_wrap = not self.settings.word_wrap
+            for e in self.editors():
+                if isinstance(e, SourceEditor):
+                    e.set_word_wrap(self.settings.word_wrap)
+            self.settings.save()
+        elif key == "autonum":
+            self.settings.basic_auto_number = not self.settings.basic_auto_number
+            self.settings.save()
+        if ed is not None:
+            ed.view.grab_focus()
+        self._refresh_status()
 
     def open_screen_code_builder(self):
         for ed in self.editors():
@@ -1809,6 +1873,14 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast("git isn't installed: sudo apt install git")
             return None
         return Repo(self.project.directory, self.settings.git_author, self.settings.git_email)
+
+    def _git_branch_name(self) -> str | None:
+        """The project's Git branch, or None if it isn't in a repository (for the status bar)."""
+        r = self._repo(quiet=True)
+        try:
+            return r.branch() if r is not None and r.is_repo() else None
+        except Exception:
+            return None
 
     def _git_status_map(self) -> dict:
         r = self._repo(quiet=True)

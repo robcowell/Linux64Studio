@@ -28,6 +28,7 @@ class Settings:
     font: str = "Monospace 11"
     tab_width: int = 8
     insert_spaces: bool = True
+    word_wrap: bool = False       # source editors wrap long lines (the status bar switches it)
     dark_mode: str = "system"     # system | light | dark
     save_before_build: bool = True
     auto_complete: bool = True
