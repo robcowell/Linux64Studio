@@ -290,7 +290,13 @@ def _music_glue(project: Project, link: dict, opts, size: int) -> list[str]:
     from ..sid.goattracker import MusicError
     e = opts.entry_points()
     out = link.get("output", "")
-    tune = cmusic.Tune(Path(link.get("source", "")).stem, out, opts.address, size, e["init"], e["play"],
+    from ..sid.goattracker import read_song_info
+    src = project.directory / link.get("source", "")
+    try:
+        title = read_song_info(src).name or src.stem          # (as the song's page writes it)
+    except Exception:
+        title = src.stem
+    tune = cmusic.Tune(title, out, opts.address, size, e["init"], e["play"],
                        skip={".sid": 126, ".prg": 2}.get(Path(out).suffix.lower(), 0), sfx=e.get("sfx", 0),
                        volume=e.get("volume", 0))
     areas = [dict(a) for a in project.c_areas]

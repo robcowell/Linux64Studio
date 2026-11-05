@@ -171,3 +171,22 @@ def test_a_song_added_to_a_c_project_follows_its_settings(tmp_path):
     p.music[0]["sfx"] = True                               # sound effects switched on afterwards
     res = build_project(p)
     assert res.ok and "music_sfx" in (p.directory / "music.h").read_text() and res.c_addresses["music_sfx"]
+
+
+@pytest.mark.skipif(not HAVE_CC65, reason="cc65 isn't installed (sudo apt install cc65)")
+def test_the_glowcave_example_builds(tmp_path):
+    from l64s.cc65dbg import memory_map
+    from l64s.project.build import build_project
+    from l64s.project.model import load_project
+    shutil.copytree(STARFALL.parent / "glowcave", tmp_path / "gc", ignore=shutil.ignore_patterns("build"))
+    p = load_project(tmp_path / "gc" / "glowcave.l64proj")
+    res = build_project(p)
+    assert res.ok and not res.diagnostics, res.log
+    prg = res.prg.read_bytes()
+    at = lambda a, n: prg[2 + a - 0x0801:][:n]                          # noqa: E731
+    assert at(0x3800 + 8, 8) == (tmp_path / "gc" / "chars.bin").read_bytes()[8:16]      # the wall, at $3808
+    assert at(0x3600, 64) == (tmp_path / "gc" / "sprites.bin").read_bytes()[:64]
+    assert at(0x1000, 3) == b"\x4c\x09\x10" and res.c_addresses["main"] >= 0x4000
+    m = memory_map(prg, res.c_debug, p.directory, res.prg.name, res.labels)
+    assert {("gfx.s", "binary"), ("music.s", "binary"), ("maze.c", "data"), ("main.c", "code")} <= \
+        {(s.owner, s.kind) for s in m.segments}

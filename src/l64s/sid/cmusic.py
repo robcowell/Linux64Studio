@@ -144,13 +144,21 @@ def glue(t: Tune, name: str = "music") -> dict[str, str]:
               "        tay                     ; the player takes it in A (low) and Y (high)",
               "        pla",
               "        ldx channel",
-              f"        jmp {h(t.sfx)}",
+              "        php                     ; (no interrupt while the player takes it: it may be playing)",
+              "        sei",
+              f"        jsr {h(t.sfx)}",
+              "        plp",
+              "        rts",
               "channels: .byte 0, 7, 14"]
     if t.volume:
         s += ["",
               f"; void __fastcall__ {name}_volume(unsigned char volume): 0-15",
               f"_{name}_volume:",
-              f"        jmp {h(t.volume)}"]
+              "        php",
+              "        sei",
+              f"        jsr {h(t.volume)}",
+              "        plp",
+              "        rts"]
     if t.play or t.sfx:
         s += ["", '        .segment "BSS"']
         if t.play:

@@ -1,0 +1,17 @@
+{
+  "name": "glowcave",
+  "toolchain": "cc65",
+  "build_list": ["main.c", "maze.c", "sfx.c", "gfx.s", "music.s"],
+  "main_file": "main.c",
+  "executable": "glowcave.prg",
+  "output_dir": "build",
+  "assembler_args": ["-O"],
+  "exports": {"sprites.spt": {"bin": "sprites.bin"}, "chars.cst": {"bin": "chars.bin"}},
+  "disk_image": "build/glowcave.d64",
+  "disk_name": "GLOWCAVE",
+  "c_areas": [
+    {"name": "MUSIC", "start": 4096, "size": 256},
+    {"name": "SPRITES", "start": 13824, "size": 512},
+    {"name": "CHARSET", "start": 14336, "size": 2048}
+  ]
+}
