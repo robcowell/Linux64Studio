@@ -228,6 +228,12 @@ class MainWindow(Adw.ApplicationWindow):
                                              GLib.Variant.new_boolean(self.settings.show_project_info))
         info.connect("change-state", self._show_project_info)
         self.add_action(info)
+        # F10 is Step Over (as in CBM prg Studio), but GTK windows bind F10 to opening the menu bar,
+        # and that binding runs before application shortcuts. Catch it first, in the capture phase.
+        f10 = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        f10.add_shortcut(Gtk.Shortcut(trigger=Gtk.ShortcutTrigger.parse_string("F10"),
+                                      action=Gtk.NamedAction.new("win.debug-over")))
+        self.add_controller(f10)
         add("tab-close", lambda *_: self._close_tabs("this"))
         add("tab-close-others", lambda *_: self._close_tabs("others"))
         add("tab-close-right", lambda *_: self._close_tabs("right"))
