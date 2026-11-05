@@ -9,8 +9,13 @@ written and doesn't compile. Both dialects are read:
   `.pseudocommand name`, `.namespace name`. Everything is case-sensitive; `!name:` labels are
   skipped (there are many of each).
 
-Also: the file an `incasm`/`incbin`/`#import`/`.import` line names, and in BASIC the line a
-GOTO/GOSUB goes to (or a pBASIC `@label`).
+* C (.c and .h, cc65 projects), read by cvars: functions (a definition before a prototype),
+  global variables, macros, typedefs, struct/union/enum tags and enum constants, and each
+  function's parameters and locals (found first from inside that function). C names are
+  case-sensitive.
+
+Also: the file an `incasm`/`incbin`/`#import`/`.import`/`#include` line names, and in BASIC the
+line a GOTO/GOSUB goes to (or a pBASIC `@label`).
 """
 from __future__ import annotations
 
@@ -41,6 +46,20 @@ _KICK_LABEL = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*):")
 _KICK_CONST = re.compile(r"^\s*\.(const|var|label)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=")
 _KICK_MACRO = re.compile(r"^\s*\.(macro|function|pseudocommand)\s+@?([A-Za-z_][A-Za-z0-9_]*)")
 _KICK_NAMESPACE = re.compile(r"^\s*\.(namespace|filenamespace)\s+([A-Za-z_][A-Za-z0-9_]*)")
+_C_INCLUDE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]')
+C_EXTS = (".c", ".h")
+C_KEYWORDS = sorted({"auto", "break", "case", "char", "const", "continue", "default", "do", "else", "enum",
+                     "extern", "for", "goto", "if", "int", "long", "register", "return", "short", "signed",
+                     "sizeof", "static", "struct", "switch", "typedef", "union", "unsigned", "void", "volatile",
+                     "while", "__fastcall__", "__asm__", "#include", "#define", "#ifdef", "#ifndef", "#endif",
+                     "#pragma", "NULL"})
+# the kinds a C name can be (Symbol.kind), as they're described to the user
+C_KINDS = {"c-function": "function", "c-prototype": "function declaration", "c-variable": "variable",
+           "c-extern": "extern variable", "c-typedef": "typedef", "c-struct": "struct", "c-union": "union",
+           "c-enum": "enum", "c-enumconst": "enum constant", "c-macro": "macro", "c-param": "parameter",
+           "c-local": "local variable"}
+_C_DEFINITION_ORDER = ["c-local", "c-param", "c-function", "c-variable", "c-typedef", "c-struct", "c-union",
+                       "c-enum", "c-enumconst", "c-macro", "c-prototype", "c-extern"]
 _INCLUDE = re.compile(r"^\s*(?:[A-Za-z_][\w.]*:?\s+)?(incasm|incbin|#import|#importif\s+\S+|\.import\s+\w+)"
                       r"\s+\"?([^\",;]+?)\"?\s*(?:[,;]|//|$)", re.I)
 
@@ -119,6 +138,58 @@ def scan(text: str, file: str = "", kickass: bool = False) -> list[tuple[Symbol,
     return out
 
 
+def is_c(file: str | Path | None) -> bool:
+    return bool(file) and Path(file).suffix.lower() in C_EXTS
+
+
+def scan_c(text: str, file: str = "") -> tuple[list[tuple[Symbol, str]], list[tuple[str, int, int]]]:
+    """A C file's names (each with the function it belongs to, for parameters and locals), and its
+    functions' line ranges."""
+    from .cvars import parse_source
+    src = parse_source(text)
+    lines = text.splitlines()
+
+    def sym(name: str, kind: str, line: int) -> Symbol:
+        shown = lines[line - 1] if 0 < line <= len(lines) else ""
+        col = max(0, shown.find(name))
+        return Symbol(name, kind, file, line, col, shown.strip())
+    out = [(sym(name, f"c-{kind}", line), "") for name, kind, line in src.symbols]
+    funcs = []
+    for fn in src.functions.values():
+        funcs.append((fn.name, fn.first_line, fn.last_line))
+        for name, _t in fn.params:
+            out.append((sym(name, "c-param", fn.param_lines.get(name, fn.first_line)), fn.name))
+        for name, _t, decl, _end in fn.locals:
+            out.append((sym(name, "c-local", decl), fn.name))
+    return out, funcs
+
+
+def c_word_at(line: str, col: int) -> tuple[int, int, str]:
+    """The C name at a column (letters, digits and _)."""
+    s = col
+    while s > 0 and (line[s - 1].isalnum() or line[s - 1] == "_"):
+        s -= 1
+    e = col
+    while e < len(line) and (line[e].isalnum() or line[e] == "_"):
+        e += 1
+    word = line[s:e]
+    return (s, e, word) if word and not word[0].isdigit() else (s, e, "")
+
+
+def c_include_at(line: str, here: Path, search: list[Path]) -> Path | None:
+    """The header an ``#include`` line names: "x.h" from the file's folder first, then the search
+    folders; <x.h> from the search folders (cc65's own headers among them). None if it isn't one."""
+    m = _C_INCLUDE.match(line)
+    if not m:
+        return None
+    name = m.group(2).strip()
+    folders = ([here] if m.group(1) == '"' else []) + list(search)
+    for d in folders:
+        if (d / name).is_file():
+            return (d / name).resolve()
+    return (folders[0] / name) if folders else Path(name)
+
+
 def word_at(line: str, col: int) -> tuple[int, int, str]:
     """The name at a column (letters, digits, _, @, $, and . for Kick's `name.sub`)."""
     s = col
@@ -147,6 +218,7 @@ class SymbolIndex:
 
     def __init__(self):
         self._files: dict[str, tuple[object, bool, list[tuple[Symbol, str]]]] = {}   # file -> (stamp, kick, syms)
+        self._c_funcs: dict[str, list[tuple[str, int, int]]] = {}   # C file -> its functions' line ranges
         self._by_name: dict[str, list[Symbol]] = {}       # lower-case name -> its definitions (not locals)
 
     def update(self, files: list[Path], overrides: dict[str, str] | None = None, kickass: bool | None = None):
@@ -180,14 +252,20 @@ class SymbolIndex:
             if key in self._files and self._files[key][0] == stamp and \
                     (kickass is None or self._files[key][1] == kickass):
                 continue
+            if is_c(key):
+                syms, funcs = scan_c(text, key)
+                self._files[key] = (stamp, False, syms)
+                self._c_funcs[key] = funcs
+                continue
             kick = looks_like_kick(text) if kickass is None else kickass
             self._files[key] = (stamp, kick, scan(text, key, kick))
         for k in list(self._files):
             if k not in keep:
                 del self._files[k]
+                self._c_funcs.pop(k, None)
         self._by_name = {}
         for s in self.symbols():
-            if s.kind != "local":
+            if s.kind not in ("local", "c-local", "c-param"):
                 self._by_name.setdefault(s.name.lower(), []).append(s)
 
     def symbols(self) -> list[Symbol]:
@@ -202,6 +280,8 @@ class SymbolIndex:
         if not name:
             return []
         here = str(Path(from_file).resolve()) if from_file else None
+        if is_c(here):
+            return self._c_definitions(name, here, from_line)
         kick = self._kick(here)
         if name.startswith("@") and here in self._files:
             syms = self._files[here][2]
@@ -217,16 +297,38 @@ class SymbolIndex:
             if found:
                 found.sort(key=lambda s: (s.file != here, s.file, s.line))
                 return found
+        if name.startswith("_") and len(name) > 1:          # assembler calling C: jsr _twice
+            return [s for s in self._c_definitions(name[1:], None, 0) if s.kind in ("c-function", "c-variable")]
         return []
 
+    def _c_function_at(self, file: str, line: int) -> str | None:
+        best = None
+        for name, first, last in self._c_funcs.get(file, []):
+            if first <= line <= last and (best is None or first > best[1]):
+                best = (name, first)
+        return best[0] if best else None
+
+    def _c_definitions(self, name: str, here: str | None, from_line: int) -> list[Symbol]:
+        """Where a C name is defined: a parameter or local of the function the line is in, else the
+        program's definitions (a function's body before its prototypes), this file's first."""
+        fn = self._c_function_at(here, from_line) if here else None
+        if fn:
+            mine = [s for s, scope in self._files[here][2] if scope == fn and s.name == name]
+            if mine:
+                return sorted(mine, key=lambda s: s.line)
+        found = [s for s in self._by_name.get(name.lower(), []) if s.name == name and s.kind.startswith("c-")]
+        order = {k: i for i, k in enumerate(_C_DEFINITION_ORDER)}
+        found.sort(key=lambda s: (order.get(s.kind, 99), s.file != here, s.file, s.line))
+        return found
+
     def completions(self, prefix: str, from_file: str | None = None, basic: bool = False,
-                    limit: int = 200) -> list[tuple[str, str, Symbol | None]]:
+                    limit: int = 200, from_line: int = 0) -> list[tuple[str, str, Symbol | None]]:
         """What could finish `prefix`: (text, what it is, its definition). The project's names
         (this file's first), then instructions, directives (or BASIC keywords)."""
         if not prefix:
             return []
         here = str(Path(from_file).resolve()) if from_file else None
-        kick = self._kick(here)
+        kick = self._kick(here) or is_c(here)        # (both case-sensitive)
         low = prefix.lower()
         seen: set[str] = set()
         out: list[tuple[int, str, str, Symbol | None]] = []
@@ -241,13 +343,23 @@ class SymbolIndex:
             elif len(prefix) >= 2 and low in text.lower():
                 seen.add(key)
                 out.append((rank + 10, text, what, sym))
-        if basic:
+        if is_c(here):
+            fn = self._c_function_at(here, from_line) if from_line else None
+            for s, scope in self._files.get(here, (None, False, []))[2]:
+                if scope and scope == fn:
+                    add(0, s.name, f"{C_KINDS[s.kind]} in {fn}()", s)
+            for s in sorted(self.symbols(), key=lambda s: (s.file != here, s.name.lower())):
+                if s.kind.startswith("c-") and s.kind not in ("c-local", "c-param"):
+                    add(0 if s.file == here else 1, s.name, f"{C_KINDS[s.kind]} · {Path(s.file).name}:{s.line}", s)
+            for k in C_KEYWORDS:
+                add(2, k, "C keyword")
+        elif basic:
             from .basic.tokenizer import KEYWORDS
             for k in sorted(KEYWORDS):
                 add(2, k, "BASIC keyword")
         else:
             for s in sorted(self.symbols(), key=lambda s: (s.file != here, s.name.lower())):
-                if s.kind == "local" and s.file != here:
+                if (s.kind == "local" and s.file != here) or s.kind.startswith("c-"):
                     continue
                 add(0 if s.file == here else 1, s.name, f"{s.kind} · {Path(s.file).name}:{s.line}", s)
             for m in _MNEMONICS:

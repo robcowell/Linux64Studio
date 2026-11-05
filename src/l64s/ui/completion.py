@@ -20,7 +20,9 @@ _WORD_CHAR = re.compile(r"[A-Za-z0-9_@$.#]")
 MIN_AUTO = 2          # letters typed before the list appears by itself
 
 
-def _in_comment_or_string(before: str) -> bool:
+def _in_comment_or_string(before: str, c: bool = False) -> bool:
+    """Whether the cursor is in a comment or string. ``c``: C, where ; ends a statement (and /* */
+    comments are only noticed on this line)."""
     q = None
     for i, ch in enumerate(before):
         if q:
@@ -28,7 +30,9 @@ def _in_comment_or_string(before: str) -> bool:
                 q = None
         elif ch in "\"'":
             q = ch
-        elif ch == ";" or before.startswith("//", i):
+        elif (ch == ";" and not c) or before.startswith("//", i):
+            return True
+        elif c and before.startswith("/*", i) and "*/" not in before[i:]:
             return True
     return q is not None
 
@@ -53,8 +57,9 @@ class CompletionPopup:
     whether to open the list while typing (Ctrl+Space always does)."""
 
     def __init__(self, view: Gtk.TextView, candidates: Callable[[str], list[tuple[str, str]]],
-                 auto: Callable[[], bool]):
+                 auto: Callable[[], bool], is_c: Callable[[], bool] = lambda: False):
         self.view = view
+        self.is_c = is_c                 # C: ; isn't a comment
         self.buffer = view.get_buffer()
         self.candidates = candidates
         self.auto = auto
@@ -131,7 +136,7 @@ class CompletionPopup:
         start = it.copy()
         start.set_line_offset(0)
         before = self.buffer.get_text(start, it, False)
-        if _in_comment_or_string(before) and not force:
+        if _in_comment_or_string(before, self.is_c()) and not force:
             self.hide()
             return
         prefix = prefix_before(before)

@@ -130,3 +130,17 @@ def test_two_files_with_the_same_function_name():
     b = "void main(void) {\n    char c;\n    c = 2;\n}\n"
     prog = CProgram({"/a.c": a, "/b.c": b}, {}, {"main": {"c": -1}})
     assert prog.function_at("/b.c", 3).locals[0][0] == "c" and prog.function_at("/a.c", 3).locals[0][0] == "x"
+
+
+def test_symbols_with_lines():
+    text = ("#define MAX 10\n#define SQ(x) ((x) * (x))\ntypedef unsigned char byte;\n"
+            "enum colour { RED, GREEN = 3, BLUE };\nstruct point { int x; int y; };\n"
+            "extern int shared;\nint shared;\nbyte flags[MAX];\nint twice(int x);\n"
+            "int twice(int x) {\n    return x * 2;\n}\n")
+    src = parse_source(text)
+    assert src.symbols == [("MAX", "macro", 1), ("SQ", "macro", 2), ("byte", "typedef", 3),
+                           ("colour", "enum", 4), ("RED", "enumconst", 4), ("GREEN", "enumconst", 4),
+                           ("BLUE", "enumconst", 4), ("point", "struct", 5), ("shared", "extern", 6),
+                           ("shared", "variable", 7), ("flags", "variable", 8), ("twice", "prototype", 9),
+                           ("twice", "function", 10)]
+    assert src.functions["twice"].param_lines == {"x": 10}

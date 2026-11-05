@@ -78,6 +78,7 @@ class Function:
     first_line: int
     last_line: int
     file: str = ""                # set by CProgram: the source file it's in
+    param_lines: dict[str, int] = field(default_factory=dict)
     params: list[tuple[str, CType]] = field(default_factory=list)
     # (name, type, line declared, last line of its block): a local only takes room on the stack from
     # its declaration to the end of the block it's declared in
@@ -90,6 +91,9 @@ class CSource:
     functions: dict[str, Function] = field(default_factory=dict)
     structs: dict[str, list[tuple[str, CType]]] = field(default_factory=dict)
     typedefs: dict[str, CType] = field(default_factory=dict)
+    # every name the file declares at file level, with where, for the editor (symindex): kind is
+    # function, prototype, variable, extern, typedef, struct, union, enum, enumconst or macro
+    symbols: list[tuple[str, str, int]] = field(default_factory=list)
 
     def merge(self, other: CSource) -> None:
         for k, v in other.globals.items():
@@ -159,6 +163,7 @@ def _number(tok: str) -> int:
 
 
 _DEFINE = re.compile(r"^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)[ \t]+([^\n]*?)[ \t]*(?://.*|/\*.*)?$", re.M)
+_MACRO_NAME = re.compile(r"^[ \t]*#[ \t]*define[ \t]+([A-Za-z_]\w*)", re.M)
 _ARITH = re.compile(r"^[\s\d()+\-*/%xXa-fA-F<>]*$")
 
 
@@ -193,6 +198,8 @@ class _Reader:
         self.toks = _tokens(text)
         self.src = CSource()
         self.macros = {**(macros or {}), **defines(text)}
+        for m in _MACRO_NAME.finditer(text):
+            self.src.symbols.append((m.group(1), "macro", text.count("\n", 0, m.start(1)) + 1))
 
     # specifiers: storage, qualifiers and the base type. Returns (type, is_typedef, next index) or None
     def specifiers(self, i: int) -> tuple[CType, bool, int] | None:
@@ -222,10 +229,13 @@ class _Reader:
             elif t in ("struct", "union", "enum"):
                 base, seen = t, True
                 i += 1
+                tag_line = 0
                 if i < len(toks) and re.match(r"[A-Za-z_]", toks[i][0]) and toks[i][0] not in _KEYWORDS:
-                    tag = toks[i][0]
+                    tag, tag_line = toks[i]
                     i += 1
                 if i < len(toks) and toks[i][0] == "{":
+                    if tag:
+                        self.src.symbols.append((tag, base, tag_line))
                     i = self.struct_body(i, base, tag)
             elif not seen and (t in self.src.typedefs or t in _STD_TYPEDEFS):
                 if t in self.src.typedefs:
@@ -254,6 +264,14 @@ class _Reader:
                 if depth == 0:
                     break
             j += 1
+        if kind == "enum":                          # its constants: each name after '{' or ','
+            depth = 0
+            for k in range(i, j):
+                t, line = self.toks[k]
+                depth += t in "({["
+                depth -= t in ")}]"
+                if depth == 1 and self.toks[k - 1][0] in ("{", ",") and re.match(r"[A-Za-z_]", t):
+                    self.src.symbols.append((t, "enumconst", line))
         if kind != "enum" and tag:
             members: list[tuple[str, CType]] = []
             k = i + 1
@@ -326,16 +344,21 @@ class _Reader:
                 if close + 1 < len(toks) and toks[close + 1][0] == "{":
                     i = self.function(toks[k][0], toks[k][1], k + 1, close, close + 1)
                     continue
+                self.src.symbols.append((toks[k][0], "prototype", toks[k][1]))
                 i = close + 1                              # a prototype
                 continue
             end = j
             while end < len(toks) and toks[end][0] != ";":
                 end += 1
-            for name, ctype, _line, _k in self.declarators(base, j, end):
+            extern = any(toks[x][0] == "extern" for x in range(i, j))
+            for name, ctype, line, _k in self.declarators(base, j, end):
                 if typedef:
                     self.src.typedefs[name] = ctype
+                    self.src.symbols.append((name, "typedef", line))
                 else:
-                    self.src.globals[name] = ctype
+                    if not extern or name not in self.src.globals:
+                        self.src.globals[name] = ctype
+                    self.src.symbols.append((name, "extern" if extern else "variable", line))
             i = end + 1
         return self.src
 
@@ -356,15 +379,17 @@ class _Reader:
     def function(self, name: str, line: int, lp: int, rp: int, lb: int) -> int:
         rb = self.matching(lb)
         fn = Function(name, line, self.toks[rb][1])
+        self.src.symbols.append((name, "function", line))
         # parameters: comma-separated declarations between the parentheses
         start = lp + 1
         for k in range(lp + 1, rp + 1):
             if self.toks[k][0] in (",", ")") and self.depth_between(lp + 1, k) == 0:
                 spec = self.specifiers(start)
                 if spec is not None:
-                    for pname, ptype, _l, _k in self.declarators(spec[0], spec[2], k):
+                    for pname, ptype, pline, _k in self.declarators(spec[0], spec[2], k):
                         if not (ptype.base == "void" and not ptype.pointer):
                             fn.params.append((pname, ptype))
+                            fn.param_lines[pname] = pline
                 start = k + 1
         # locals: a declaration starts a statement (after '{', ';' or '}')
         k = lb + 1

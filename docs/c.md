@@ -120,10 +120,27 @@ debugger does, not the next instruction:
 
 ## In the editor
 
-`.c` and `.h` files have C syntax highlighting. Find, Replace, Find in Files, the Tasks list
-(`// TODO`, `/* FIXME */`), Go to Line and the file tools work as for assembler. Auto-complete,
-the Project Information panel and Go to Definition are for assembler and BASIC, so they don't
-offer anything in C yet.
+`.c` and `.h` files have C syntax highlighting, and the editor knows the program's C:
+
+* **Auto-complete** offers the parameters and locals of the function you're in, then the program's
+  functions, global variables, macros, types and enum constants (this file's first), then C's
+  keywords. Ctrl+Space opens the list at any time.
+* **Go to Definition** (F12, or Ctrl+click) goes to where a name is defined: a function's body
+  rather than its prototype, a variable's definition rather than an `extern`, or the parameter or
+  local of the function you're in. On an `#include` line it opens the header: `"…"` from the
+  file's folder, then the project's source folders; `<…>` from those and cc65's own headers (in
+  `/usr/share/cc65/include`, or `$CC65_INC`). Alt+Left goes back.
+* **Hovering** over a name says what it is and where it's defined, and for a global variable its
+  address in the last build.
+* The **Project Information** panel's tabs become **Functions** (with their addresses after a
+  build), **Variables** (the globals, with their addresses) and **Types & Macros** (typedefs,
+  structs, enums and their constants, and `#define`s with their values).
+* Only the program's own `.c` files (those on the build list) and the headers are read, so another
+  program's `main()` in the same folder doesn't get in the way. An assembler file calling C
+  (`jsr _twice`) finds the C function too.
+
+Find, Replace, Find in Files, the Tasks list (`// TODO`, `/* FIXME */`) and Go to Line work as for
+assembler.
 
 Strings are PETSCII on the C64: with the C64's start-up character set, lower-case letters in a
 string show as capitals, and capitals as graphics characters.

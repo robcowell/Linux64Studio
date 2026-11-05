@@ -127,13 +127,20 @@ class ProjectInfoPanel(Gtk.Box):
         self.append(self.stack)
         self._pending = 0
 
+    def set_c(self, c: bool):
+        """C projects call the tabs Functions, Variables, and Types & Macros."""
+        from ..projinfo import C_TABS
+        for key, title in (C_TABS if c else TABS):
+            self.stack.get_page(self.tabs[key].stack).set_title(title)
+
     def refresh(self):
         info = self._collect()
         for key, tab in self.tabs.items():
             if info is None:
                 tab.show([], set(), "Open a project to see its labels, variables and macros")
             else:
-                tab.show(info.get(key, []), tab.open_files(), f"No {key} in the project")
+                title = self.stack.get_page(tab.stack).get_title().lower()
+                tab.show(info.get(key, []), tab.open_files(), f"No {title} in the project")
 
     def refresh_soon(self, delay_ms: int = 800):
         """Refresh once typing pauses (each call restarts the wait)."""

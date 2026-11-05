@@ -1697,7 +1697,13 @@ class MainWindow(Adw.ApplicationWindow):
                     basic[key] = unsaved.get(key) or f.read_text(errors="replace")
                 except OSError:
                     pass
-        return collect(self.symbol_index().symbols(), basic, self.project.directory, self._symbol_value)
+        self.projinfo.set_c(self.project.toolchain == TOOLCHAIN_CC65)
+        # the project's own files and source folders: not a header opened from cc65's, say
+        roots = [self.project.directory.resolve()] + [(self.project.directory / d).resolve()
+                                                      for d in self.project.lib_dirs]
+        mine = [sym for sym in self.symbol_index().symbols()
+                if any(Path(sym.file).is_relative_to(r) for r in roots)]
+        return collect(mine, basic, self.project.directory, self._symbol_value)
 
     def _open_source_line(self, file: str, line: int):
         ed = self.open_file(Path(file))
@@ -2007,10 +2013,15 @@ class MainWindow(Adw.ApplicationWindow):
         from ..symindex import SymbolIndex
         if getattr(self, "_symbols", None) is None:
             self._symbols = SymbolIndex()
-        files = [f for f in (self.project.all_files() if self.project else []) if f.suffix.lower() in self.ASM_EXTS]
+        # assembler, and C: the program's own .c files (a folder can hold several programs, each with
+        # its own main()) and every header
+        built = {f.resolve() for f in self.project.build_paths()} if self.project else set()
+        files = [f for f in (self.project.all_files() if self.project else [])
+                 if f.suffix.lower() in self.ASM_EXTS or f.suffix.lower() == ".h"
+                 or (f.suffix.lower() == ".c" and f.resolve() in built)]
         seen = {f.resolve() for f in files}
         for e in self.editors():
-            if isinstance(e, SourceEditor) and e.path and e.path.suffix.lower() in self.ASM_EXTS \
+            if isinstance(e, SourceEditor) and e.path and (e.path.suffix.lower() in self.ASM_EXTS or e.is_c) \
                     and e.path.resolve() not in seen:
                 files.append(e.path)
         overrides = {str(e.path): e.get_text() for e in self.editors()
@@ -2024,6 +2035,8 @@ class MainWindow(Adw.ApplicationWindow):
         res = getattr(self, "last_build", None)
         if res is None:
             return None
+        if sym.kind in ("c-function", "c-variable"):           # C: by name, from ld65's debug file
+            return res.c_addresses.get(sym.name)
         here = Path(sym.file).resolve()
         if res.asm_result is not None:
             for key, loc in res.asm_result.label_locs.items():
@@ -2037,10 +2050,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def describe_symbol(self, ed, line_text: str, col: int, line_no: int) -> str | None:
         """Hover text for a name: where it's defined, that line, and its value in the last build."""
-        from ..symindex import word_at
+        from ..symindex import C_KINDS, c_word_at, word_at
         if not ed.path:
             return None
-        _s, _e, word = word_at(line_text, col)
+        _s, _e, word = (c_word_at if ed.is_c else word_at)(line_text, col)
         if not word:
             return None
         defs = self.symbol_index().definitions(word, str(ed.path), line_no)
@@ -2051,8 +2064,12 @@ class MainWindow(Adw.ApplicationWindow):
             where = os.path.relpath(d.file, self.project.directory) if self.project else Path(d.file).name
         except ValueError:
             where = d.file
-        text = f"{d.name}: {d.kind} in {where}, line {d.line}\n{d.text}"
+        text = f"{d.name}: {C_KINDS.get(d.kind, d.kind)} in {where}, line {d.line}\n{d.text}"
         v = self._symbol_value(d) if d.kind in ("label", "local") else None
+        if d.kind == "c-variable" and self.last_build is not None and d.name in self.last_build.c_globals:
+            text += f"\nat ${self.last_build.c_globals[d.name][0]:04X} in the last build"
+        if ed.is_c:
+            defs = [x for x in defs if x.kind == d.kind]      # a prototype isn't "another definition"
         if v is not None:
             text += f"\n= ${v:04X} ({v}) in the last build"
         if len(defs) > 1:
@@ -2075,6 +2092,9 @@ class MainWindow(Adw.ApplicationWindow):
                 return
             self._push_back(ed)
             ed.goto_line(target)
+            return
+        if ed.is_c:
+            self._goto_c_definition(ed, line_no, col, line_text)
             return
         inc = include_at(line_text, ed.path.parent) if ed.path else None
         _s, _e, word = word_at(line_text, col)
@@ -2101,6 +2121,43 @@ class MainWindow(Adw.ApplicationWindow):
             self._jump_to(ed, others[0])
             return
         self._choose_definition(ed, word, others)
+
+    def c_include_dirs(self) -> list[Path]:
+        """Where #include looks: the project's source folders and folder, then cc65's own headers."""
+        dirs = []
+        if self.project:
+            dirs += [(self.project.directory / d).resolve() for d in self.project.lib_dirs] + [self.project.directory]
+        for d in (os.environ.get("CC65_INC", ""), "/usr/share/cc65/include", "/usr/local/share/cc65/include"):
+            if d and Path(d).is_dir():
+                dirs.append(Path(d))
+                break
+        return dirs
+
+    def _goto_c_definition(self, ed, line_no: int, col: int, line_text: str):
+        from ..symindex import c_include_at, c_word_at
+        inc = c_include_at(line_text, ed.path.parent, self.c_include_dirs()) if ed.path else None
+        if inc is not None:
+            if inc.exists():
+                self._push_back(ed)
+                self.open_file(inc)
+            else:
+                self.toast(f"{inc.name} isn't in the project's folders or cc65's headers")
+            return
+        word = c_word_at(line_text, col)[2]
+        if not word:
+            self.toast("Put the cursor on a function, variable, macro or type name")
+            return
+        here = str(ed.path.resolve()) if ed.path else None
+        defs = [d for d in self.symbol_index().definitions(word, here, line_no)
+                if not (d.file == here and d.line == line_no)]
+        if not defs:
+            self.toast(f"No definition of {word} in the project (it may be in cc65's library)")
+            return
+        best = [d for d in defs if d.kind == defs[0].kind]     # the body before prototypes, and so on
+        if len(best) == 1:
+            self._jump_to(ed, best[0])
+        else:
+            self._choose_definition(ed, word, best)
 
     def _jump_to(self, ed, sym):
         self._push_back(ed)

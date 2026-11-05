@@ -143,8 +143,8 @@ class SourceEditor(EditorPage):
         self.view.connect("query-tooltip", self._on_tooltip)
         self._setup_convert_menu()
         from .completion import CompletionPopup
-        self.completion = CompletionPopup(self.view, self._completion_candidates,       # not for C (yet)
-                                          lambda: getattr(self.settings, "auto_complete", True) and not self.is_c)
+        self.completion = CompletionPopup(self.view, self._completion_candidates,
+                                          lambda: getattr(self.settings, "auto_complete", True), lambda: self.is_c)
         # Ctrl+click: go to the definition of the name clicked
         ctrl_click = Gtk.GestureClick(button=1)
         ctrl_click.connect("released", self._on_left_click)
@@ -570,8 +570,6 @@ class SourceEditor(EditorPage):
         self.buffer.select_range(end, it)
 
     def _completion_candidates(self, prefix: str) -> list[tuple[str, str]]:
-        if self.is_c:              # the project's labels and 6502 instructions aren't C
-            return []
         win = self.get_root()
         idx = win.symbol_index() if hasattr(win, "symbol_index") else None
         if idx is None:
@@ -580,7 +578,8 @@ class SourceEditor(EditorPage):
             if self.path:
                 idx.update([self.path], {str(self.path): self.get_text()})
         return [(t, w) for t, w, _s in idx.completions(prefix, str(self.path) if self.path else None,
-                                                        basic=self.is_basic, limit=100)]
+                                                        basic=self.is_basic, limit=100,
+                                                        from_line=self.current_line())]
 
     def line_at_click(self) -> tuple[str, int]:
         """The text of the line right-clicked (or with the cursor), and the column."""

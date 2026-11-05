@@ -33,6 +33,7 @@ class BuildResult:
     c_globals: dict = field(default_factory=dict)  # ... its C variables' addresses (cc65dbg.c_globals)
     c_frames: dict = field(default_factory=dict)   # ... and its functions' stack frames (cc65dbg.c_frames)
     c_sp: int = 0x02                               # ... and where cc65's C stack pointer is (zero page)
+    c_addresses: dict = field(default_factory=dict)  # ... and every C function's and variable's address
 
     def run_target(self, project) -> Path | None:
         """What to run: the cartridge, the disk image or the program, as the project says."""
@@ -616,6 +617,8 @@ def _build_cc65(project: Project, only_file) -> BuildResult:
             res.asm_lines = c_line_spans(info, project.directory, line_type=0)
             res.c_globals, res.c_frames = c_globals(info), c_frames(info)
             res.c_sp = cc65.stack_pointer(out["labels"])
+            res.c_addresses = {n[1:]: a for n, (a, _seg) in info.labels.items()
+                               if n.startswith("_") and not n.startswith("__")}
         except DebugFileError as e:
             res.log += f"\n{e}"
         res.log += f"\nWrote {prg} ({prg.stat().st_size} bytes)"

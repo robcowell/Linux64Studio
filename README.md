@@ -12,7 +12,8 @@ can be followed on Linux.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
   **C projects** build with cc65: errors you can click, run in VICE and debug by C line, with
   breakpoints on C lines, stepping over and into C lines, and the C variables (locals and
-  globals, with their types) at every stop ([docs/c.md](docs/c.md)).
+  globals, with their types) at every stop. In the editor, C gets auto-complete, Go to Definition
+  (including `#include`s) and the Project Information panel ([docs/c.md](docs/c.md)).
   **Continue where you left off**: at start it opens the last project again, with the same files in
   tabs, the same tab in front and the cursor where it was (Preferences → Editor to turn it off;
   a file named on the command line opens instead) ([session](docs/dialect.md#continue-where-you-left-off)).

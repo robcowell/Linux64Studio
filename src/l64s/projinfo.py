@@ -12,6 +12,7 @@ BASIC files, the variables basic.stats finds. A label's value is shown when the 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,7 +20,10 @@ from pathlib import Path
 from .symindex import Symbol, _strip_comment
 
 TABS = (("labels", "Labels"), ("variables", "Variables"), ("macros", "Macros"))
-_TAB_OF = {"label": "labels", "local": "labels", "namespace": "labels",
+C_TABS = (("labels", "Functions"), ("variables", "Variables"), ("macros", "Types & Macros"))   # C projects
+_TAB_OF = {"c-function": "labels", "c-variable": "variables", "c-macro": "macros", "c-typedef": "macros",
+           "c-struct": "macros", "c-union": "macros", "c-enum": "macros", "c-enumconst": "macros",
+           "label": "labels", "local": "labels", "namespace": "labels",
            "const": "variables", "var": "variables",
            "macro": "macros", "function": "macros"}
 
@@ -58,6 +62,18 @@ def _assigned_value(sym: Symbol) -> str:
     return ""
 
 
+def _c_detail(s: Symbol, value_of) -> str:
+    """For C: functions and variables at their address in the last build, a macro's value, and what
+    kind of type the rest are."""
+    if s.kind in ("c-function", "c-variable"):
+        v = value_of(s) if value_of else None
+        return f"${v:04X}" if v is not None else ""
+    if s.kind == "c-macro":
+        m = re.match(r"\s*#\s*define\s+\w+(\([^)]*\))?\s*(.*?)\s*(?://.*|/\*.*)?$", s.text)
+        return ("(…) " if m and m.group(1) else "") + (m.group(2)[:24] if m else "")
+    return s.kind[2:].replace("enumconst", "enum constant")
+
+
 def collect(symbols: list[Symbol], basic_texts: dict[str, str] | None = None, project_dir: Path | None = None,
             value_of: Callable[[Symbol], int | None] | None = None) -> dict[str, list[Group]]:
     """Each tab's groups, one per file that defines something, in path order; items in line order."""
@@ -73,7 +89,9 @@ def collect(symbols: list[Symbol], basic_texts: dict[str, str] | None = None, pr
         tab = _TAB_OF.get(s.kind)
         if tab is None:
             continue
-        if tab == "variables":
+        if s.kind.startswith("c-"):
+            detail = _c_detail(s, value_of)
+        elif tab == "variables":
             detail = _assigned_value(s)
         elif s.kind in ("label", "local"):
             v = value_of(s) if value_of else None
