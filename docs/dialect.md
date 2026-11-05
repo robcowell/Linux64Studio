@@ -349,8 +349,12 @@ Under the menu bar is a toolbar row, as in CBM prg Studio's: New, Open Project (
 recent projects), Save and Save All; Undo, Redo, Cut, Copy, Paste and Go to Line; Build Project,
 Build Current File, Build and Run, and Debug; the debugger's Toggle Breakpoint, Continue, Step Over,
 Step Into and Step Out; Memory Viewer, Memory Manager, Disassembler, Screen Code Builder and SID
-Designer; and at the right, Preferences and Keyboard Shortcuts. Hover over a button for its name
-and shortcut.
+Designer; and at the right, a light/dark switch, Preferences and Keyboard Shortcuts. Hover over a
+button for its name and shortcut.
+
+**Light and dark**: the toolbar's moon (or sun) button switches between light and dark mode, and
+**Window → Appearance** chooses Follow System, Light or Dark (as Preferences → Editor → Appearance
+does). The editor's syntax colours follow, and the choice is kept for next time.
 
 ## Project Information
 

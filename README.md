@@ -18,6 +18,7 @@ can be followed on Linux.
   panel of labels, variables and macros by file ([project information](docs/dialect.md#project-information)),
   and CBM's **status bar** under source files (CAPS, INS/OVR, word wrap, line and column, auto line
   numbering, Git) ([status bar](docs/dialect.md#status-bar)).
+  **Light or dark mode** from a toolbar button or Window → Appearance (or follow the system).
   The sidebar shows the project's files as an expandable **folder tree**, as in VS Code
   ([project files](docs/dialect.md#project-files)). Each project reopens with the **tabs and folders
   it had open** when you left it ([per project](docs/dialect.md#each-projects-tabs-and-folders)).

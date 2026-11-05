@@ -104,7 +104,9 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel) -> Gio.Menu:
                 [("C_ommit…", "win.git-commit"), ("_Add All Files", "win.git-add-all"),
                  ("Manage _Ignore List", "win.git-ignore")],
                 [("Create a _Repository for the Project", "win.git-init")])
-    window = _menu([("Project _Information", "win.project-info")],
+    appearance = _menu([("Follow _System", "app.appearance::system"), ("_Light", "app.appearance::light"),
+                        ("_Dark", "app.appearance::dark")])
+    window = _menu([("Project _Information", "win.project-info"), ("_Appearance", appearance)],
                    [("_Close Tab", "win.close-tab"), ("Close _All Tabs", "win.tab-close-all")])
     help_ = _menu([("_Keyboard Shortcuts", "app.shortcuts")], [("_About Linux64Studio", "app.about")])
 

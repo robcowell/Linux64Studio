@@ -65,8 +65,15 @@ class Application(Adw.Application):
             Gtk.IconTheme.get_for_display(display).add_search_path(
                 str(Path(__file__).resolve().parent.parent / "data" / "icons"))
         Gtk.Window.set_default_icon_name(APP_ID)
+        # Appearance: Follow System / Light / Dark (Window → Appearance), and the toolbar's light/dark switch
+        appearance = Gio.SimpleAction.new_stateful("appearance", GLib.VariantType.new("s"),
+                                                   GLib.Variant.new_string(self.settings.dark_mode))
+        appearance.connect("change-state", lambda _a, v: self.set_appearance(v.get_string()))
+        self.add_action(appearance)
         self._apply_colour_scheme()
         for name, cb in (("preferences", self._preferences), ("about", self._about),
+                         ("toggle-dark", lambda *_: self.set_appearance(
+                             "light" if Adw.StyleManager.get_default().get_dark() else "dark")),
                          ("shortcuts", self._shortcuts), ("quit", lambda *_: self.window and self.window.close())):
             a = Gio.SimpleAction.new(name, None)
             a.connect("activate", cb)
@@ -103,10 +110,21 @@ class Application(Adw.Application):
             else:
                 win.open_file(p)
 
+    def set_appearance(self, mode: str):
+        """"system", "light" or "dark": apply it and keep it in the preferences."""
+        if mode not in ("system", "light", "dark"):
+            return
+        self.settings.dark_mode = mode
+        self.settings.save()
+        self._apply_colour_scheme()
+
     def _apply_colour_scheme(self):
         sm = Adw.StyleManager.get_default()
         sm.set_color_scheme({"light": Adw.ColorScheme.FORCE_LIGHT, "dark": Adw.ColorScheme.FORCE_DARK}.get(
             self.settings.dark_mode, Adw.ColorScheme.DEFAULT))
+        action = self.lookup_action("appearance")
+        if action is not None:
+            action.set_state(GLib.Variant.new_string(self.settings.dark_mode))
 
     # ------------------------------------------------------------------ dialogs
     def _about(self, *_):

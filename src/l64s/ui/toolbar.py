@@ -41,6 +41,20 @@ def _sep() -> Gtk.Separator:
                          margin_top=6, margin_bottom=6)
 
 
+def _light_dark_button() -> Gtk.Button:
+    """Switches between light and dark; shows what a click switches to."""
+    btn = Gtk.Button(action_name="app.toggle-dark", focus_on_click=False)
+    sm = Adw.StyleManager.get_default()
+
+    def show(*_):
+        dark = sm.get_dark()
+        btn.set_icon_name("weather-clear-symbolic" if dark else "weather-clear-night-symbolic")
+        btn.set_tooltip_text("Light mode" if dark else "Dark mode")
+    sm.connect("notify::dark", show)
+    show()
+    return btn
+
+
 def build_toolbar(recent: Gio.MenuModel) -> Gtk.Box:
     bar = Gtk.Box(css_classes=["toolbar"], spacing=2)
     bar.append(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu(), tooltip_text="New"))
@@ -61,6 +75,7 @@ def build_toolbar(recent: Gio.MenuModel) -> Gtk.Box:
             btn.add_css_class("suggested-action")
         bar.append(btn)
     bar.append(Gtk.Box(hexpand=True))
+    bar.append(_light_dark_button())
     bar.append(Gtk.Button(icon_name="preferences-system-symbolic", tooltip_text="Preferences (Ctrl+,)",
                           action_name="app.preferences", focus_on_click=False))
     bar.append(Gtk.Button(icon_name="help-browser-symbolic", tooltip_text="Keyboard Shortcuts",
