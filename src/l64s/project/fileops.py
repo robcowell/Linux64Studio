@@ -40,6 +40,19 @@ def relative(project: Project, path: Path) -> str:
     return Path(os.path.relpath(Path(path).resolve(), project.directory.resolve())).as_posix()
 
 
+def check_move(src: Path, dest_dir: Path) -> str | None:
+    """Whether ``src`` (a file or folder) can be dragged into ``dest_dir``: None if it can, "" if
+    there's nothing to do (it's already there), else why not."""
+    src, dest_dir = Path(src).resolve(), Path(dest_dir).resolve()
+    if dest_dir == src.parent:
+        return ""
+    if dest_dir == src or src in dest_dir.parents:
+        return f"Can't move {src.name} into itself"
+    if (dest_dir / src.name).exists():
+        return f"{dest_dir.name} already has something called {src.name}"
+    return None
+
+
 def _abs(project: Project, value: str) -> Path:
     return (project.directory / value.replace("\\", "/")).resolve()
 

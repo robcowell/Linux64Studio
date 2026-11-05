@@ -152,6 +152,15 @@ class Project:
                     out.append(p)
         return out
 
+    def all_folders(self) -> list[Path]:
+        """Every folder in the project folder (empty ones too), skipping hidden, Output and build."""
+        out = []
+        for p in sorted(self.directory.rglob("*")):
+            if p.is_dir() and not any(part.startswith(".") or part in ("Output", "build")
+                                      for part in p.relative_to(self.directory).parts):
+                out.append(p)
+        return out
+
     def save(self) -> Path:
         data = asdict(self)
         data.pop("path")

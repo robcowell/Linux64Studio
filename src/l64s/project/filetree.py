@@ -44,8 +44,9 @@ def _label(root: Path, project_dir: Path) -> str:
 
 
 def build_tree(project_dir: Path, files: list[Path], build_order: dict[Path, int] | None = None,
-               roots: list[Path] | None = None) -> Node:
-    """A tree whose root is the project folder. ``build_order`` maps resolved paths to positions."""
+               roots: list[Path] | None = None, folders: list[Path] | None = None) -> Node:
+    """A tree whose root is the project folder. ``build_order`` maps resolved paths to positions;
+    ``folders`` are shown even when empty (a new folder, say)."""
     project_dir = project_dir.resolve()
     order = build_order or {}
     extra_roots = sorted({r.resolve() for r in (roots or []) if not r.resolve().is_relative_to(project_dir)},
@@ -65,6 +66,10 @@ def build_tree(project_dir: Path, files: list[Path], build_order: dict[Path, int
         dirs[path] = node
         return node
 
+    for d in folders or []:
+        d = d.resolve()
+        if d.is_relative_to(project_dir) and d != project_dir:
+            folder(d, project_dir)
     for f in files:
         f = f.resolve()
         base = _root_of(f, project_dir, extra_roots)

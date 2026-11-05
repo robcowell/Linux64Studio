@@ -144,6 +144,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.file_list = Gtk.ListView(factory=factory, single_click_activate=True,
                                       css_classes=["navigation-sidebar"])
         self.file_list.connect("activate", self._on_file_activated)
+        root_drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)   # below the files: the top
+        root_drop.connect("drop", lambda _t, value, _x, _y:
+                          self._drop_into(self.project.directory if self.project else None, value))
+        self.file_list.add_controller(root_drop)
+        css = Gtk.CssProvider()
+        css.load_from_data(b"listview.navigation-sidebar treeexpander:drop(active) "
+                           b"{ background: alpha(@accent_bg_color, 0.25); border-radius: 6px; }", -1)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         root_menu = Gtk.GestureClick(button=3)             # the empty space below the files
         root_menu.connect("pressed", lambda _g, _n, x, y: self._project_root_menu(x, y))
         self.file_list.add_controller(root_menu)
@@ -397,7 +406,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.sidebar_title.set_text(p.name + ("  (Kick Assembler)" if p.toolchain == TOOLCHAIN_KICKASS else ""))
         self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
         roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
-        tree = build_tree(p.directory, p.all_files(), self._build_order, roots)
+        tree = build_tree(p.directory, p.all_files(), self._build_order, roots, p.all_folders())
         first_time = self._tree_project != self._project_key()
         self._tree_project = self._project_key()
         if first_time:                   # a project just opened: its folders as they were left
@@ -458,6 +467,15 @@ class MainWindow(Adw.ApplicationWindow):
         click.connect("pressed", lambda g, _n, x, y: (g.set_state(Gtk.EventSequenceState.CLAIMED),
                                                       self._file_menu(exp, x, y)))
         exp.add_controller(click)
+        # drag a file or folder onto a folder (or a file, for its folder) to move it there
+        drag = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+        drag.connect("prepare", lambda _src, _x, _y: self._drag_prepare(exp))
+        drag.connect("drag-begin", lambda src, _d: self._drag_icon(src, exp))
+        drag.connect("drag-end", lambda *_: GLib.timeout_add(150, self._do_pending_move))
+        exp.add_controller(drag)
+        drop = Gtk.DropTarget.new(GObject.TYPE_STRING, Gdk.DragAction.MOVE)
+        drop.connect("drop", lambda _t, value, _x, _y: self._drop_into(self._drop_folder(exp), value))
+        exp.add_controller(drop)
         li.set_child(exp)
 
     def _file_row_bind(self, _f, li):
@@ -2211,6 +2229,64 @@ class MainWindow(Adw.ApplicationWindow):
             if changed:
                 p.save()
                 self._populate_files()
+
+    # ------------------------------------------------------------------ drag to move
+    def _drag_prepare(self, exp: Gtk.TreeExpander):
+        """What a drag from a tree row carries: the file's path. Only the project's own files move."""
+        row = exp.get_list_row()
+        if row is None or not self.project:
+            return None
+        path = row.get_item().node.path
+        if not path.exists() or not path.is_relative_to(self.project.directory.resolve()):
+            return None
+        return Gdk.ContentProvider.new_for_value(str(path))
+
+    def _drag_icon(self, source: Gtk.DragSource, exp: Gtk.TreeExpander):
+        """The file's icon under the pointer while dragging. Not a picture of the row: a move rebuilds
+        the tree, and a drag icon still showing a destroyed row crashes GTK."""
+        row = exp.get_list_row()
+        if row is None:
+            return
+        node = row.get_item().node
+        theme = Gtk.IconTheme.get_for_display(self.get_display())
+        icon = theme.lookup_icon("folder-symbolic" if node.is_dir else _file_icon(node.path), None, 24,
+                                 self.get_scale_factor(), Gtk.TextDirection.NONE, 0)
+        source.set_icon(icon, 12, 12)
+
+    def _drop_folder(self, exp: Gtk.TreeExpander) -> Path | None:
+        """Where a drop on a row goes: into the folder, or the folder a file is in."""
+        row = exp.get_list_row()
+        if row is None:
+            return None
+        node = row.get_item().node
+        return node.path if node.is_dir else node.path.parent
+
+    def _drop_into(self, folder: Path | None, value) -> bool:
+        from ..project.fileops import check_move
+        if folder is None or not value or not self.project:
+            return False
+        src = Path(str(value))
+        if not folder.resolve().is_relative_to(self.project.directory.resolve()):
+            self.toast("Files can only be moved within the project folder")
+            return False
+        why = check_move(src, folder)
+        if why == "":
+            return False
+        if why:
+            self.toast(why)
+            return False
+        # Moved once the drag is over: the move rebuilds the tree, and GTK crashes if a row it's still
+        # using for the drag is destroyed. (So folders don't open on hover either: that rebuilds rows
+        # under the pointer.) A timer covers a drag that never reports its end.
+        self._pending_move = (src, folder / src.name)
+        GLib.timeout_add(1000, self._do_pending_move)
+        return True
+
+    def _do_pending_move(self):
+        move, self._pending_move = getattr(self, "_pending_move", None), None
+        if move is not None:
+            self._rename(*move)
+        return False
 
     def _set_main_file(self, path: Path) -> bool:
         from ..project.fileops import relative

@@ -49,3 +49,17 @@ def test_book_vol2_workspace():
                       roots=[proj.directory] + [(proj.directory / d) for d in proj.lib_dirs] + proj.referenced_dirs())
     top = [c.name for c in tree.children]
     assert top[:2] == ["Code", "../Library"]
+
+
+def test_empty_folders_are_shown(tmp_path):
+    p = tmp_path / "game"
+    tree = build_tree(p, [p / "main.asm"], folders=[p / "gfx", p / "gfx" / "new", p / "music"])
+    assert shape(tree) == ["gfx/", "  new/", "music/", "main.asm"]
+
+
+def test_project_all_folders_skips_hidden_and_output(tmp_path):
+    from l64s.project.model import Project
+    for d in ("gfx/new", ".git/objects", "Output", "build/x", "music"):
+        (tmp_path / d).mkdir(parents=True)
+    proj = Project(path=tmp_path / "g.l64proj", name="g")
+    assert [f.relative_to(tmp_path).as_posix() for f in proj.all_folders()] == ["gfx", "gfx/new", "music"]

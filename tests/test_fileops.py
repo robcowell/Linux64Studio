@@ -79,3 +79,14 @@ def test_including_lines(tmp_path):
     assert fileops.including_lines(texts, lib) == [(str(tmp_path / "main.asm"), 2), (str(tmp_path / "main.asm"), 3),
                                                   (str(tmp_path / "k.asm"), 1)]
     assert fileops.including_lines(texts, Path(tmp_path / "nothing.asm")) == []
+
+
+def test_check_move(tmp_path):
+    (tmp_path / "gfx" / "old").mkdir(parents=True)
+    (tmp_path / "main.asm").write_text("")
+    (tmp_path / "gfx" / "main.asm").write_text("")
+    assert fileops.check_move(tmp_path / "main.asm", tmp_path) == ""                 # already there
+    assert fileops.check_move(tmp_path / "gfx" / "main.asm", tmp_path) == f"{tmp_path.name} already has something called main.asm"
+    assert fileops.check_move(tmp_path / "gfx", tmp_path / "gfx" / "old") == "Can't move gfx into itself"
+    assert fileops.check_move(tmp_path / "gfx", tmp_path / "gfx") == "Can't move gfx into itself"
+    assert fileops.check_move(tmp_path / "main.asm", tmp_path / "gfx" / "old") is None

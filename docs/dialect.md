@@ -418,6 +418,12 @@ the file by name (`incasm`, `incbin`, `#import`) aren't changed: a note says whi
 the old one, and **Show** goes to the first. A name that's taken or can't be used is refused as you
 type it.
 
+**Drag a file or folder** onto a folder to move it there (onto a file, to move it into that file's
+folder), or onto the space below the files to move it to the top of the project. A move is a rename,
+so the project's settings, the build list and open tabs follow it in the same way. Open a folder
+before dragging into a folder inside it: folders don't open as you hover. Only the project's own
+files move; library folders outside it (`../Library`) stay put. Empty folders show in the tree too.
+
 **Move to Trash** asks first, closes the file's tabs and takes it off the build list (and out of the
 project's other settings). Restore it from the desktop's Trash if it was a mistake.
 
