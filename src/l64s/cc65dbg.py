@@ -87,14 +87,37 @@ def parse(path: Path) -> DebugInfo:
         raise DebugFileError(f"Couldn't read {path}: {e}") from None
 
 
-def source_map(info: DebugInfo, base: Path) -> dict[int, tuple[str, int]]:
-    """{address: (file, line)}: C lines first, then lines of assembler files that exist (relative
-    names are from ``base``, the folder the build ran in)."""
-    real: dict[int, str | None] = {}
+def _real_files(info: DebugInfo, base: Path) -> dict[int, str | None]:
+    out: dict[int, str | None] = {}
     for fid, name in info.files.items():
         p = Path(name)
         p = p if p.is_absolute() else base / p
-        real[fid] = str(p.resolve()) if p.is_file() else None
+        out[fid] = str(p.resolve()) if p.is_file() else None
+    return out
+
+
+def c_line_spans(info: DebugInfo, base: Path, line_type: int = 1) -> list:
+    """Every address range made by a line of C, for stepping by C line (emu.clines.LineSpan). With
+    ``line_type`` 0: by a line of an assembler file of the project's (not cc65's own assembly)."""
+    from .emu.clines import LineSpan
+    real = _real_files(info, base)
+    out = []
+    for fid, line, typ, spans in info.lines:
+        if typ != line_type or real.get(fid) is None:
+            continue
+        for sid in spans:
+            span = info.spans.get(sid)
+            if span is None or span[2] == 0 or span[0] not in info.segs:
+                continue
+            start = info.segs[span[0]] + span[1]
+            out.append(LineSpan(start, start + span[2], real[fid], line))
+    return out
+
+
+def source_map(info: DebugInfo, base: Path) -> dict[int, tuple[str, int]]:
+    """{address: (file, line)}: C lines first, then lines of assembler files that exist (relative
+    names are from ``base``, the folder the build ran in)."""
+    real = _real_files(info, base)
     out: dict[int, tuple[str, int]] = {}
     for want in (1, 0):                            # C lines win where both start at an address
         for fid, line, typ, spans in info.lines:

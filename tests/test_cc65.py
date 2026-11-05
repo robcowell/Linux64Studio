@@ -87,6 +87,9 @@ def test_debug_file(tmp_path):
     m = source_map(info, tmp_path)
     c, s = str((tmp_path / "main.c").resolve()), str((tmp_path / "fast.s").resolve())
     assert m == {0x810: (c, 5), 0x818: (c, 5), 0x830: (s, 3)}     # main.s left out, an empty span too
+    from l64s.cc65dbg import c_line_spans
+    spans = sorted((x.start, x.end, Path(x.file).name, x.line) for x in c_line_spans(info, tmp_path))
+    assert spans == [(0x810, 0x813, "main.c", 5), (0x818, 0x81A, "main.c", 5)]     # C lines only
     with pytest.raises(DebugFileError):
         parses("not a debug file")
 

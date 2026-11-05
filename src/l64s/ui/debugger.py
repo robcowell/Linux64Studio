@@ -13,6 +13,7 @@ from gi.repository import GLib, GObject, Gtk  # noqa: E402
 from ..asm.disasm import disassemble  # noqa: E402
 from ..emu import vice  # noqa: E402
 from ..emu.binmon import EVT_JAM, EVT_RESUMED, EVT_STOPPED, BinaryMonitor, MonitorError  # noqa: E402
+from ..emu.clines import FINISH, RUN, STOP, LineTable, decide  # noqa: E402
 from ..emu.values import FLAG_NAMES, ValueError_, is_io, parse_address, parse_bytes, parse_register  # noqa: E402
 from .hexview import HexView  # noqa: E402
 
@@ -30,8 +31,14 @@ class DebugSession(GObject.Object):
     }
 
     def __init__(self, prg: Path, labels: Path | None, srcmap: dict[int, tuple[str, int]],
-                 symbols: dict[int, str], emulator: str, extra_args: list[str]):
+                 symbols: dict[int, str], emulator: str, extra_args: list[str], c_lines: list | None = None,
+                 asm_lines: list | None = None):
         super().__init__()
+        # C builds: which C line each address belongs to, for stepping by C line (step_line)
+        self.lines = LineTable(c_lines or [])
+        self.asm_lines = LineTable(asm_lines or [])       # the project's own .s files: stepped by instruction
+        self.stepping = False
+        self._cancel_step = False
         self.prg, self.labels, self.srcmap, self.symbols = prg, labels, srcmap, symbols
         self.emulator, self.extra_args = emulator, extra_args
         self.monitor = BinaryMonitor(self._on_event)
@@ -122,6 +129,8 @@ class DebugSession(GObject.Object):
     def snapshot_memory(self) -> bytes:
         """All 64K as the CPU sees it now. A running program pauses for the read and carries on,
         without the debugger showing a stop."""
+        if self.stepping:
+            raise MonitorError("the debugger is stepping by C line: try again when it stops")
         m = self.monitor
         was_running = self.running
         if was_running:
@@ -140,6 +149,8 @@ class DebugSession(GObject.Object):
 
     def save_snapshot(self, path) -> int:
         """Snapshot the machine to a .vsf. A running program carries on afterwards. Returns the PC."""
+        if self.stepping:
+            raise MonitorError("the debugger is stepping by C line: try again when it stops")
         m = self.monitor
         was_running = self.running
         if was_running:
@@ -235,6 +246,92 @@ class DebugSession(GObject.Object):
             m.step(1, False)
         finally:
             m.enable_checkpoint(cid, True)
+
+    # ---------------------------------------------------------------- stepping by C line
+    def c_line_at(self, pc: int) -> tuple[str, int] | None:
+        return self.lines.line_at(pc) if self.lines else None
+
+    def steps_by_c_line(self, pc: int) -> bool:
+        """In a C program, F10/F11 step by C line on a line of C, and from code with no line at all
+        (cc65's runtime, the KERNAL) they run on to the next line of C. In the project's own assembler
+        (.s files) they step by instruction."""
+        if not self.lines:
+            return False
+        return self.lines.line_at(pc) is not None or self.asm_lines.line_at(pc) is None
+
+    def step_line(self, over: bool) -> None:
+        """Step Over / Step Into by C line (see emu.clines): runs on a thread, since a line can take
+        any time (waiting for a key, say), and reports the stop as any other. Pause cancels it."""
+        self.stepping, self._cancel_step = True, False
+        self.running = True
+        self.event_seq += 1
+        GLib.idle_add(self.emit, "resumed")
+        threading.Thread(target=self._step_line, args=(over,), daemon=True).start()
+
+    def cancel_step(self) -> None:
+        self._cancel_step = True
+
+    def _wait_quiet(self) -> bool:
+        """Wait for VICE to stop (quietly); False if the step was cancelled meanwhile."""
+        while not self._quiet_stop.wait(0.1):
+            if self._cancel_step or not self.monitor.connected:
+                return False
+        return True
+
+    def _step_line(self, over: bool):
+        m = self.monitor
+        temp: list[int] = []
+        pc = None
+        self._quiet = True
+        try:
+            regs = m.get_registers()
+            pc, sp = regs.get("PC", 0), regs.get("SP", 0)
+            start, start_sp = self.lines.line_at(pc), sp
+            if pc in self.checkpoints:
+                # VICE would stop on this breakpoint again before running anything: leave it first
+                cid = self.checkpoints[pc]
+                m.enable_checkpoint(cid, False)
+                try:
+                    self._quiet_stop.clear()
+                    m.step(1, False)
+                    self._wait_quiet()
+                finally:
+                    m.enable_checkpoint(cid, True)
+            for _round in range(10000):              # (each round runs at full speed: this is plenty)
+                regs = m.get_registers()
+                pc, sp = regs.get("PC", 0), regs.get("SP", 0)
+                action = decide(self.lines, start, start_sp, pc, sp, over,
+                                at_user_breakpoint=_round > 0 and pc in self.checkpoints)
+                if action == STOP or self._cancel_step:
+                    break
+                self._quiet_stop.clear()
+                if action == RUN:
+                    temp = [m.add_checkpoint(a, b).id for a, b in self.lines.ranges_outside(start)]
+                    m.resume()
+                elif action == FINISH:
+                    m.step_out()
+                if not self._wait_quiet():
+                    m.ping()                         # cancelled: stop VICE where it is
+                for cid in temp:
+                    m.delete_checkpoint(cid)
+                temp = []
+                if self._cancel_step:
+                    break
+            pc = m.get_registers().get("PC", pc or 0)
+        except (OSError, MonitorError) as e:
+            GLib.idle_add(self.emit, "ended", f"Couldn't step: {e}")
+            return
+        finally:
+            for cid in temp:
+                try:
+                    m.delete_checkpoint(cid)
+                except (OSError, MonitorError):
+                    pass
+            self._quiet = False
+            self.stepping = False
+        self.running = False
+        self.event_seq += 1
+        GLib.idle_add(self._deliver_stop, pc, self.event_seq)
 
     def cmd(self, fn, *args):
         try:
@@ -358,7 +455,8 @@ class DebuggerPanel(Gtk.Box):
         self.state_label.set_text("Starting VICE…")
 
     def _set_running(self, running: bool):
-        self.state_label.set_text("Running" if running else "Stopped")
+        stepping = running and self.session is not None and self.session.stepping
+        self.state_label.set_text("Stepping to the next C line…" if stepping else "Running" if running else "Stopped")
         editable = not running and self.session is not None
         for e in self.reg_entries.values():
             e.set_sensitive(editable)
@@ -393,6 +491,14 @@ class DebuggerPanel(Gtk.Box):
             return
         m = s.monitor
         pc = self._regs.get("PC")
+        if key == "pause" and s.stepping:
+            s.cancel_step()                    # stops where it's got to
+            return
+        if key in ("into", "over") and not s.running and pc is not None and s.steps_by_c_line(pc):
+            s.step_line(over=key == "over")    # in C: to the next line, not the next instruction
+            return
+        if key in ("into-instruction", "over-instruction"):
+            key = key.split("-")[0]            # by instruction, even in C
         if key in ("continue", "into", "over") and pc in s.checkpoints and not s.running:
             opcode = (s.cmd(m.read_memory, pc, pc) or b"\0")[0]
             s.cmd(s.leave_breakpoint, pc)      # runs the instruction at the breakpoint

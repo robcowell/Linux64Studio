@@ -285,6 +285,8 @@ class MainWindow(Adw.ApplicationWindow):
         add("debug-over", lambda *_: self.debugger.do("over"))
         add("debug-into", lambda *_: self.debugger.do("into"))
         add("debug-out", lambda *_: self.debugger.do("out"))
+        add("debug-into-instruction", lambda *_: self.debugger.do("into-instruction"))
+        add("debug-over-instruction", lambda *_: self.debugger.do("over-instruction"))
         add("project-properties", lambda *_: self.project_properties())
         add("goto-line", lambda *_: self._goto_line_dialog())
         add("renumber", lambda *_: self.renumber_dialog())
@@ -390,7 +392,7 @@ class MainWindow(Adw.ApplicationWindow):
             if missing:
                 self.toast(f"Not found, so not opened: {', '.join(missing)}")
         elif reopen_tabs:
-            first = (proj.build_paths()[:1] if proj.toolchain == TOOLCHAIN_CBM
+            first = (proj.build_paths()[:1] if proj.toolchain in (TOOLCHAIN_CBM, TOOLCHAIN_CC65)
                      else [proj.directory / proj.main_file] if proj.main_file else [])
             for p in first:
                 if p.exists():
@@ -1210,7 +1212,7 @@ class MainWindow(Adw.ApplicationWindow):
                     symbols[value] = name
         start = res.run_target(self.project) if self.project else res.prg
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
-                               self._vice_args())
+                               self._vice_args(), c_lines=res.c_lines, asm_lines=res.asm_lines)
         r = res.asm_result
         if r is not None:
             # CBM prg Studio's BREAKPOINT, DEBUGSTARTADDRESS and WATCH directives

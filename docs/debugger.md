@@ -8,7 +8,8 @@ and memory. The editor highlights the source line, or the line that called the m
 | Key | |
 |---|---|
 | F8 | Continue |
-| F10 / F11 / Shift+F11 | Step over / into / out |
+| F10 / F11 / Shift+F11 | Step over / into / out (in C, by C line: [stepping by C line](c.md#stepping-by-c-line)) |
+| Ctrl+F10 / Ctrl+F11 | Step over / into one instruction, even in C |
 | F9 | Toggle breakpoint |
 
 ## The Breakpoints list

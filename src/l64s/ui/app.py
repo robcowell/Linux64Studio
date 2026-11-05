@@ -31,6 +31,8 @@ ACCELS = {
     "win.debug-over": ["F10"],
     "win.debug-into": ["F11"],
     "win.debug-out": ["<Shift>F11"],
+    "win.debug-into-instruction": ["<Control>F11"],
+    "win.debug-over-instruction": ["<Control>F10"],
     "win.goto-line": ["<Control>g"],
     "win.find-in-files": ["<Control><Shift>f"],
     "win.find": ["<Control>f"],
@@ -53,7 +55,9 @@ SHORTCUT_GROUPS = [
                        ("F5", "Build current file and run"), ("<Control>F5", "Build project and run"),
                        ("<Shift>F5", "Debug project")]),
     ("Debugging", [("F9", "Toggle breakpoint"), ("F8", "Continue"), ("F10", "Step over"),
-                   ("F11", "Step into"), ("<Shift>F11", "Step out")]),
+                   ("F11", "Step into"), ("<Shift>F11", "Step out"),
+                   ("<Control>F10", "Step over one instruction (in C)"),
+                   ("<Control>F11", "Step into one instruction (in C)")]),
 ]
 
 

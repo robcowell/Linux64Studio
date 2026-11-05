@@ -80,6 +80,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel) -> Gio.Menu:
     debugger = _menu([("_Debug Project", "win.debug-project")],
                      [("_Continue", "win.debug-continue"), ("Step _Over", "win.debug-over"),
                       ("Step _Into", "win.debug-into"), ("Step O_ut", "win.debug-out")],
+                     [("Step Over One Instruction", "win.debug-over-instruction"),
+                      ("Step Into One Instruction", "win.debug-into-instruction")],
                      [("Toggle _Breakpoint", "win.toggle-breakpoint")],
                      [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")])
     basic = _menu([("_List BASIC Program (.prg)…", "win.list-prg"), ("_Renumber…", "win.renumber"),

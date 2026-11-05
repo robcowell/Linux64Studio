@@ -76,8 +76,27 @@ debugged ([debugger](debugger.md)):
 * When the program stops, the editor shows the C line it's on, and the Debugger tab the registers,
   memory and disassembly, with the program's labels (C functions and globals have cc65's leading
   underscore: `_main`).
-* Stepping (F10, F11, Shift+F11) is by instruction, not by C line. C variables aren't shown by name:
-  look them up in the map file, or watch their memory.
+* C variables aren't shown by name: look them up in the map file, or watch their memory.
+
+### Stepping by C line
+
+On a line of C, **F10** (Step Over) and **F11** (Step Into) go to the next line of C, as a C
+debugger does, not the next instruction:
+
+* **F10** runs the whole line, calls and all, and stops on the next line that runs: the line below,
+  or back at the top of a loop. A function the line calls runs to its end without stopping, unless
+  there's a breakpoint in it.
+* **F11** goes into a C function the line calls and stops on its first line. Calls to cc65's
+  runtime library and the KERNAL (which have no C source) run to their end, as with F10.
+* Either way, the program runs at full speed while it's on the line, so a busy loop on one line
+  takes no longer than it would anyway. A line that waits (for a key, say) waits: the Debugger tab
+  says *Stepping to the next C line…*, and **Pause** stops it where it's got to.
+* Stepping past the end of a function stops on the line that called it.
+* **Shift+F11** (Step Out) runs to the end of the function and stops in the caller.
+* **Ctrl+F10** and **Ctrl+F11** step one instruction (over or into a JSR), for when you want to see
+  the 6502 code a line makes. From code with no line of C (cc65's runtime, after Ctrl+F11 into it),
+  F10 and F11 run on to the next line of C. In your own assembler files (`.s`), F10 and F11 step by
+  instruction, as in an assembler project.
 
 ## In the editor
 
