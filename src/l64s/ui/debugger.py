@@ -8,7 +8,7 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..asm.disasm import disassemble  # noqa: E402
 from ..emu import vice  # noqa: E402
@@ -441,7 +441,29 @@ class DebuggerPanel(Gtk.Box):
         right.append(Gtk.ScrolledWindow(child=self.memory, vexpand=True, hscrollbar_policy=Gtk.PolicyType.AUTOMATIC))
         self.mem_status = Gtk.Label(xalign=0, css_classes=["dim-label", "caption"])
         right.append(self.mem_status)
-        body.set_end_child(right)
+        # C programs: the Variables list above the memory (see cvars)
+        self.c_program = None
+        self.c_sp = 0x02
+        self._var_values: dict[tuple[str, str], str] = {}
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_end=6)
+        vhead = Gtk.Box(spacing=8)
+        vhead.append(Gtk.Label(label="<b>Variables</b>", use_markup=True, xalign=0))
+        self.vars_where = Gtk.Label(xalign=0, hexpand=True, css_classes=["dim-label", "caption"],
+                                    ellipsize=Pango.EllipsizeMode.END)
+        vhead.append(self.vars_where)
+        vbox.append(vhead)
+        self.vars_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=["l64s-vars"])
+        css = Gtk.CssProvider()                # compact rows: as many variables as fit, like the registers
+        css.load_from_data(b".l64s-vars row { padding: 1px 4px; min-height: 0; }", -1)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.vars_list.connect("row-activated", self._variable_activated)
+        vbox.append(Gtk.ScrolledWindow(child=self.vars_list, vexpand=True, min_content_height=110))
+        self.vars_box = vbox
+        vbox.set_visible(False)
+        stack = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL, start_child=vbox, end_child=right,
+                          shrink_start_child=False, shrink_end_child=False, position=190)
+        body.set_end_child(stack)
 
     # ---------------------------------------------------------------- session wiring
     def attach(self, session: DebugSession):
@@ -541,6 +563,88 @@ class DebuggerPanel(Gtk.Box):
         self.refresh_memory(snapshot=snapshot)
         src = session.srcmap.get(pc)
         self.emit("show-source", src[0] if src else "", src[1] if src else 0)
+        self._show_variables(session, pc, snapshot)
+
+    # ---------------------------------------------------------------- C variables
+    def set_c_program(self, program, sp_address: int = 0x02):
+        """A C program's variables to show at each stop (cvars.CProgram), or None for assembler."""
+        self.c_program, self.c_sp = program, sp_address
+        self._var_values = {}
+        self.vars_box.set_visible(program is not None)
+        while (row := self.vars_list.get_row_at_index(0)) is not None:
+            self.vars_list.remove(row)
+
+    def _show_variables(self, session, pc: int, snapshot: bool = True):
+        prog = self.c_program
+        if prog is None:
+            return
+        m = session.monitor
+        zp = session.cmd(m.read_memory, self.c_sp, self.c_sp + 1) or b"\0\0"
+        sp = zp[0] | zp[1] << 8
+        here = session.c_line_at(pc)
+        at_line_start = here is not None and session.srcmap.get(pc) == here
+        fn, variables = prog.variables(here, sp)
+        if fn is None:
+            self.vars_where.set_text("not in a C function: globals only")
+        else:
+            self.vars_where.set_text(f"in {fn.name}()" + ("" if at_line_start else
+                                     " (between lines: locals may be off while a line is part-way through)"))
+        # globals in one read where they're close together, the rest one by one
+        cache: dict[int, int] = {}
+        globs = [v for v in variables if v.group == "global" and v.address is not None]
+        if globs:
+            lo = min(v.address for v in globs)
+            hi = max(v.address + v.size for v in globs) - 1
+            if hi - lo < 0x2000:
+                data = session.cmd(m.read_memory, lo, hi) or b""
+                cache.update({lo + i: b for i, b in enumerate(data)})
+
+        def read(addr: int, size: int) -> bytes:
+            if all(addr + i in cache for i in range(size)):
+                return bytes(cache[addr + i] for i in range(size))
+            data = session.cmd(m.read_memory, addr, min(0xFFFF, addr + size - 1)) or b""
+            cache.update({addr + i: b for i, b in enumerate(data)})
+            return data
+
+        while (row := self.vars_list.get_row_at_index(0)) is not None:
+            self.vars_list.remove(row)
+        last_group = None
+        values = {}
+        for v in variables:
+            group = "Globals" if v.group == "global" else f"{fn.name}()" if fn else "Locals"
+            if group != last_group:
+                head = Gtk.Label(label=group, xalign=0, css_classes=["dim-label", "caption-heading"], margin_top=2)
+                self.vars_list.append(Gtk.ListBoxRow(child=head, activatable=False))
+                last_group = group
+            if v.address is None:
+                value = ""
+            else:
+                value = prog.show(v, read(v.address, max(1, min(v.size, 256))))
+            key = (v.group, v.name)
+            values[key] = value
+            box = Gtk.Box(spacing=8, margin_start=6)
+            box.append(Gtk.Label(label=v.name, xalign=0, width_chars=14, ellipsize=Pango.EllipsizeMode.END,
+                                 css_classes=["monospace"]))
+            box.append(Gtk.Label(label=v.type_name, xalign=0, width_chars=14, ellipsize=Pango.EllipsizeMode.END,
+                                 css_classes=["dim-label", "caption"]))
+            val = Gtk.Label(label=value or v.note, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
+                            selectable=bool(value), css_classes=["monospace"] if value else ["dim-label", "caption"],
+                            tooltip_text=value or v.note or None)
+            if value and self._var_values.get(key) and self._var_values[key] != value:
+                val.add_css_class("warning")         # changed since the last stop, as registers are
+            box.append(val)
+            box.append(Gtk.Label(label=f"${v.address:04X}" if v.address is not None else "", width_chars=6,
+                                 css_classes=["dim-label", "caption", "monospace"]))
+            row = Gtk.ListBoxRow(child=box, activatable=v.address is not None)
+            row.var_address = v.address
+            self.vars_list.append(row)
+        if snapshot:
+            self._var_values = values
+
+    def _variable_activated(self, _list, row):
+        """Double-click a variable: its bytes in the memory view."""
+        if getattr(row, "var_address", None) is not None:
+            self.refresh_memory(row.var_address)
 
     def _show_watches(self, session):
         if not session.watches:

@@ -121,3 +121,14 @@ def parse_output(text: str, cwd: Path, compiled: dict[str, Path] | None = None) 
                 continue                     # already said, name by name
             out.append(Diagnostic("warning" if m.group("sev") == "Warning" else "error", msg, None))
     return out
+
+
+def stack_pointer(labels: Path) -> int:
+    """Where cc65's C stack pointer is (two bytes in zero page), from the VICE label file: ``sp``
+    (``c_sp`` in newer cc65). $02 if the file doesn't say."""
+    try:
+        text = Path(labels).read_text(errors="replace")
+    except OSError:
+        return 0x02
+    m = re.search(r"^al\s+([0-9A-Fa-f]+)\s+\.(?:c_)?sp\s*$", text, re.M)
+    return int(m.group(1), 16) if m else 0x02

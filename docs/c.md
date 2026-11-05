@@ -76,7 +76,27 @@ debugged ([debugger](debugger.md)):
 * When the program stops, the editor shows the C line it's on, and the Debugger tab the registers,
   memory and disassembly, with the program's labels (C functions and globals have cc65's leading
   underscore: `_main`).
-* C variables aren't shown by name: look them up in the map file, or watch their memory.
+
+### Variables
+
+While a C program is stopped, the Debugger tab's **Variables** list (above Memory) shows the
+current function's parameters and local variables, then the program's global variables, each with
+its type, its value and its address. A value that changed since the last stop is highlighted, as
+changed registers are. Double-click a variable to see its bytes in the Memory view.
+
+* Values are shown as their types say: numbers in decimal and hex (a `char` with its character),
+  pointers as addresses (or `NULL`), `char` arrays as text, other arrays and structs as `{…}`.
+* A local declared further down the function shows *not declared yet* until its declaration has
+  run (cc65 makes room for it there), and one in a block that has ended, *out of scope*.
+* On a function's first line its arguments aren't in place yet: step once (F10).
+* Locals are read from cc65's C stack, which is exact at the start of a line, where breakpoints
+  and stepping by C line stop. Part-way through a line (after Ctrl+F10) they may be off, and the
+  list says so.
+* cc65 doesn't record C types in its debug information, so they're read from your source
+  declarations (including `#define`d array sizes, `typedef`s, structs and `stdint.h` types). A
+  variable whose declaration can't be read is shown as bytes. `static` variables inside a function
+  aren't listed (cc65 gives them no name in the debug information); `register` variables show the
+  value saved on the C stack.
 
 ### Stepping by C line
 

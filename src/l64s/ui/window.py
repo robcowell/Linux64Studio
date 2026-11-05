@@ -1224,6 +1224,7 @@ class MainWindow(Adw.ApplicationWindow):
                 session.source_breakpoints.add(r.debug_start)
             session.watches = list(r.watches)
         self.debug = session
+        self.debugger.set_c_program(self._c_program(res), res.c_sp)
         self.debugger.attach(session)
         pending = getattr(self, "_pending_snapshot", None)
         if pending:
@@ -1236,6 +1237,26 @@ class MainWindow(Adw.ApplicationWindow):
         except FileNotFoundError as e:
             self.toast(str(e))
             self.debug = None
+
+    def _c_program(self, res: BuildResult):
+        """A C build's variables for the debugger: types from the project's C sources (as they are in
+        the editor), addresses from ld65's debug file. None for anything else."""
+        if not (self.project and self.project.toolchain == TOOLCHAIN_CC65 and (res.c_globals or res.c_frames)):
+            return None
+        from ..cvars import CProgram
+        open_texts = {str(Path(e.path).resolve()): e.get_text() for e in self.editors()
+                      if isinstance(e, SourceEditor) and e.path}
+        sources = {}
+        built = {f.resolve() for f in self.project.build_paths()}
+        for f in self.project.all_files():
+            # the program's own C files (not other programs' in the same folder), and every header
+            if (f.suffix.lower() == ".c" and f.resolve() in built) or f.suffix.lower() == ".h":
+                key = str(f.resolve())
+                try:
+                    sources[key] = open_texts.get(key) or f.read_text(errors="replace")
+                except OSError:
+                    pass
+        return CProgram(sources, res.c_globals, res.c_frames)
 
     def _on_breakpoints_changed(self, ed):
         if getattr(ed, "path", None):

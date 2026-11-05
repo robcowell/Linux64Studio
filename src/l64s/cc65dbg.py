@@ -26,6 +26,10 @@ class DebugInfo:
     spans: dict[int, tuple[int, int, int]] = field(default_factory=dict)   # id -> (seg, offset, size)
     lines: list[tuple[int, int, int, list[int]]] = field(default_factory=list)  # (file, line, type, spans)
     symbols: dict[int, str] = field(default_factory=dict)            # address -> name (labels)
+    seg_names: dict[int, str] = field(default_factory=dict)          # id -> CODE, DATA, BSS, ...
+    labels: dict[str, tuple[int, int | None]] = field(default_factory=dict)   # name -> (address, segment)
+    scopes: dict[int, str] = field(default_factory=dict)             # id -> name (_main for main())
+    csyms: list[tuple[str, int, str, int | None]] = field(default_factory=list)  # (name, scope, sc, offs)
 
 
 def _fields(text: str) -> dict[str, str]:
@@ -60,7 +64,7 @@ def parses(text: str) -> DebugInfo:
         raise DebugFileError("Not an ld65 debug file")
     for raw in text.splitlines():
         kind, _, rest = raw.partition("\t")
-        if kind not in ("file", "seg", "span", "line", "sym"):
+        if kind not in ("file", "seg", "span", "line", "sym", "csym", "scope"):
             continue
         f = _fields(rest)
         try:
@@ -68,6 +72,12 @@ def parses(text: str) -> DebugInfo:
                 info.files[_int(f["id"])] = f["name"]
             elif kind == "seg":
                 info.segs[_int(f["id"])] = _int(f["start"])
+                info.seg_names[_int(f["id"])] = f.get("name", "")
+            elif kind == "scope":
+                info.scopes[_int(f["id"])] = f.get("name", "")
+            elif kind == "csym":
+                info.csyms.append((f["name"], _int(f["scope"]), f.get("sc", ""),
+                                   _int(f["offs"]) if "offs" in f else None))
             elif kind == "span":
                 info.spans[_int(f["id"])] = (_int(f["seg"]), _int(f["start"]), _int(f.get("size", "0")))
             elif kind == "line":
@@ -75,6 +85,7 @@ def parses(text: str) -> DebugInfo:
                 info.lines.append((_int(f["file"]), _int(f["line"]), _int(f.get("type", "0")), spans))
             elif kind == "sym" and f.get("type") == "lab" and "val" in f:
                 info.symbols.setdefault(_int(f["val"]), f["name"])
+                info.labels[f["name"]] = (_int(f["val"]), _int(f["seg"]) if "seg" in f else None)
         except (KeyError, ValueError):
             continue                               # a line we don't understand: skip it
     return info
@@ -130,4 +141,35 @@ def source_map(info: DebugInfo, base: Path) -> dict[int, tuple[str, int]]:
                 seg, offset, _size = span
                 if seg in info.segs:
                     out.setdefault(info.segs[seg] + offset, (real[fid], line))
+    return out
+
+
+_CODE_SEGMENTS = {"CODE", "STARTUP", "LOWCODE", "ONCE", "EXEHDR", "LOADADDR"}
+
+
+def c_globals(info: DebugInfo) -> dict[str, tuple[int, int]]:
+    """The program's C global (and file-static) variables: {name: (address, bytes to the next label)}.
+    cc65 names a C variable ``_name``; the ones in code segments are functions."""
+    data = [(addr, name, seg) for name, (addr, seg) in info.labels.items()
+            if seg is not None and info.seg_names.get(seg, "") not in _CODE_SEGMENTS]
+    data.sort()
+    out = {}
+    for i, (addr, name, seg) in enumerate(data):
+        if not name.startswith("_") or name.startswith("__"):
+            continue
+        nxt = next((a for a, _n, s in data[i + 1:] if s == seg and a > addr), None)
+        gap = (nxt - addr) if nxt is not None else 2
+        out[name[1:]] = (addr, max(1, min(gap, 256)))
+    return out
+
+
+def c_frames(info: DebugInfo) -> dict[str, dict[str, int | None]]:
+    """Each C function's parameters and locals on the C stack: {function: {name: offset}}. A
+    parameter without an offset is at the frame's base (offset 0)."""
+    out: dict[str, dict[str, int | None]] = {}
+    for name, scope, sc, offs in info.csyms:
+        fn = info.scopes.get(scope, "")
+        if sc != "auto" or not fn.startswith("_"):
+            continue
+        out.setdefault(fn[1:], {})[name] = offs
     return out

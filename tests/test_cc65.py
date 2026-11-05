@@ -158,3 +158,10 @@ def test_tasks_in_c():
     text = 'int x = 1; /* TODO tidy */\nfoo(); // FIXME: off by one\ntodo not a directive in C;\nx = 2; HACK\n'
     assert [(t.line, t.kind, t.text) for t in scan(text, "a.c", c=True)] == [(1, "TODO", "tidy"),
                                                                            (2, "FIXME", "off by one")]
+
+
+def test_stack_pointer_from_labels(tmp_path):
+    (tmp_path / "a.lbl").write_text("al 00FFD2 .BSOUT\nal 000002 .sp\n")
+    (tmp_path / "b.lbl").write_text("al 000022 .c_sp\n")
+    assert cc65.stack_pointer(tmp_path / "a.lbl") == 2 and cc65.stack_pointer(tmp_path / "b.lbl") == 0x22
+    assert cc65.stack_pointer(tmp_path / "none.lbl") == 2

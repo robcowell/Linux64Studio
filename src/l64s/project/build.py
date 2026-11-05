@@ -30,6 +30,9 @@ class BuildResult:
     basic_preview: list[tuple[Path, str]] = field(default_factory=list)   # each pBASIC file, as numbered BASIC
     c_lines: list = field(default_factory=list)   # C builds: emu.clines.LineSpan per line of C, for stepping
     asm_lines: list = field(default_factory=list)  # ... and per line of the project's .s files
+    c_globals: dict = field(default_factory=dict)  # ... its C variables' addresses (cc65dbg.c_globals)
+    c_frames: dict = field(default_factory=dict)   # ... and its functions' stack frames (cc65dbg.c_frames)
+    c_sp: int = 0x02                               # ... and where cc65's C stack pointer is (zero page)
 
     def run_target(self, project) -> Path | None:
         """What to run: the cartridge, the disk image or the program, as the project says."""
@@ -605,12 +608,14 @@ def _build_cc65(project: Project, only_file) -> BuildResult:
     res = BuildResult(ok, prg if ok else None, out["labels"] if ok and out["labels"].is_file() else None,
                       diags, "\n".join(log))
     if ok and out["dbg"].is_file():
-        from ..cc65dbg import DebugFileError, c_line_spans, parse, source_map
+        from ..cc65dbg import DebugFileError, c_frames, c_globals, c_line_spans, parse, source_map
         try:
             info = parse(out["dbg"])
             res.srcmap = source_map(info, project.directory)
             res.c_lines = c_line_spans(info, project.directory)
             res.asm_lines = c_line_spans(info, project.directory, line_type=0)
+            res.c_globals, res.c_frames = c_globals(info), c_frames(info)
+            res.c_sp = cc65.stack_pointer(out["labels"])
         except DebugFileError as e:
             res.log += f"\n{e}"
         res.log += f"\nWrote {prg} ({prg.stat().st_size} bytes)"
