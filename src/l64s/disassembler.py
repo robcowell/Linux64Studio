@@ -199,7 +199,13 @@ class Session:
         return refs
 
     # ---------------------------------------------------------------- output
-    def source(self, kickass: bool = False) -> str:
+    def source(self, kickass: bool = False, syntax: str | None = None) -> str:
+        """The disassembly as source: CBM prg Studio's or Kick Assembler's, or ca65's (for a C
+        project too: code that's been disassembled can only be assembler)."""
+        from .syntax import CA65, C, resolve
+        ca65 = resolve(syntax, kickass) in (CA65, C)
+        if ca65:
+            kickass = False
         lines = self.lines()
         b = self.binary
         c = "//" if kickass else ";"
@@ -218,16 +224,21 @@ class Session:
                 val = f"${v:02X}" if v < 0x100 else f"${v:04X}"
                 out.append(f".const {n} = {val}" if kickass else f"{n:<15} = {val}")
             out.append("")
-        out.append(f"*= ${b.start:04X}" if kickass else f"*=${b.start:04X}")
+        if ca65:
+            out.append(f"        .org ${b.start:04X}          ; assembled for this address")
+        else:
+            out.append(f"*= ${b.start:04X}" if kickass else f"*=${b.start:04X}")
         out.append("")
         for ln in lines:
             text = ln.text
+            if ca65 and text.startswith("byte "):
+                text = "." + text
             if kickass:
                 if text.startswith("byte "):
                     text = "." + text
                 elif text.endswith(" a") and text.split()[0] in ("asl", "lsr", "rol", "ror"):
                     text = text[:-2]    # Kick Assembler writes accumulator mode without the "a"
-            head = (f"{ln.label}:" if kickass else ln.label) if ln.label else ""
+            head = (f"{ln.label}:" if kickass or ca65 else ln.label) if ln.label else ""
             if len(head) >= 8:
                 out.append(head)
                 head = ""

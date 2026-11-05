@@ -177,11 +177,15 @@ def number_basic(lines: list[str], start: int = 1000, step: int = 10) -> list[st
     return [f"{n} {_outside_strings(body, resolve)}" for n, body in bodies]
 
 
-def expand(snippet: Snippet, start: int = 1000, step: int = 10, kickass: bool = False) -> str:
-    """The snippet as it's pasted: numbered BASIC in listing case, or assembler."""
+def expand(snippet: Snippet, start: int = 1000, step: int = 10, kickass: bool = False,
+           syntax: str | None = None) -> str:
+    """The snippet as it's pasted: numbered BASIC in listing case, or assembler (CBM prg Studio's,
+    Kick Assembler's, or ca65's, which a C project gets too: the snippets are 6502 code)."""
     if snippet.is_basic:
         return "\n".join(number_basic([cbm_case(ln) for ln in snippet.lines], start, step)) + "\n"
     text = snippet.code + "\n"
+    if syntax in ("ca65", "c"):
+        return to_ca65(text)
     return to_kickass(text) if kickass else text
 
 
@@ -190,37 +194,46 @@ def expand(snippet: Snippet, start: int = 1000, step: int = 10, kickass: bool = 
 _DIRECTIVES = {"byte": ".byte", "byt": ".byte", "db": ".byte", "word": ".word", "dw": ".word", "text": ".text"}
 
 
-def to_kickass(text: str) -> str:
+def to_ca65(text: str) -> str:
+    """The same light conversion to ca65: ; comments stay, labels get a colon, `*=` becomes `.org`,
+    constants stay `NAME = value`, and byte/word/text become .byte/.word/.byte "..."."""
+    return to_kickass(text, ca65=True)
+
+
+def to_kickass(text: str, ca65: bool = False) -> str:
     """A light conversion of simple CBM-syntax assembler to Kick Assembler: comments, labels
     in column 1 (given a colon), `*=`, constants and data directives. Macros aren't converted."""
     from .asm.opcodes import OPCODES
+    directives = {**_DIRECTIVES, "text": ".byte"} if ca65 else _DIRECTIVES
     out = []
     for line in text.split("\n"):
         code, sep, comment = line.partition(";")
-        comment = ("//" + comment) if sep else ""
+        comment = (("; " + comment.lstrip()) if ca65 else ("//" + comment)) if sep else ""
         stripped = code.strip()
         if not stripped:
             out.append((code + comment).rstrip())
             continue
         m = re.match(r"^\*\s*=\s*(.+)$", stripped)
         if m:
-            out.append(f"*= {m.group(1).strip()}" + (f"  {comment}" if comment else ""))
+            org = f"            .org {m.group(1).strip()}" if ca65 else f"*= {m.group(1).strip()}"
+            out.append(org + (f"  {comment}" if comment else ""))
             continue
         m = re.match(r"^([A-Za-z_][\w]*)\s*=\s*(.+)$", stripped)
         if m:
-            out.append(f".const {m.group(1)} = {m.group(2).strip()}" + (f"  {comment}" if comment else ""))
+            const = f"{m.group(1)} = {m.group(2).strip()}" if ca65 else f".const {m.group(1)} = {m.group(2).strip()}"
+            out.append(const + (f"  {comment}" if comment else ""))
             continue
         label = ""
         rest = code
         if code and not code[0].isspace():
             first, _, rest = code.partition(" ")
             first = first.rstrip(":")
-            if first.lower() in OPCODES or first.lower() in _DIRECTIVES:
+            if first.lower() in OPCODES or first.lower() in directives:
                 rest, first = code, ""
             label = f"{first}:" if first else ""
         words = rest.strip().split(None, 1)
-        if words and words[0].lower() in _DIRECTIVES:
-            rest = _DIRECTIVES[words[0].lower()] + (" " + words[1] if len(words) > 1 else "")
+        if words and words[0].lower() in directives:
+            rest = directives[words[0].lower()] + (" " + words[1] if len(words) > 1 else "")
         else:
             rest = rest.strip()
         body = f"{label:<12}{rest}" if label else f"            {rest}" if rest else label

@@ -141,8 +141,13 @@ class CharsetEditor(EditorPage):
         bar.append(Gtk.Box(hexpand=True))
         self.links = None
         if self.path and self.path.suffix.lower() == ".cst":
-            self.links = ExportLinks(self.path, [("bin", "Character data (.bin)", self.path.stem + ".bin",
-                                                  lambda: self.data.to_bin())], self.project)
+            kinds = [("bin", "Character data (.bin)", self.path.stem + ".bin", lambda: self.data.to_bin())]
+            if getattr(self.project, "toolchain", "") == "cc65":     # a C project: the characters as a C array too
+                from ..syntax import identifier
+                name = identifier(self.path.stem)
+                kinds.append(("c", "Character data (C source, .c)", self.path.stem + ".c",
+                              lambda: self.data.to_source(name, None, "c").encode()))
+            self.links = ExportLinks(self.path, kinds, self.project)
             bar.append(self.links)
         bar.append(Gtk.Label(label="Export"))
         self.export_count = Gtk.SpinButton.new_with_range(1, 256, 1)
@@ -456,7 +461,9 @@ class CharsetEditor(EditorPage):
     def _export(self, fmt: str):
         from gi.repository import Gio
         dlg = Gtk.FileDialog(title="Export characters")
-        dlg.set_initial_name((self.path.stem if self.path else "characters") + (".bin" if fmt == "bin" else ".asm"))
+        c_project = getattr(self.project, "toolchain", "") == "cc65"
+        dlg.set_initial_name((self.path.stem if self.path else "characters")
+                             + (".bin" if fmt == "bin" else ".c" if c_project else ".asm"))
         if self.path:
             dlg.set_initial_folder(Gio.File.new_for_path(str(self.path.parent)))
         count = int(self.export_count.get_value())
@@ -469,6 +476,8 @@ class CharsetEditor(EditorPage):
             p = Path(f.get_path())
             if fmt == "bin":
                 p.write_bytes(self.data.to_bin(count))
-            else:
-                p.write_text(self.data.to_source(p.stem, count))
+            else:                       # the syntax the file name says (.c, .s, or the project's .asm)
+                from ..syntax import KICK, for_file, identifier
+                kick = getattr(self.project, "toolchain", "") == "kickass"
+                p.write_text(self.data.to_source(identifier(p.stem), count, for_file(p, KICK if kick else "cbm")))
         dlg.save(self.get_root(), None, done)

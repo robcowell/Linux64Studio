@@ -20,6 +20,9 @@ class StringFormatter(EditorPage):
     def __init__(self, kickass: bool = False, insert_cb=None, get_target=None):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.insert_cb = insert_cb
         self.get_target = get_target
         self._text = ""
@@ -176,7 +179,7 @@ class StringFormatter(EditorPage):
                           start_line=self.start.get_value_as_int(), step=self.step.get_value_as_int(),
                           variable=self.variable.get_text(), initialise=self.initialise.get_active(),
                           petscii=self.code_box.get_selected() == 0, label=self.label.get_text().strip(),
-                          kickass=self.kickass)
+                          kickass=self.kickass, syntax=self.syntax())
 
     @property
     def is_basic(self) -> bool:            # what this page produces (used when inserting)

@@ -189,6 +189,7 @@ class CodeOptions:
     clear_sid: bool = False
     gate: bool = True              # start the sound (gate on) at the end
     kickass: bool = False
+    syntax: str = ""               # "c" or "ca65" (syntax.py); otherwise kickass chooses Kick or CBM
 
 
 @dataclass
@@ -267,7 +268,35 @@ def generate_basic(sound: Sound, opts: CodeOptions) -> str:
     return "\n".join(lines) + "\n"
 
 
+def generate_c(sound: Sound, opts: CodeOptions) -> str:
+    """The register writes in C (for a cc65 program): SID[n] = value."""
+    var = opts.variable or "SID_REGS"         # (cc65's <c64.h> has SID already)
+    out: list[str] = []
+    if opts.comments:
+        out.append("/* SID sound (made by Linux64Studio's SID Designer) */")
+    if opts.use_variable:
+        out.append(f"#define {var} ((unsigned char *)0x{SID_BASE:04X})")
+
+    def reg(off: int) -> str:
+        return f"{var}[{off}]" if opts.use_variable else f"*(unsigned char *)0x{SID_BASE + off:04X}"
+
+    def line(code: str, comment: str = "") -> None:
+        out.append(f"{code:<24}/* {comment} */" if comment and opts.comments else code)
+
+    if opts.clear_sid:
+        line(f"memset((void *)0x{SID_BASE:04X}, 0, 25);", "clear the SID chip (needs <string.h>)")
+    for w in _writes(sound, opts):
+        line(f"{reg(w.offset)} = 0x{w.value:02X};", w.comment)
+    return "\n".join(out) + "\n"
+
+
 def generate_asm(sound: Sound, opts: CodeOptions) -> str:
+    from ..syntax import CA65, C, resolve
+    sx = resolve(opts.syntax or None, opts.kickass)
+    if sx == C:
+        return generate_c(sound, opts)
+    if sx == CA65:                       # ca65 takes the CBM prg Studio form as it is (= constants, ; comments)
+        opts = CodeOptions(**{**opts.__dict__, "kickass": False, "syntax": ""})
     c = "//" if opts.kickass else ";"
     ind = "    " if opts.kickass else "        "
     var = opts.variable or "SID"

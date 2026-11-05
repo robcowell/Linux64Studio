@@ -97,6 +97,7 @@ class Options:
     comment: bool = True
     label: str = ""
     kickass: bool = False
+    syntax: str = ""          # "ca65" or "c" (syntax.py); otherwise kickass chooses Kick or CBM
 
 
 @dataclass
@@ -155,6 +156,10 @@ def _fmt_int(v: float, typ: str) -> str:
 
 def source(opts: Options, table: Table | None = None) -> str:
     t = table or generate(opts)
+    from .syntax import CA65, C, resolve
+    sx = resolve(opts.syntax or None, opts.kickass)
+    if sx in (CA65, C):
+        return _source_ca65_c(opts, t, sx)
     c = "//" if opts.kickass else ";"
     ind = "    " if opts.kickass else "        "
     out = []
@@ -199,6 +204,35 @@ def source(opts: Options, table: Table | None = None) -> str:
     for i in range(0, len(items), per):
         out.append(f"{ind}{directive} " + ", ".join(items[i:i + per]))
     return "\n".join(out) + "\n"
+
+
+def _source_ca65_c(opts: Options, t: Table, sx: str) -> str:
+    """The table in ca65 (.byte/.word) or C (an array). Floats are each 5 bytes, as CBM BASIC holds them."""
+    from .syntax import table as write_table
+    note = None
+    if opts.comment:
+        what = "deltas of " if opts.deltas else ""
+        pairs = "x, y pairs: " if opts.include_x else ""
+        clamp = f", clamped to {opts.clamp_min:g}..{opts.clamp_max:g}" if opts.clamp else ""
+        note = (f"{pairs}{what}y = {opts.function} for x = {opts.start} to {opts.end} step {opts.step}"
+                f"{clamp} ({len(t.xs)} values)")
+    if opts.type == "float":
+        data = bytearray()
+        for x, v in zip(t.xs, t.values):
+            for f in ([float(x)] if opts.include_x else []) + [v]:
+                try:
+                    data += to_cbm(f)
+                except FloatError as e:
+                    raise DataGenError(str(e)) from None
+        return write_table(sx, opts.label, data, 1, max(1, opts.per_line) * 5,
+                           comment_text=(note + ", as 5-byte CBM floats") if note else "5-byte CBM floats")
+    values = []
+    for x, v in zip(t.xs, t.values):
+        if opts.include_x:
+            values.append(int(x))
+        values.append(int(v))
+    return write_table(sx, opts.label, values, 1 if opts.type == "byte" else 2, max(1, opts.per_line),
+                       comment_text=note)
 
 
 def label_ok(name: str) -> bool:

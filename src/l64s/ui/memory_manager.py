@@ -108,6 +108,9 @@ class MemoryManager(EditorPage):
     def __init__(self, kickass: bool, get_build, get_session, insert_cb):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.get_build = get_build        # () -> (MemoryMap or None, {addr: label}, desc)
         self.get_session = get_session
         self.insert_cb = insert_cb
@@ -303,7 +306,7 @@ class MemoryManager(EditorPage):
         issues = check(lay, m)
         self.issues.set_text("\n".join(("⚠ " if i.severity == "warning" else "• ") + i.message for i in issues)
                              or "No problems found")
-        self.code.get_buffer().set_text(setup_code(lay, self.kickass))
+        self.code.get_buffer().set_text(setup_code(lay, self.kickass, syntax=self.syntax()))
         if m:
             self.status.set_text(f"Compared with {desc}")
 

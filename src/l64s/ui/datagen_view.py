@@ -81,6 +81,9 @@ class DataGenerator(EditorPage):
     def __init__(self, kickass: bool = False, insert_cb=None):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.insert_cb = insert_cb
         self._text = ""
         self._ready = False
@@ -211,7 +214,8 @@ class DataGenerator(EditorPage):
                        include_x=self.include_x.get_active(), clamp=self.clamp.get_active(),
                        clamp_min=self.clamp_min.get_value(), clamp_max=self.clamp_max.get_value(),
                        per_line=self.per_line.get_value_as_int(), comment=self.comment.get_active(),
-                       label=self.label.get_text().strip(), kickass=self.kickass)
+                       label=self.label.get_text().strip(), kickass=self.kickass,
+                       syntax=self.syntax())
 
     def _update(self):
         if not self._ready:

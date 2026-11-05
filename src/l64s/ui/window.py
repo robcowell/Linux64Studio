@@ -670,7 +670,40 @@ class MainWindow(Adw.ApplicationWindow):
         dlg.choose(self, None, chosen)
         return None
 
+    def _regenerate(self, ed):
+        """A code tool's output again, in code_syntax() (its own refresh, whichever it has)."""
+        for name in ("_update", "_convert", "_update_code", "_preview"):
+            fn = getattr(ed, name, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:       # (a tool with nothing to show yet)
+                    pass
+                return
+
+    def _syntax_may_have_changed(self):
+        """A source file came to the front: in a C project, the tools follow it (C for .c, ca65 for .s)."""
+        now = self.code_syntax()
+        if now == getattr(self, "_shown_syntax", None):
+            return
+        self._shown_syntax = now
+        for e in self.editors():
+            if callable(getattr(e, "syntax", None)) and not isinstance(e, SourceEditor):
+                self._regenerate(e)
+
+    def code_syntax(self) -> str:
+        """What the code tools write (syntax.py): in a C project C, or ca65 when the file they'd go into
+        (the source file last in front) is assembler; otherwise the project's assembler, Kick or CBM."""
+        p = self.project
+        if p and p.toolchain == TOOLCHAIN_CC65:
+            ed = self._last_source if self._last_source in self.editors() else None
+            return "ca65" if ed is not None and getattr(ed, "ca65", False) else "c"
+        return "kick" if p and p.toolchain == TOOLCHAIN_KICKASS else "cbm"
+
     def _add_page(self, ed: EditorPage) -> EditorPage:
+        if callable(getattr(ed, "syntax", None)):      # a code tool: it writes in code_syntax()
+            ed.syntax = self.code_syntax
+            GLib.idle_add(lambda e=ed: (self._regenerate(e), False)[1])   # (it wrote its first text before)
         page = self.tab_view.append(ed)
         page.set_title(ed.title)
         page.set_tooltip(str(ed.path) if ed.path else ed.title)
@@ -1541,6 +1574,7 @@ class MainWindow(Adw.ApplicationWindow):
         ed = self.current_editor()
         if isinstance(ed, SourceEditor):
             self._last_source = ed
+            self._syntax_may_have_changed()
         self._watch_status(ed if isinstance(ed, SourceEditor) else None)
         self._update_title()
 

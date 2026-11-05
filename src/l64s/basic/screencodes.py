@@ -174,7 +174,10 @@ def to_basic(petscii: bytes, line_number: int | None = None, style: str = "stand
     return f"{line_number} {stmt}" if line_number is not None else stmt
 
 
-def _byte_lines(data: bytes, label: str, kickass: bool, comment: str) -> str:
+def _byte_lines(data: bytes, label: str, kickass: bool, comment: str, syntax: str | None = None) -> str:
+    from ..syntax import CA65, C, resolve, table
+    if resolve(syntax, kickass) in (CA65, C):
+        return table(resolve(syntax, kickass), label, data, comment_text=comment)
     c = "//" if kickass else ";"
     directive = ".byte" if kickass else "byte"
     lines = [f"{c} {comment}"]
@@ -185,13 +188,16 @@ def _byte_lines(data: bytes, label: str, kickass: bool, comment: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def to_petscii_bytes(petscii: bytes, label: str = "", kickass: bool = False, terminator: bool = True) -> str:
+def to_petscii_bytes(petscii: bytes, label: str = "", kickass: bool = False, terminator: bool = True,
+                     syntax: str | None = None) -> str:
     """PETSCII bytes to print with the KERNAL's CHROUT ($FFD2), ending in 0 if terminator."""
     data = petscii + (b"\0" if terminator else b"")
-    return _byte_lines(data, label, kickass, f"PETSCII for CHROUT ($FFD2){', ends with 0' if terminator else ''}")
+    return _byte_lines(data, label, kickass, f"PETSCII for CHROUT ($FFD2){', ends with 0' if terminator else ''}",
+                       syntax)
 
 
-def to_screen_codes(screen: Screen, label: str = "", kickass: bool = False, colours: bool = False) -> str:
+def to_screen_codes(screen: Screen, label: str = "", kickass: bool = False, colours: bool = False,
+                    syntax: str | None = None) -> str:
     """The printed rows as screen codes (and colours), to copy straight into screen memory.
 
     Only the rows something was printed on are included, each a full 40 bytes.
@@ -202,9 +208,10 @@ def to_screen_codes(screen: Screen, label: str = "", kickass: bool = False, colo
     first, last = rows[0], rows[-1]
     chars = bytes(b for r in range(first, last + 1) for b in screen.chars[r])
     text = _byte_lines(chars, label, kickass,
-                       f"Screen codes for rows {first}-{last} ({len(chars)} bytes, from ${0x0400 + first * 40:04X})")
+                       f"Screen codes for rows {first}-{last} ({len(chars)} bytes, from ${0x0400 + first * 40:04X})",
+                       syntax)
     if colours:
         cols = bytes(b for r in range(first, last + 1) for b in screen.colours[r])
         text += _byte_lines(cols, f"{label}Colours" if label else "", kickass,
-                            f"Colour RAM for the same rows (from ${0xD800 + first * 40:04X})")
+                            f"Colour RAM for the same rows (from ${0xD800 + first * 40:04X})", syntax)
     return text

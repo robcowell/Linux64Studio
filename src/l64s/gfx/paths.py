@@ -140,6 +140,7 @@ class GenOptions:
     output: str = "bytes"          # bytes, words or basic
     label: str = "path"
     kickass: bool = False
+    syntax: str = ""               # "ca65" or "c" (syntax.py); otherwise kickass chooses Kick or CBM
     basic_start: int = 1000
     basic_step: int = 10
     per_line: int = 8
@@ -178,6 +179,14 @@ def generate(path: ScreenPath, o: GenOptions) -> tuple[str, list[str]]:
                 n += o.basic_step
         if n - o.basic_step > 63999:
             raise PathError("The BASIC needs line numbers above 63999: start lower or use a smaller step")
+        return "\n".join(out) + "\n", warnings
+    from ..syntax import CA65, C, resolve, table
+    sx = resolve(o.syntax or None, o.kickass)
+    if sx in (CA65, C):
+        for n, (name, vals) in enumerate(tables):
+            out.append(table(sx, (o.label or "path") + (f"_{name}" if name else ""), vals,
+                             1 if o.output == "bytes" else 2, per,
+                             comment_text=f"path: {what}" if o.comments and n == 0 else None).rstrip("\n"))
         return "\n".join(out) + "\n", warnings
     c = "//" if o.kickass else ";"
     ind = "    " if o.kickass else "        "

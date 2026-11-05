@@ -144,8 +144,16 @@ def check(layout: Layout, memmap=None) -> list[Issue]:
     return out
 
 
-def setup_code(layout: Layout, kickass: bool = False, sprite_numbers: dict[int, int] | None = None) -> str:
-    """Assembler that switches the VIC-II to this layout (and constants for the addresses)."""
+def setup_code(layout: Layout, kickass: bool = False, sprite_numbers: dict[int, int] | None = None,
+               syntax: str | None = None) -> str:
+    """Code that switches the VIC-II to this layout (and constants for the addresses): assembler in
+    CBM prg Studio, Kick or ca65 syntax, or C (syntax.py)."""
+    from .syntax import CA65, C, resolve
+    sx = resolve(syntax, kickass)
+    if sx == C:
+        return _setup_c(layout, sprite_numbers)
+    if sx == CA65:
+        return _setup_ca65(layout, sprite_numbers)
     c = "//" if kickass else ";"
     ind = "    " if kickass else "        "
 
@@ -176,4 +184,62 @@ def setup_code(layout: Layout, kickass: bool = False, sprite_numbers: dict[int, 
             out += ["", f"{c} Sprite pointers: data address = VICBANK + pointer * 64"]
         out += [f"{ind}lda #{p}{'' if kickass else ''}      {c} sprite data at ${layout.sprite_addr(p):04X}",
                 f"{ind}sta SPRITEPTRS+{n}"]
+    return "\n".join(out) + "\n"
+
+
+def _setup_c(layout: Layout, sprite_numbers: dict[int, int] | None) -> str:
+    """The same, in C: #defines for the addresses and the register writes."""
+    def define(name, value, note=""):
+        v = f"0x{value:04X}" if value > 0xFF else f"0x{value:02X}"
+        return f"#define {name:<11} {v}" + (f"    /* {note} */" if note else "")
+    out = ["/* VIC-II memory layout (made by Linux64Studio's Memory Manager) */",
+           define("VICBANK", layout.bank_base, f"bank {layout.bank}"),
+           define("SCREENRAM", layout.screen_addr),
+           define("SPRITEPTRS", layout.sprite_pointers_addr, "the 8 sprite pointers")]
+    if layout.bitmap_mode:
+        out.append(define("BITMAP", layout.bitmap_addr))
+    else:
+        out.append(define("CHARSET", layout.charset_addr, "ROM character set" if layout.uses_rom_charset() else ""))
+    what = f"bitmap at ${layout.bitmap_addr:04X}" if layout.bitmap_mode else f"characters at ${layout.charset_addr:04X}"
+    out += ["",
+            f"/* VIC bank {layout.bank} (${layout.bank_base:04X}-${layout.bank_base + 0x3FFF:04X}) */",
+            f"*(unsigned char *)0xDD00 = (*(unsigned char *)0xDD00 & 0xFC) | 0x{layout.dd00_bits:02X};",
+            f"/* screen at ${layout.screen_addr:04X}, {what} */",
+            f"*(unsigned char *)0xD018 = 0x{layout.d018:02X};"]
+    if layout.bitmap_mode:
+        out.append("*(unsigned char *)0xD011 |= 0x20;    /* bitmap mode on */")
+    nums = sprite_numbers or {}
+    for i, p in enumerate(sorted(set(layout.sprites))[:8]):
+        if i == 0:
+            out += ["/* sprite pointers: data address = VICBANK + pointer * 64 */"]
+        out.append(f"((unsigned char *)SPRITEPTRS)[{nums.get(p, i)}] = {p};    /* sprite data at ${layout.sprite_addr(p):04X} */")
+    return "\n".join(out) + "\n"
+
+
+def _setup_ca65(layout: Layout, sprite_numbers: dict[int, int] | None) -> str:
+    """The same in ca65: = constants and the register writes."""
+    def const(name, value, note=""):
+        v = f"${value:04X}" if value > 0xFF else f"${value:02X}"
+        return f"{name:<15} = {v}" + (f"    ; {note}" if note else "")
+    ind = "        "
+    out = ["; VIC-II memory layout (made by Linux64Studio's Memory Manager)",
+           const("VICBANK", layout.bank_base, f"bank {layout.bank}"),
+           const("SCREENRAM", layout.screen_addr),
+           const("SPRITEPTRS", layout.sprite_pointers_addr, "the 8 sprite pointers")]
+    if layout.bitmap_mode:
+        out.append(const("BITMAP", layout.bitmap_addr))
+    else:
+        out.append(const("CHARSET", layout.charset_addr, "ROM character set" if layout.uses_rom_charset() else ""))
+    out += ["", f"; Select VIC bank {layout.bank} (${layout.bank_base:04X}-${layout.bank_base + 0x3FFF:04X})",
+            f"{ind}lda $DD00", f"{ind}and #%11111100", f"{ind}ora #%{layout.dd00_bits:02b}", f"{ind}sta $DD00",
+            "", f"; Screen at ${layout.screen_addr:04X}, "
+                + (f"bitmap at ${layout.bitmap_addr:04X}" if layout.bitmap_mode else f"characters at ${layout.charset_addr:04X}"),
+            f"{ind}lda #%{layout.d018:08b}", f"{ind}sta $D018"]
+    if layout.bitmap_mode:
+        out += [f"{ind}lda $D011", f"{ind}ora #%00100000   ; bitmap mode on", f"{ind}sta $D011"]
+    nums = sprite_numbers or {}
+    for i, p in enumerate(sorted(set(layout.sprites))[:8]):
+        if i == 0:
+            out += ["", "; Sprite pointers: data address = VICBANK + pointer * 64"]
+        out += [f"{ind}lda #{p}      ; sprite data at ${layout.sprite_addr(p):04X}", f"{ind}sta SPRITEPTRS+{nums.get(p, i)}"]
     return "\n".join(out) + "\n"

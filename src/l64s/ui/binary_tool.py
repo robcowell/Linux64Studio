@@ -25,6 +25,9 @@ class BinaryTool(EditorPage):
     def __init__(self, kickass: bool, project_dir: Path | None, get_build, insert_cb):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.project_dir = project_dir
         self.get_build = get_build          # () -> (memory bytes, used bytes, {address: label}, description) or None
         self.insert_cb = insert_cb
@@ -189,7 +192,7 @@ class BinaryTool(EditorPage):
                         entries = [sys_addr] if sys_addr else [b.start]
                     else:
                         entries = [parse_address(x) for x in t.replace(",", " ").split()]
-                d = disassemble_to_source(b, entries, self.kickass)
+                d = disassemble_to_source(b, entries, self.kickass, syntax=self.syntax())
                 text = d.source
                 info = f"{d.code_bytes} bytes of code, {d.data_bytes} of data, {len(d.labels)} labels"
                 if entries:
@@ -197,7 +200,7 @@ class BinaryTool(EditorPage):
             elif fmt == "data":
                 radix = ["hex", "dec", "bin"][self.radix.get_selected()]
                 text = to_asm_data(b, self.label.get_text().strip(), int(self.per_line.get_value()), radix,
-                                   self.kickass)
+                                   self.kickass, syntax=self.syntax())
                 info = f"{len(b.data)} bytes"
             else:
                 text = to_basic_data(b, int(self.first_line.get_value()), int(self.step.get_value()),

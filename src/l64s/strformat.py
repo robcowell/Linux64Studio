@@ -136,6 +136,7 @@ class Options:
     petscii: bool = True           # text "..." (PETSCII) or text '...' (screen codes)
     label: str = ""
     kickass: bool = False
+    syntax: str = ""               # "ca65" or "c" (syntax.py); otherwise kickass chooses Kick or CBM
 
 
 def basic(text: str, opts: Options) -> tuple[str, list[str]]:
@@ -184,8 +185,53 @@ def _asm_items(piece: str, quote: str, petscii: bool) -> list[str]:
     return items
 
 
+def _bytes_ca65_c(pieces: list[str], opts: Options, sx: str) -> str:
+    """For ca65 and C: the text as its bytes (PETSCII, or screen codes), a row a line of text, the
+    line's text beside it. (C's own strings don't take the {control} codes.)"""
+    from .basic.screencodes import BuildError, petscii_to_screencode, text_to_petscii
+    data, rows, notes = bytearray(), [], []
+    for p in pieces:
+        try:
+            pet = text_to_petscii(p)
+        except BuildError as e:
+            raise FormatError(str(e)) from None
+        row = pet if opts.petscii else bytes(petscii_to_screencode(b) or 0x20 for b in pet)
+        data += row
+        rows.append(len(row))
+        notes.append(p.replace("*/", "* /"))
+    return _rows_by_line(sx, opts, bytes(data), rows, notes)
+
+
+def _rows_by_line(sx: str, opts: Options, data: bytes, rows: list[int], notes: list[str]) -> str:
+    from .syntax import comment, directive, indent, label_line, number
+    out = [comment(sx, "PETSCII, for CHROUT" if opts.petscii else "screen codes, for screen memory")]
+    at = 0
+    if sx == "c":
+        out.append(f"const unsigned char {opts.label or 'text'}[{len(data)}] = {{")
+        for n, size in enumerate(rows):
+            row = data[at:at + size]
+            at += size
+            end = "," if n < len(rows) - 1 else ""
+            out.append("    " + ", ".join(number(b, 1, "hex", sx) for b in row) + end + f"    /* {notes[n]} */")
+        out.append("};")
+    else:
+        lab = label_line(sx, opts.label)
+        if lab:
+            out.append(lab)
+        for n, size in enumerate(rows):
+            row = data[at:at + size]
+            at += size
+            out.append(f"{indent(sx)}{directive(sx)} " + ", ".join(number(b, 1, "hex", sx) for b in row)
+                       + " " + comment(sx, notes[n]))
+    return "\n".join(out) + "\n"
+
+
 def assembler(text: str, opts: Options) -> str:
     pieces = split(text, opts.width, opts.words)
+    from .syntax import CA65, C, resolve
+    sx = resolve(opts.syntax or None, opts.kickass)
+    if sx in (CA65, C):
+        return _bytes_ca65_c(pieces, opts, sx)
     c = "//" if opts.kickass else ";"
     ind = "    " if opts.kickass else "        "
     out = []

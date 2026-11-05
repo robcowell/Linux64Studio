@@ -27,6 +27,9 @@ class DisassemblerView(EditorPage):
     def __init__(self, kickass: bool, project_dir: Path | None, get_build, get_session, insert_cb):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.project_dir = project_dir
         self.get_build = get_build        # () -> (memory, used, {addr: label}, desc) or None
         self.get_session = get_session    # () -> DebugSession or None
@@ -386,7 +389,7 @@ class DisassemblerView(EditorPage):
 
     # ================================================================ output
     def source(self) -> str:
-        return self.session.source(self.kickass) if self.session else ""
+        return self.session.source(self.kickass, syntax=self.syntax()) if self.session else ""
 
     def _copy(self, *_):
         Gdk.Display.get_default().get_clipboard().set(self.source())

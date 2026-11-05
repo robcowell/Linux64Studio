@@ -106,8 +106,16 @@ class SpriteSet:
                 out.append(s.attribute if attrs else 0)
         return bytes(out)
 
-    def to_source(self, label: str = "sprites") -> str:
-        """BYTE statements in CBM prg Studio syntax."""
+    def to_source(self, label: str = "sprites", syntax: str = "cbm") -> str:
+        """The sprites as data: CBM prg Studio BYTE statements, or ca65, Kick or C (syntax.py), 64 bytes
+        a sprite (the 64th as the export writes it)."""
+        if syntax != "cbm":
+            from ..syntax import table
+            data = self.to_bin()
+            notes = [f"sprite {n}{' (multicolour)' if s.multi else ''}{': ' + s.description if s.description else ''}"
+                     if i == 0 else "" for n, s in enumerate(self.sprites) for i in range(4)]
+            return table(syntax, label, data, 1, 16, comment_text=f"{len(self.sprites)} sprites, 64 bytes each",
+                         row_comments=notes)
         lines = [f"{label}"]
         for n, s in enumerate(self.sprites):
             lines.append(f"; sprite {n}{' (multicolour)' if s.multi else ''}")

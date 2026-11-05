@@ -90,8 +90,13 @@ class SpriteEditor(EditorPage):
         bar.append(Gtk.Box(hexpand=True))
         self.links = None
         if self.path and self.path.suffix.lower() in (".spt", ".spd"):
-            self.links = ExportLinks(self.path, [("bin", "Sprite data (.bin)", self.path.stem + ".bin",
-                                                  lambda: self.data.to_bin())], self.project)
+            kinds = [("bin", "Sprite data (.bin)", self.path.stem + ".bin", lambda: self.data.to_bin())]
+            if getattr(self.project, "toolchain", "") == "cc65":     # a C project: the sprites as a C array too
+                from ..syntax import identifier
+                name = identifier(self.path.stem)
+                kinds.append(("c", "Sprite data (C source, .c)", self.path.stem + ".c",
+                              lambda: self.data.to_source(name, "c").encode()))
+            self.links = ExportLinks(self.path, kinds, self.project)
             bar.append(self.links)
         exp = Gtk.MenuButton(label="Export", tooltip_text="Export sprite data")
         menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=6, margin_bottom=6,
@@ -99,7 +104,7 @@ class SpriteEditor(EditorPage):
         b1 = Gtk.Button(label="Binary (.bin, 64 bytes per sprite)…")
         b1.add_css_class("flat")
         b1.connect("clicked", lambda *_: self._export("bin"))
-        b2 = Gtk.Button(label="Assembler source (byte lines)…")
+        b2 = Gtk.Button(label="Source (.asm, .s for ca65, .c for C)…")
         b2.add_css_class("flat")
         b2.connect("clicked", lambda *_: self._export("asm"))
         menu.append(b1)
@@ -567,7 +572,9 @@ class SpriteEditor(EditorPage):
 
     def _export(self, fmt: str):
         dlg = Gtk.FileDialog(title="Export sprites")
-        base = self.path.with_suffix(".bin" if fmt == "bin" else ".asm").name if self.path else f"sprites.{fmt}"
+        c_project = getattr(self.project, "toolchain", "") == "cc65"
+        ext = ".bin" if fmt == "bin" else ".c" if c_project else ".asm"
+        base = self.path.with_suffix(ext).name if self.path else f"sprites{ext}"
         dlg.set_initial_name(base)
         if self.path:
             from gi.repository import Gio
@@ -581,6 +588,8 @@ class SpriteEditor(EditorPage):
             p = Path(f.get_path())
             if fmt == "bin":
                 p.write_bytes(self.data.to_bin())
-            else:
-                p.write_text(self.data.to_source(p.stem))
+            else:                       # the syntax the file name says (.c, .s, or the project's .asm)
+                from ..syntax import KICK, for_file, identifier
+                kick = getattr(self.project, "toolchain", "") == "kickass"
+                p.write_text(self.data.to_source(identifier(p.stem), for_file(p, KICK if kick else "cbm")))
         dlg.save(self.get_root(), None, done)

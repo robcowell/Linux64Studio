@@ -80,14 +80,26 @@ class Result:
 
 
 def results(row: int, col: int, screen_base: int = SCREEN_BASE, colour_base: int = COLOUR_BASE,
-            char: int = 1, colour: int = 1, kickass: bool = False) -> list[Result]:
-    """Everything worth copying for a cell, each line ready to paste."""
+            char: int = 1, colour: int = 1, kickass: bool = False, syntax: str | None = None) -> list[Result]:
+    """Everything worth copying for a cell, each line ready to paste. For C ("c"), C replaces the
+    assembler, and the expression is C's."""
     off = offset(row, col)
     scr, clr = screen_base + off, colour_base + off
     x, y = sprite_xy(row, col)
     c = "//" if kickass else ";"
     ind = "    " if kickass else "        "
     msb = "  (above 255: set the sprite's bit in $D010)" if x > 255 else ""
+    if syntax == "c":
+        return [
+            Result("Screen address", f"{_hex(scr)}  ({scr})"),
+            Result("Colour address", f"{_hex(clr)}  ({clr})"),
+            Result("Offset", f"{off}  (row {row} × 40 + column {col}, {_hex(off)})"),
+            Result("Expression", f"0x{screen_base:04X} + {row} * 40 + {col}"),
+            Result("C", f"*(unsigned char *)0x{scr:04X} = {char};    /* row {row}, column {col} */\n"
+                        f"*(unsigned char *)0x{clr:04X} = {colour};    /* its colour */"),
+            Result("BASIC", f"poke {scr},{char} : poke {clr},{colour}"),
+            Result("Sprite X, Y", f"{x}, {y}{msb}"),
+        ]
     return [
         Result("Screen address", f"{_hex(scr)}  ({scr})"),
         Result("Colour address", f"{_hex(clr)}  ({clr})"),

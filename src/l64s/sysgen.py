@@ -85,9 +85,22 @@ def generate(call: SysCall) -> tuple[bytes, int, str]:
     return out, address, listing
 
 
-def source(call: SysCall, kickass: bool = False, comments: bool = True) -> str:
-    """Assembler for the stub: *= the load address, the bytes, and *= the program start."""
+def source(call: SysCall, kickass: bool = False, comments: bool = True, syntax: str | None = None) -> str:
+    """Assembler for the stub: *= the load address, the bytes, and *= the program start. A C program
+    doesn't need one (cc65 puts its own SYS line first), so for C it says so; for ca65 the bytes go
+    in the program's first segment."""
     data, address, listing = generate(call)
+    if syntax == "c":
+        return (f"/* cc65 starts every C64 program with its own BASIC line ({listing.split(':', 1)[0]} SYS ...),\n"
+                "   so a C program doesn't need this one. */\n")
+    if syntax == "ca65":
+        out = [f"; BASIC loader: {listing}"] if comments else []
+        out += ["; (the first bytes of the program: the linker puts them at the load address)"] if comments else []
+        for i in range(0, len(data), 8):
+            out.append("        .byte " + ", ".join(f"${b:02X}" for b in data[i:i + 8]))
+        if comments:
+            out.append(f"; the program starts here: ${address:04X} ({address} decimal)")
+        return "\n".join(out) + "\n"
     c = "//" if kickass else ";"
     ind = "    " if kickass else "        "
     byte = ".byte" if kickass else "byte"

@@ -17,7 +17,7 @@ from ..vicmem import Layout  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 from .widgets import ColourButton  # noqa: E402
 
-INSERTABLE = {"BASIC", "Assembler", "Expression"}
+INSERTABLE = {"BASIC", "Assembler", "Expression", "C"}
 
 
 def parse_value(text: str) -> int:
@@ -137,6 +137,9 @@ class ScreenCalculator(EditorPage):
     def __init__(self, kickass: bool = False, get_session=None, get_layout=None, insert_cb=None):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.get_session = get_session      # () -> DebugSession or None
         self.get_layout = get_layout        # () -> the Memory Manager's Layout, or None
         self.insert_cb = insert_cb
@@ -281,7 +284,7 @@ class ScreenCalculator(EditorPage):
             return
         self.grid.base = sb
         for i, res in enumerate(results(row, col, sb, cb, self.char.get_value_as_int(), self.colour.colour,
-                                        self.kickass)):
+                                        self.kickass, syntax=self.syntax())):
             self.results.attach(Gtk.Label(label=res.label, xalign=0, yalign=0, css_classes=["dim-label"]), 0, i, 1, 1)
             self.results.attach(Gtk.Label(label=res.text, xalign=0, selectable=True, css_classes=["monospace"]),
                                 1, i, 1, 1)

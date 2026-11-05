@@ -24,6 +24,9 @@ class SysCallGenerator(EditorPage):
     def __init__(self, kickass: bool = False, insert_cb=None, get_target=None, get_symbols=None):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.insert_cb = insert_cb
         self.get_target = get_target        # () -> the SourceEditor to insert into, or None
         self.get_symbols = get_symbols      # () -> {address: label} of the last build
@@ -142,7 +145,7 @@ class SysCallGenerator(EditorPage):
         try:
             call = self.call()
             data, addr, listing = generate(call)
-            self._text = source(call, self.kickass, self.comments.get_active())
+            self._text = source(call, self.kickass, self.comments.get_active(), syntax=self.syntax())
         except SysError as e:
             self._text = ""
             self.listing.set_text("")

@@ -55,7 +55,14 @@ def _fmt(b: int, radix: str) -> str:
 
 
 def to_asm_data(b: Binary, label: str = "", per_line: int = 16, radix: str = "hex", kickass: bool = False,
-                origin: bool = True) -> str:
+                origin: bool = True, syntax: str | None = None) -> str:
+    from .syntax import CA65, C, resolve, table
+    from .syntax import origin as origin_line
+    sx = resolve(syntax, kickass)
+    if sx in (CA65, C):
+        head = f"{b.name or 'binary'}: ${b.start:04X}-${b.end - 1:04X} ({len(b.data)} bytes)"
+        text = table(sx, label or "binary", b.data, per_line=per_line, radix=radix, comment_text=head)
+        return (origin_line(sx, b.start) + "\n" + text) if origin else text
     directive = ".byte" if kickass else "byte"
     c = "//" if kickass else ";"
     lines = [f"{c} {b.name or 'binary'}: ${b.start:04X}-${b.end - 1:04X} ({len(b.data)} bytes)"]
@@ -161,7 +168,7 @@ class Disassembly:
 
 
 def disassemble_to_source(b: Binary, entries: list[int] | None = None, kickass: bool = False,
-                          label_prefix: str = "L") -> Disassembly:
+                          label_prefix: str = "L", syntax: str | None = None) -> Disassembly:
     """6502 source that reassembles to exactly these bytes.
 
     With entries, only code reachable from them is disassembled and the rest is data; without,
@@ -206,17 +213,21 @@ def disassemble_to_source(b: Binary, entries: list[int] | None = None, kickass: 
                 return f"{labels[v - back]}+{back}"
         return f"${v:02X}" if u.mode in ("zp", "zpx", "zpy", "izx", "izy") else f"${v:04X}"
 
+    from .syntax import CA65, C, resolve
+    ca65 = resolve(syntax, kickass) in (CA65, C)     # (disassembled code is assembler, in a C project too)
+    if ca65:
+        kickass = False
     c = "//" if kickass else ";"
-    out = [f"{c} {b.name or 'binary'} disassembled: ${start:04X}-${b.end - 1:04X}",
-           f"*= ${start:04X}" if kickass else f"*=${start:04X}", ""]
-    directive = ".byte" if kickass else "byte"
+    org = f"        .org ${start:04X}" if ca65 else (f"*= ${start:04X}" if kickass else f"*=${start:04X}")
+    out = [f"{c} {b.name or 'binary'} disassembled: ${start:04X}-${b.end - 1:04X}", org, ""]
+    directive = ".byte" if kickass or ca65 else "byte"
     pad = "        "
     i = 0
     code_bytes = data_bytes = 0
     while i < len(units):
         u = units[i]
         lab = labels.get(u.addr, "")
-        head = (f"{lab}:" if kickass and lab else lab).ljust(8) if lab else pad
+        head = (f"{lab}:" if (kickass or ca65) and lab else lab).ljust(8) if lab else pad
         if not u.code:
             # gather a run of data bytes, up to 8, stopping at the next label
             run = [u]

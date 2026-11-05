@@ -143,6 +143,9 @@ class ScreenCodeBuilder(EditorPage):
     def __init__(self, kickass: bool = False, insert_cb=None, style: str = "standard"):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         from ..basic.codestyles import STYLES
         self.style = style if style in STYLES else "standard"
         self.insert_cb = insert_cb
@@ -343,9 +346,9 @@ class ScreenCodeBuilder(EditorPage):
                 n = int(self.line_no.get_value())
                 out = to_basic(petscii, n or None, self.style)
             elif fmt == "petscii":
-                out = to_petscii_bytes(petscii, label, self.kickass, self.zero.get_active())
+                out = to_petscii_bytes(petscii, label, self.kickass, self.zero.get_active(), syntax=self.syntax())
             else:
-                out = to_screen_codes(screen, label, self.kickass, colours=fmt == "screen+colour")
+                out = to_screen_codes(screen, label, self.kickass, colours=fmt == "screen+colour", syntax=self.syntax())
             self.output.get_buffer().set_text(out)
             self.status.set_text(f"{len(petscii)} PETSCII bytes" + (
                 ". Screen codes skip the control codes: they hold what's left on the screen."

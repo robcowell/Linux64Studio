@@ -68,6 +68,9 @@ class SnippetsView(EditorPage):
     def __init__(self, kickass: bool = False, insert_cb=None, get_target=None, path: Path | None = None):
         super().__init__(None)
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.insert_cb = insert_cb
         self.get_target = get_target          # () -> the SourceEditor code goes into, or None
         self.library = path or library_path()
@@ -321,7 +324,8 @@ class SnippetsView(EditorPage):
         s = self.current
         if not s:
             return ""
-        return sn.expand(s, self.start.get_value_as_int(), self.step.get_value_as_int(), self.kickass)
+        return sn.expand(s, self.start.get_value_as_int(), self.step.get_value_as_int(), self.kickass,
+                         syntax=self.syntax())
 
     def _preview(self):
         s = self.current

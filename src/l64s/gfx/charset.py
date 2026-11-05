@@ -87,8 +87,14 @@ class Charset:
         n = count if count is not None else self.count
         return bytes(b for c in self.chars[:n] for b in c)
 
-    def to_source(self, label: str = "characters", count: int | None = None) -> str:
+    def to_source(self, label: str = "characters", count: int | None = None, syntax: str = "cbm") -> str:
+        """The characters as data, 8 bytes a line: CBM prg Studio BYTE statements, or ca65, Kick or C."""
         n = count if count is not None else self.count
+        if syntax != "cbm":
+            from ..syntax import table
+            data = b"".join(bytes(c) for c in self.chars[:n])
+            return table(syntax, label, data, 1, 8, comment_text=f"{n} characters, 8 bytes each",
+                         row_comments=[f"char {i}" for i in range(n)])
         lines = [label]
         for i, c in enumerate(self.chars[:n]):
             lines.append(f"        byte " + ", ".join(f"${b:02X}" for b in c) + f" ; char {i}")

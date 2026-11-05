@@ -456,7 +456,8 @@ class ScreenEditor(EditorPage):
         project = getattr(root, "project", None)
         kick = bool(project) and project.toolchain == "kickass"
         insert = getattr(root, "_insert_into_last_source", None)
-        dlg = PathGenerateDialog(root, self.screen.path, kick, insert, self.settings)
+        dlg = PathGenerateDialog(root, self.screen.path, kick, insert, self.settings,
+                                 getattr(root, "code_syntax", None))
         dlg.present()
         return dlg
 

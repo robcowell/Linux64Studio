@@ -15,7 +15,9 @@ OUTPUTS = [("bytes", "Assembler bytes"), ("words", "Assembler words"), ("basic",
 
 
 class PathGenerateDialog(Adw.Window):
-    def __init__(self, parent, path, kickass: bool, insert=None, settings=None):
+    def __init__(self, parent, path, kickass: bool, insert=None, settings=None, syntax=None):
+        # syntax(): what to write (syntax.py) when it's C or ca65 (a C project); else the checkbox decides
+        self.syntax = syntax or (lambda: "")
         super().__init__(transient_for=parent, modal=False, title="Generate Path Data", default_width=860,
                          default_height=560)
         self.path = path
@@ -103,6 +105,10 @@ class PathGenerateDialog(Adw.Window):
         self.label = entry("path")
         add("Label", self.label)
         self.kick = check("Kick Assembler syntax", kickass)
+        if self.syntax() in ("c", "ca65"):          # a C project: C, or ca65 for an assembler file
+            self.kick.set_label(f"{'C' if self.syntax() == 'c' else 'ca65'} (the project's language)")
+            self.kick.set_active(False)
+            self.kick.set_sensitive(False)
         self.basic_start = spin(0, 63999, 1000)
         self.basic_step = spin(1, 1000, 10)
         add("BASIC: start line", self.basic_start)
@@ -124,7 +130,8 @@ class PathGenerateDialog(Adw.Window):
                           last=int(self.last.get_value()), only_points=self.only.get_active(),
                           separate=self.layout.get_selected() == 1, fx=self.fx.get_text(), fy=self.fy.get_text(),
                           output=OUTPUTS[self.output.get_selected()][0], label=self.label.get_text().strip(),
-                          kickass=self.kick.get_active(), basic_start=int(self.basic_start.get_value()),
+                          kickass=self.kick.get_active(), syntax=self.syntax() if self.syntax() in ("c", "ca65") else "",
+                          basic_start=int(self.basic_start.get_value()),
                           basic_step=int(self.basic_step.get_value()), per_line=int(self.per_line.get_value()),
                           comments=self.comments.get_active())
 

@@ -116,6 +116,9 @@ class SidDesigner(EditorPage):
         super().__init__(path)
         self.settings = settings
         self.kickass = kickass
+        # the syntax to write (syntax.py): the window gives a function that follows where the
+        # text is going (C or ca65 in a C project); on its own, Kick or CBM as kickass says
+        self.syntax = lambda: "kick" if self.kickass else "cbm"
         self.project_dir = project_dir
         self.insert_cb = insert_cb
         self.sound = Sound()
@@ -483,7 +486,7 @@ class SidDesigner(EditorPage):
                            step=self.step.get_value_as_int(), use_variable=self.use_var.get_active(),
                            variable=self.var_name.get_text().strip(), comments=self.cw["comments"].get_active(),
                            clear_sid=self.cw["clear_sid"].get_active(), gate=self.cw["gate"].get_active(),
-                           kickass=self.kickass)
+                           kickass=self.kickass, syntax=self.syntax())
 
     def _update_code(self):
         if self._loading or not hasattr(self, "code"):

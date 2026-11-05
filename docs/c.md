@@ -185,3 +185,42 @@ before):
 
 Strings are PETSCII on the C64: with the C64's start-up character set, lower-case letters in a
 string show as capitals, and capitals as graphics characters.
+
+## The code tools
+
+In a C project the tools that write code (**Insert into Editor**, **Copy**, the exports) write
+it in the language of the source file you last worked in: C for a `.c` or `.h` file, ca65 for an
+assembler file. Move to another file and the open tools write their output again, in that file's
+language.
+
+* Data tables, from the Data Generator, String Formatter, Screen Code Builder, Binary Tool, path
+  generator, sprite editor and character set editor, become `const` arrays:
+
+  ```c
+  // sprite 0: ship
+  const unsigned char sprites[64] = {
+      0x00, 0x18, 0x00,    /* sprite 0: ship */
+      ...
+  };
+  ```
+
+  The element type is `unsigned char` or `unsigned int`, or `signed char` or `int` when a value
+  is negative. C has no binary numbers, so binary values are written in hex. In ca65 tables are
+  `label:` with `.byte` and `.word`, and negative values are written as their two's complement
+  (`$FC18` for -1000), because ca65 takes none.
+* The Memory Manager's VIC setup becomes `#define`s and register writes
+  (`*(unsigned char *)0xD018 = …;`), and the Screen Calculator gives a **C** line instead of an
+  **Assembler** one. The SID Designer writes the sound as register writes to `SID_REGS` (`<c64.h>`
+  already has `SID`).
+* The Disassembler and the Binary Tool's disassembly, the Snippets and the SYS line generator give
+  ca65 source, since C has no instructions. cc65 writes its own SYS line, so in a `.c` file the
+  SYS generator only says so.
+* The sprite and character set editors have a **C source (.c)** link among their exports. Each time
+  you save, it writes the data as a C array named after the file (`my-sprites.c` holds
+  `my_sprites`). **Export Source…** writes C or ca65 by the name you give: `.c` gives C, `.s`
+  gives ca65.
+* Output for a fixed address (`*=$C000` in CBM prg Studio) becomes a comment in C and ca65, because
+  the linker places code there.
+
+The SID file player and the GoatTracker music code still write CBM prg Studio or Kick Assembler
+source.
