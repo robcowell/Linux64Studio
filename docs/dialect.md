@@ -352,6 +352,23 @@ Step Into and Step Out; Memory Viewer, Memory Manager, Disassembler, Screen Code
 Designer; and at the right, Preferences and Keyboard Shortcuts. Hover over a button for its name
 and shortcut.
 
+## Project Information
+
+The panel on the right, as in CBM prg Studio, lists the project's definitions in three tabs, each
+grouped by the file they're in (the number beside a file is how many it has):
+
+* **Labels**: labels, with `@local` labels indented under theirs, and Kick Assembler `.label`s and
+  namespaces. After a build, each label shows its address.
+* **Variables**: `NAME = value` (Kick Assembler `.const` and `.var`) with the value as written,
+  and the variables each BASIC file sets, with their type. As on the C64, only a name's first two
+  letters count, so `SCORE` and `SC` are one variable, listed once.
+* **Macros**: `defm` macros, and Kick Assembler `.macro`, `.function` and `.pseudocommand`.
+
+Double-click an item to go to it. The lists follow what you type (they update when you pause) and
+each build; the refresh button, or Refresh on the right-click menu, updates them at once. The
+right-click menu can also open or close every file. Files you open stay open when it refreshes.
+Close the panel with its × or **Window → Project Information**, which brings it back.
+
 ## Status bar
 
 While a source file (assembler or BASIC) is in front, a status bar along the bottom of the window

@@ -15,6 +15,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 from ..emu import vice  # noqa: E402
 from .menus import build_menubar  # noqa: E402
 from .toolbar import build_toolbar  # noqa: E402
+from .projinfo_panel import ProjectInfoPanel  # noqa: E402
 from .statusbar import StatusBar  # noqa: E402
 from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
@@ -148,7 +149,14 @@ class MainWindow(Adw.ApplicationWindow):
 
         # ---------- editors + bottom panel
         right = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL, vexpand=True)
-        outer.set_end_child(right)
+        # ---------- Project Information on the right, as in CBM prg Studio
+        self.projinfo = ProjectInfoPanel(self._project_info, self._open_source_line,
+                                         lambda: self.lookup_action("project-info").change_state(
+                                             GLib.Variant.new_boolean(False)))
+        self.projinfo.set_visible(self.settings.show_project_info)
+        info_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, start_child=right, end_child=self.projinfo,
+                               resize_end_child=False, shrink_end_child=False, shrink_start_child=False)
+        outer.set_end_child(info_paned)
         tabs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.tab_view = Adw.TabView(vexpand=True)
         self.tab_view.connect("close-page", self._on_close_page)
@@ -216,6 +224,10 @@ class MainWindow(Adw.ApplicationWindow):
         add("save-all", lambda *_: self.save_all())
         add("close-tab", lambda *_: self._close_current_tab())
         add("edit", lambda _a, v: self._edit(v.get_string()), "s")
+        info = Gio.SimpleAction.new_stateful("project-info", None,
+                                             GLib.Variant.new_boolean(self.settings.show_project_info))
+        info.connect("change-state", self._show_project_info)
+        self.add_action(info)
         add("tab-close", lambda *_: self._close_tabs("this"))
         add("tab-close-others", lambda *_: self._close_tabs("others"))
         add("tab-close-right", lambda *_: self._close_tabs("right"))
@@ -355,6 +367,7 @@ class MainWindow(Adw.ApplicationWindow):
         """The project's files as a folder tree, keeping open the folders that were open."""
         self._git_states = self._git_status_map()
         self._git_branch = self._git_branch_name()
+        self.projinfo.refresh_soon(100)
         expanded = self._open_folders()
         if not self.project:
             self._tree_project = None
@@ -570,6 +583,8 @@ class MainWindow(Adw.ApplicationWindow):
         if icon:
             page.set_icon(Gio.ThemedIcon.new(icon))
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
+        if isinstance(ed, SourceEditor):       # Project Information follows what's typed
+            ed.buffer.connect("changed", lambda *_: self.projinfo.refresh_soon(1500))
         if ed.path:
             self.pages[str(ed.path.resolve())] = page
         self.tab_view.set_selected_page(page)
@@ -994,6 +1009,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_done(self, res: BuildResult, run: bool, debug: bool):
         self.last_build = res
+        self.projinfo.refresh_soon(100)          # the labels' values
         self.refresh_tasks()
         self._set_log(res.log)
         self._show_diagnostics(res)
@@ -1460,6 +1476,33 @@ class MainWindow(Adw.ApplicationWindow):
                         continue
                     out.setdefault(addr, parts[2].lstrip("."))
         return out
+
+    # ------------------------------------------------------------------ Project Information panel
+    def _show_project_info(self, action, value):
+        action.set_state(value)
+        on = value.get_boolean()
+        self.projinfo.set_visible(on)
+        self.settings.show_project_info = on
+        self.settings.save()
+        if on:
+            self.projinfo.refresh()
+
+    def _project_info(self):
+        """What the Project Information panel shows: the project's labels, variables and macros."""
+        from ..projinfo import collect
+        if not self.project:
+            return None
+        unsaved = {str(e.path.resolve()): e.get_text() for e in self.editors()
+                   if isinstance(e, SourceEditor) and e.path and e.modified}
+        basic = {}
+        for f in self.project.all_files():
+            if f.suffix.lower() == ".bas":
+                key = str(f.resolve())
+                try:
+                    basic[key] = unsaved.get(key) or f.read_text(errors="replace")
+                except OSError:
+                    pass
+        return collect(self.symbol_index().symbols(), basic, self.project.directory, self._symbol_value)
 
     def _open_source_line(self, file: str, line: int):
         ed = self.open_file(Path(file))
