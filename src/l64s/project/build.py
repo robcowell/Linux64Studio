@@ -35,11 +35,15 @@ class BuildResult:
     c_sp: int = 0x02                               # ... and where cc65's C stack pointer is (zero page)
     c_addresses: dict = field(default_factory=dict)  # ... and every C function's and variable's address
 
-    def run_target(self, project) -> Path | None:
-        """What to run: the cartridge, the disk image or the program, as the project says."""
+    def run_target(self, project) -> Path | str | None:
+        """What to run: the cartridge, the disk image or the program, as the project says. From a disk
+        holding several programs, the current one by name (``disk.d64:name``, which VICE autostarts)."""
         if self.cart and project.run_cart:
             return self.cart
         if self.disk and project.run_from_disk:
+            if project.programs:
+                from .model import current_program
+                return f"{self.disk}:{current_program(project)}"
             return self.disk
         return self.prg
 
@@ -80,8 +84,21 @@ def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Dia
         if not program.is_file():
             return None, [Diagnostic("error", f"Disk image: the program file {project.disk_program} wasn't made "
                                               f"(a post-build command should write it)", None)], ""
-    name = project.disk_file_name or prg.stem
-    files = [(name, program.read_bytes(), "prg")]
+    files = []
+    notes = []
+    if project.programs:
+        # every program, in order, by its name: the current one just built, the others as last built
+        from .model import current_program, each_program
+        for pname, other in each_program(project):
+            if pname == current_program(project):
+                files.append((pname, program.read_bytes(), "prg"))
+            elif other.output_path().is_file():
+                files.append((pname, other.output_path().read_bytes(), "prg"))
+            else:
+                notes.append(pname)
+    else:
+        name = project.disk_file_name or prg.stem
+        files = [(name, program.read_bytes(), "prg")]
     for extra in project.disk_extra_files:
         rel = extra.get("file", "")
         src = (project.directory / rel).resolve()
@@ -95,7 +112,10 @@ def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Dia
         disk = build_disk(dest, project.disk_name or project.name, project.disk_id or "00", files)
     except DiskError as e:
         return None, [Diagnostic("error", f"Disk image: {e}", None)], ""
-    return dest, [], f"Wrote {dest} ({len(files)} file(s), {disk.blocks_free} blocks free)"
+    msg = f"Wrote {dest} ({len(files)} file(s), {disk.blocks_free} blocks free)"
+    if notes:
+        msg += f"; not built yet, so not on it: {', '.join(notes)} (Build → Build All Programs)"
+    return dest, [], msg
 
 
 def _with_disk(project: Project, res: BuildResult, only_file) -> BuildResult:
@@ -202,6 +222,39 @@ def build_project(project: Project, overrides: dict[str, str] | None = None,
     if music_log:
         res.log = music_log + "\n" + res.log
     return res
+
+
+def build_all(project: Project, overrides: dict[str, str] | None = None, kickass_jar: str = "",
+              java: str = "java", goattracker_dir: str = "",
+              pbasic: PBasicOptions | None = None) -> tuple[BuildResult, list[tuple[str, BuildResult]]]:
+    """Build every program of the project, then write the disk image with all of them. Returns the
+    current program's result (with the disk, and every program's diagnostics and log) and each one's."""
+    from .model import current_program, each_program
+    results: list[tuple[str, BuildResult]] = []
+    for name, copy in each_program(project):
+        copy.disk_image = ""                     # the disk once, when they're all built
+        copy.cart_type = ""
+        res = build_project(copy, overrides, None, kickass_jar, java, goattracker_dir, pbasic)
+        results.append((name, res))
+    current = dict(results)[current_program(project)]
+    log, diags = [], []
+    for name, res in results:
+        log.append(f"===== {name}: {'built' if res.ok else 'failed'}\n{res.log}")
+        diags += [Diagnostic(d.severity, f"{name}: {d.message}", d.loc) for d in res.diagnostics]
+    ok = all(r.ok for _n, r in results)
+    out = BuildResult(ok, current.prg, current.labels, diags, "\n".join(log), current.srcmap, current.asm_result,
+                      kick_debug=current.kick_debug, basic_preview=current.basic_preview, c_lines=current.c_lines,
+                      asm_lines=current.asm_lines, c_globals=current.c_globals, c_frames=current.c_frames,
+                      c_sp=current.c_sp, c_addresses=current.c_addresses)
+    if ok and project.disk_image and current.prg:
+        disk, ddiags, msg = write_disk_image(project, current.prg)
+        out.diagnostics += ddiags
+        out.ok = not ddiags
+        out.disk = disk
+        out.log += "\n" + (msg or "\n".join(str(d) for d in ddiags))
+    n_ok = sum(1 for _n, r in results if r.ok)
+    out.log += f"\n{n_ok} of {len(results)} program{'s' if len(results) != 1 else ''} built"
+    return out, results
 
 
 def prepare_music(project: Project, goattracker_dir: str = "") -> tuple[str, list[Diagnostic]]:

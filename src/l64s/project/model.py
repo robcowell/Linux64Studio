@@ -84,6 +84,10 @@ class Project:
     charpad_views: dict[str, dict] = field(default_factory=dict)
     # Sprite scratch pads, by sprite file (relative path): gfx.scratchpad.ScratchPad.to_dict()
     sprite_pads: dict[str, dict] = field(default_factory=dict)
+    # Several programs in one project (see "Programs" below): each {"name", and PROGRAM_FIELDS}. Empty:
+    # the project is one program. The fields above always hold the current program's values.
+    programs: list[dict] = field(default_factory=list)
+    current_program: str = ""
 
     @property
     def directory(self) -> Path:
@@ -165,6 +169,7 @@ class Project:
         return out
 
     def save(self) -> Path:
+        store_program(self)
         data = asdict(self)
         data.pop("path")
         dest = self.settings_path()
@@ -367,3 +372,117 @@ loop:
     inc $d020
     jmp loop
 """
+
+
+# ------------------------------------------------------------------------ programs
+# A project can build several programs that share its source folders, output folder and disk image
+# (a library's demos, say), each with its own build list, .prg name, options and (Kick) main file.
+# One program is current: it's what Build, Run and Debug use, and its values are in the project's
+# own fields, so everything that reads project.build_list works on it unchanged.
+PROGRAM_FIELDS = ("build_list", "main_file", "executable", "assembler_args")
+
+
+def _values(project: Project) -> dict:
+    return {f: list(getattr(project, f)) if isinstance(getattr(project, f), list) else getattr(project, f)
+            for f in PROGRAM_FIELDS}
+
+
+def program_names(project: Project) -> list[str]:
+    return [p["name"] for p in project.programs] or [project.name]
+
+
+def current_program(project: Project) -> str:
+    return project.current_program if project.programs else project.name
+
+
+def store_program(project: Project) -> None:
+    """Keep the current program's values (in the project's fields) in its entry."""
+    for prog in project.programs:
+        if prog["name"] == project.current_program:
+            prog.update(_values(project))
+
+
+def select_program(project: Project, name: str) -> bool:
+    """Make ``name`` the current program. False if there's no such program."""
+    if name == current_program(project):
+        return True
+    prog = next((p for p in project.programs if p["name"] == name), None)
+    if prog is None:
+        return False
+    store_program(project)
+    for f in PROGRAM_FIELDS:
+        v = prog.get(f, getattr(Project, f, None) if not isinstance(getattr(project, f), list) else [])
+        setattr(project, f, list(v) if isinstance(v, list) else (v or ""))
+    project.current_program = name
+    return True
+
+
+def check_program_name(project: Project, name: str) -> str | None:
+    name = name.strip()
+    if not name:
+        return "Enter a name"
+    if name in program_names(project):
+        return f"There's already a program called {name}"
+    if any(c in name for c in '/\\:*?"<>|'):
+        return "A name can't contain / \\ : * ? \" < > |"
+    return None
+
+
+def add_program(project: Project, name: str, copy_build_list: bool = True) -> None:
+    """A new program, made current: the build list copied from the current one (a shared library's
+    files, say), or empty. Its .prg is named after it."""
+    why = check_program_name(project, name)
+    if why:
+        raise ValueError(why)
+    if not project.programs:                     # the project's one program becomes the first of several
+        project.programs = [{"name": project.name, **_values(project)}]
+        project.current_program = project.name
+    store_program(project)
+    values = _values(project)
+    new = {"name": name, **values, "executable": f"{name}.prg",
+           "build_list": list(values["build_list"]) if copy_build_list else [],
+           "main_file": values["main_file"] if copy_build_list else ""}
+    project.programs.append(new)
+    select_program(project, name)
+
+
+def rename_program(project: Project, old: str, new: str) -> None:
+    if old == new:
+        return
+    why = check_program_name(project, new)
+    if why:
+        raise ValueError(why)
+    if not project.programs:
+        project.programs = [{"name": project.name, **_values(project)}]
+        project.current_program = project.name
+    for prog in project.programs:
+        if prog["name"] == old:
+            prog["name"] = new
+    if project.current_program == old:
+        project.current_program = new
+
+
+def remove_program(project: Project, name: str) -> None:
+    """Remove a program (not the last one); if it was current, the first of the rest is."""
+    if len(project.programs) <= 1:
+        raise ValueError("A project needs at least one program")
+    if name == project.current_program:
+        rest = [p["name"] for p in project.programs if p["name"] != name]
+        select_program(project, rest[0])
+    project.programs = [p for p in project.programs if p["name"] != name]
+    if len(project.programs) == 1:              # back to one program: the project's own fields
+        select_program(project, project.programs[0]["name"])
+        project.programs, project.current_program = [], ""
+
+
+def program_project(project: Project, name: str) -> Project:
+    """A copy of the project with ``name`` current, to build it (Build All Programs)."""
+    from copy import deepcopy
+    copy = deepcopy(project)
+    select_program(copy, name)
+    return copy
+
+
+def each_program(project: Project) -> list[tuple[str, Project]]:
+    store_program(project)
+    return [(name, program_project(project, name)) for name in program_names(project)]

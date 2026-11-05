@@ -44,8 +44,10 @@ cl65 -O -t c64 ../lib/ultimate_lib.c u-shell.c -o u-shell.prg
 ```
 
 is a project in `src/samples` with the build list `../lib/ultimate_lib.c`, `u-shell.c`, the source
-folder `../lib` and the options `-O`. It builds byte-for-byte the same program. A folder can hold
-several projects, one for each program.
+folder `../lib` and the options `-O`. It builds byte-for-byte the same program. The other samples
+can be more **programs** in the same project (Project → New Program…), each with its own build
+list, and **Build → Build All Programs** puts them all on one disk image, as the library's build
+script does ([several programs](dialect.md#several-programs-in-one-project)).
 
 ### Options
 

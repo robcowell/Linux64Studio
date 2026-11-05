@@ -10,6 +10,8 @@ can be followed on Linux.
   identical to the book's `.prg` files. See [docs/dialect.md](docs/dialect.md).
 * **Projects**: opens CBM prg Studio `.cbmprj` files directly, using the same build order.
   Also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
+  A project can hold **several programs** sharing its files, built together onto one disk image
+  ([several programs](docs/dialect.md#several-programs-in-one-project)).
   **C projects** build with cc65: errors you can click, run in VICE and debug by C line, with
   breakpoints on C lines, stepping over and into C lines, and the C variables (locals and
   globals, with their types) at every stop. In the editor, C gets auto-complete, Go to Definition

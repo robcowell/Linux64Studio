@@ -63,7 +63,7 @@ def new_menu() -> Gio.Menu:
                   ("Screen _Design…", "win.new-file::sdd"), ("Dis_k Image…", "win.new-file::d64")])
 
 
-def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel) -> Gio.Menu:
+def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gio.MenuModel | None = None) -> Gio.Menu:
     new = new_menu()
     file = _menu([("_New", new), ("_Open Project…", "win.open-project"), ("Open _File…", "win.open-file"),
                   ("Open _Recent", recent)],
@@ -73,8 +73,11 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel) -> Gio.Menu:
                  [("_Quit", "app.quit")])
     project = _menu([("_New Project…", "win.new-project"), ("_Open Project…", "win.open-project")],
                     [("_Properties…", "win.project-properties")],
+                    [("Pro_gram", programs or Gio.Menu()), ("New Pro_gram…", "win.new-program"),
+                     ("Rena_me Program…", "win.rename-program"), ("Dele_te Program", "win.delete-program")],
                     [("_Close Project", "win.close-project")])
-    build = _menu([("Build _Project", "win.build-project"), ("Build Current _File", "win.build-file")],
+    build = _menu([("Build _Project", "win.build-project"), ("Build Current _File", "win.build-file"),
+                   ("Build _All Programs", "win.build-all")],
                   [("Build Project and _Run", "win.run-project"),
                    ("Build Current File and R_un", "win.run-file")])
     debugger = _menu([("_Debug Project", "win.debug-project")],

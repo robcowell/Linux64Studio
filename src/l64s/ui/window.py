@@ -91,14 +91,21 @@ class MainWindow(Adw.ApplicationWindow):
         self.recent_menu = Gio.Menu()
         # the menu bar, as in CBM prg Studio, at the start of the header bar
         self.user_tools_menu = Gio.Menu()
-        self.menubar = Gtk.PopoverMenuBar.new_from_model(build_menubar(self.recent_menu, self.user_tools_menu))
+        self.programs_menu = Gio.Menu()                 # Project → Program: the project's programs
+        self.menubar = Gtk.PopoverMenuBar.new_from_model(build_menubar(self.recent_menu, self.user_tools_menu,
+                                                                       self.programs_menu))
         hb.pack_start(self.menubar)
 
         self.title_widget = Adw.WindowTitle(title="Linux64Studio", subtitle="")
         hb.set_title_widget(self.title_widget)
 
         # the toolbar row under it, as in CBM prg Studio
-        self.toolbar = build_toolbar(self.recent_menu)
+        # the current program, for projects with several (Project → New Program)
+        self.program_choice = Gtk.DropDown(model=Gtk.StringList(), visible=False, valign=Gtk.Align.CENTER,
+                                           tooltip_text="The program Build, Run and Debug use")
+        self._showing_programs = False
+        self.program_choice.connect("notify::selected", self._program_chosen)
+        self.toolbar = build_toolbar(self.recent_menu, self.program_choice)
         tv.add_top_bar(self.toolbar)
 
         self.toasts = Adw.ToastOverlay()
@@ -276,6 +283,15 @@ class MainWindow(Adw.ApplicationWindow):
         add("tab-copy-path", lambda *_: self._copy_tab_path())
         add("close-project", lambda *_: self.close_project())
         add("build-project", lambda *_: self.build(run=False))
+        add("build-all", lambda *_: self.build_all())
+        add("new-program", lambda *_: self.new_program_dialog())
+        add("rename-program", lambda *_: self.rename_program_dialog())
+        add("delete-program", lambda *_: self.delete_program_dialog())
+        prog = Gio.SimpleAction.new_stateful("program", GLib.VariantType.new("s"), GLib.Variant.new_string(""))
+        # (after the menu has closed: the switch rebuilds the menu it was chosen from)
+        prog.connect("change-state", lambda _a, v: GLib.idle_add(
+            lambda name=v.get_string(): (self.select_program(name), False)[1]))
+        self.add_action(prog)
         add("build-file", lambda *_: self.build(run=False, current_file=True))
         add("run-project", lambda *_: self.build(run=True))
         add("run-file", lambda *_: self.build(run=True, current_file=True))
@@ -430,10 +446,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.sidebar_title.set_text("No project")
             self._file_tree = None
             self.file_list.set_model(None)
+            self._refresh_programs()
             return
         p = self.project
-        self.sidebar_title.set_text(p.name + {TOOLCHAIN_KICKASS: "  (Kick Assembler)",
-                                              TOOLCHAIN_CC65: "  (C, cc65)"}.get(p.toolchain, ""))
+        self._refresh_programs()
         self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
         roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
         tree = build_tree(p.directory, p.all_files(), self._build_order, roots, p.all_folders())
@@ -1061,6 +1077,157 @@ class MainWindow(Adw.ApplicationWindow):
             self.open_file(path)
         dlg.choose(self, None, chosen)
 
+    # ================================================================== programs
+    def _refresh_programs(self):
+        """The Program menu, the toolbar's choice and the sidebar title, for the project's programs."""
+        from ..project.model import current_program, program_names
+        p = self.project
+        self.programs_menu.remove_all()
+        names = program_names(p) if p else []
+        current = current_program(p) if p else ""
+        for name in names:
+            self.programs_menu.append(name, f"win.program::{name}")
+        self.lookup_action("program").set_state(GLib.Variant.new_string(current))
+        for act in ("new-program", "rename-program", "build-all"):
+            self.lookup_action(act).set_enabled(p is not None)
+        self.lookup_action("delete-program").set_enabled(len(names) > 1)
+        self._showing_programs = True
+        try:
+            model = self.program_choice.get_model()
+            shown = [model.get_string(i) for i in range(model.get_n_items())] if model else []
+            if shown != names:                      # (a new model only when the programs changed)
+                self.program_choice.set_model(Gtk.StringList.new(names))
+            if current in names and self.program_choice.get_selected() != names.index(current):
+                self.program_choice.set_selected(names.index(current))
+        finally:
+            self._showing_programs = False
+        self.program_choice.set_visible(len(names) > 1)
+        if p is None:
+            return
+        kind = {TOOLCHAIN_KICKASS: "  (Kick Assembler)", TOOLCHAIN_CC65: "  (C, cc65)"}.get(p.toolchain, "")
+        self.sidebar_title.set_text(p.name + (f": {current}" if len(names) > 1 else "") + kind)
+
+    def _program_chosen(self, drop, _pspec):
+        if self._showing_programs or not self.project:
+            return
+        item = drop.get_selected_item()
+        if item is not None:
+            # after the drop-down has finished: changing it from inside its own signal hangs GTK
+            GLib.idle_add(lambda name=item.get_string(): (self.select_program(name), False)[1])
+
+    def select_program(self, name: str):
+        """Make ``name`` the program Build, Run and Debug use (and the build list and options shown)."""
+        from ..project.model import current_program, select_program
+        p = self.project
+        if p is None or name == current_program(p):
+            self._refresh_programs()
+            return
+        if not select_program(p, name):
+            return
+        p.save()
+        self.last_build = None                      # (the last build was another program's)
+        self._populate_files()                      # the build order numbers, and what's indexed
+        self._update_title()
+        self.toast(f"Building and running {name}")
+
+    def _program_name_dialog(self, heading: str, verb: str, start: str, done, with_copy: bool = False):
+        from ..project.model import check_program_name
+        dlg = Adw.AlertDialog(heading=heading)
+        entry = Gtk.Entry(text=start, activates_default=True)
+        problem = Gtk.Label(css_classes=["error", "caption"], xalign=0, visible=False)
+        copy = Gtk.CheckButton(label="Start with the current program's files (a shared library's, say)", active=True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.append(entry)
+        box.append(problem)
+        if with_copy:
+            box.append(copy)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", verb)
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def check(*_):
+            text = entry.get_text().strip()
+            why = None if text == start and start else check_program_name(self.project, text)
+            problem.set_text(why or "")
+            problem.set_visible(bool(why) and bool(text))
+            dlg.set_response_enabled("ok", why is None and text != start)
+        entry.connect("changed", check)
+        check()
+        dlg.choose(self, None, lambda d, res: d.choose_finish(res) == "ok" and done(entry.get_text().strip(),
+                                                                                     copy.get_active()))
+
+    def new_program_dialog(self):
+        if not self.project:
+            return
+        from ..project.model import add_program
+
+        def done(name, copy_files):
+            add_program(self.project, name, copy_files)
+            self.project.save()
+            self.last_build = None
+            self._populate_files()
+            self.toast(f"New program {name}: its build list is in the file tree (Add to Build) and Project "
+                       "Properties")
+        self._program_name_dialog("New program", "Create", "", done, with_copy=True)
+
+    def rename_program_dialog(self):
+        if not self.project:
+            return
+        from ..project.model import current_program, rename_program
+        old = current_program(self.project)
+
+        def done(name, _copy):
+            rename_program(self.project, old, name)
+            self.project.save()
+            self._refresh_programs()
+        self._program_name_dialog(f"Rename {old}", "Rename", old, done)
+
+    def delete_program_dialog(self):
+        from ..project.model import current_program, program_names, remove_program
+        p = self.project
+        if not p or len(program_names(p)) < 2:
+            return
+        name = current_program(p)
+        dlg = Adw.AlertDialog(heading=f"Delete the program {name}?",
+                              body="Its build list and options go; its files stay in the project.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("delete", "Delete")
+        dlg.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def chosen(d, res):
+            if d.choose_finish(res) == "delete":
+                remove_program(p, name)
+                p.save()
+                self.last_build = None
+                self._populate_files()
+        dlg.choose(self, None, chosen)
+
+    def build_all(self):
+        """Build → Build All Programs: each program in turn, then the disk image with all of them."""
+        if not self.project:
+            self.toast("Open a project first")
+            return
+        from ..project.build import build_all
+        if self.settings.save_before_build:
+            self.save_all()
+        self.bottom_stack.set_visible_child_name("output")
+        self._set_log("Building every program…")
+        proj, overrides, settings = self.project, self._overrides(), self.settings
+
+        def work():
+            try:
+                res, each = build_all(proj, overrides, settings.kickass_jar, settings.java,
+                                      settings.goattracker_dir, settings.pbasic_options())
+            except Exception as e:  # report internal errors in the log rather than losing them
+                import traceback
+                from ..asm.errors import Diagnostic
+                res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
+                                  traceback.format_exc())
+            GLib.idle_add(self._build_done, res, False, False)
+        threading.Thread(target=work, daemon=True).start()
+
     # ================================================================== building and running
     def _overrides(self) -> dict[str, str]:
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
@@ -1129,11 +1296,12 @@ class MainWindow(Adw.ApplicationWindow):
         """VICE options: the ones in Preferences, then the project's own."""
         return list(self.settings.emulator_args) + (list(self.project.vice_args) if self.project else [])
 
-    def _launch(self, target: Path, labels: Path | None = None):
+    def _launch(self, target: Path | str, labels: Path | None = None):
+        """Run in VICE: a program, cartridge or disk image (``disk.d64:name`` starts that program)."""
         try:
             proc = vice.launch(target, self.settings.emulator, labels, None, self._vice_args())
             self._vice_procs.append(proc)
-            self.toast(f"Running {target.name} in VICE")
+            self.toast(f"Running {Path(str(target)).name} in VICE")
         except FileNotFoundError as e:
             self.toast(str(e))
 

@@ -250,6 +250,27 @@ and set the Disk Image page's **Program file to put on the disk** to `game.prg.e
 image is written after the build events. The project's VICE options (`vice_args` in the
 `.l64proj`) are added to the ones in Preferences whenever the project runs or is debugged.
 
+### Several programs in one project
+
+A project can build several programs that share its files (a library and the demos that use it,
+say). Each **program** has its own build list (or, for Kick Assembler, main file), its own program
+file name and its own options; the source folders, output folder and disk image are shared.
+
+* **Project → New Program…** adds one, starting with the current program's build list (handy
+  when they share a library: take off what's only the other program's and add this one's) or empty.
+  **Rename Program…** and **Delete Program** change the current one (deleting keeps the files).
+* One program is **current**, and the toolbar's drop-down (where CBM prg Studio has its target) or
+  **Project → Program** chooses it. Build, Run and Debug use it, and so do the file tree's build
+  order numbers, **Add to Build**, and Project Properties' build list and options.
+* **Build → Build All Programs** builds each program in turn and lists any that failed (each
+  message starts with the program's name), then writes the project's disk image with every
+  program on it, by name, in order. Building just the current program also updates the disk, with
+  the others as they were last built.
+* With **Run from the disk image** on, Run and Debug start the current program from the disk
+  (VICE loads it by name).
+
+A project with one program works as before, and its file doesn't change until you add another.
+
 ## Converting sources from other assemblers
 
 **Tools → Convert Source (Develop 64, Genesis, TASM)…** is CBM prg Studio's Source File

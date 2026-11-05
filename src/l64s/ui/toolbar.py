@@ -56,7 +56,9 @@ def _light_dark_button() -> Gtk.Button:
     return btn
 
 
-def build_toolbar(recent: Gio.MenuModel) -> Gtk.Box:
+def build_toolbar(recent: Gio.MenuModel, program_choice: Gtk.Widget | None = None) -> Gtk.Box:
+    """The toolbar; ``program_choice`` (the current program, for projects with several) goes after
+    the build buttons, where CBM prg Studio has its target."""
     bar = Gtk.Box(css_classes=["toolbar"], spacing=2)
     bar.append(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu(), tooltip_text="New"))
     opener = Adw.SplitButton(icon_name="document-open-symbolic", tooltip_text="Open Project (Ctrl+O)",
@@ -75,6 +77,8 @@ def build_toolbar(recent: Gio.MenuModel) -> Gtk.Box:
         if action == "win.run-project":
             btn.add_css_class("suggested-action")
         bar.append(btn)
+        if action == "win.debug-project" and program_choice is not None:
+            bar.append(program_choice)
     bar.append(Gtk.Box(hexpand=True))
     bar.append(_light_dark_button())
     bar.append(Gtk.Button(icon_name="preferences-system-symbolic", tooltip_text="Preferences (Ctrl+,)",

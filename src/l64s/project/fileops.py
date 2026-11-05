@@ -73,6 +73,8 @@ def _moved(project: Project, value: str, old: Path, new: Path) -> str | None:
 
 def rename(project: Project, old: Path, new: Path) -> int:
     """Point the project's settings at ``new`` where they named ``old``. Returns how many changed."""
+    from .model import store_program
+    store_program(project)
     old, new = Path(old).resolve(), Path(new).resolve()
     n = 0
 
@@ -85,6 +87,9 @@ def rename(project: Project, old: Path, new: Path) -> int:
         return m
 
     project.build_list = [mv(v) for v in project.build_list]
+    for prog in project.programs:                    # the other programs' build lists too
+        prog["build_list"] = [mv(v) for v in prog.get("build_list", [])]
+        prog["main_file"] = mv(prog.get("main_file", ""))
     for attr in ("main_file", "disk_image", "cart_file", "kickass_jar", "disk_program", "output_dir"):
         setattr(project, attr, mv(getattr(project, attr)))
     project.lib_dirs = [mv(v) for v in project.lib_dirs]
@@ -104,6 +109,8 @@ def rename(project: Project, old: Path, new: Path) -> int:
 
 def forget(project: Project, gone: Path) -> int:
     """Drop the settings that used ``gone`` (a file, or a folder and all in it) as an input."""
+    from .model import store_program
+    store_program(project)
     gone = Path(gone).resolve()
     n = 0
 
@@ -115,6 +122,10 @@ def forget(project: Project, gone: Path) -> int:
         return False
 
     project.build_list = [v for v in project.build_list if not uses(v)]
+    for prog in project.programs:
+        prog["build_list"] = [v for v in prog.get("build_list", []) if not uses(v)]
+        if uses(prog.get("main_file", "")):
+            prog["main_file"] = ""
     for attr in ("main_file", "kickass_jar", "disk_program"):
         if uses(getattr(project, attr)):
             setattr(project, attr, "")
