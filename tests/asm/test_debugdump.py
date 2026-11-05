@@ -24,6 +24,20 @@ def _jar() -> Path | None:
     return jar if jar.exists() and shutil.which("java") else None
 
 
+def _by_file(text: str, rows: list[str], field: int) -> list[list[str]]:
+    """The rows with the file index (``field``) replaced by the file's name, from the dump's <Sources>."""
+    names = {}
+    for ln in _section(text, "Sources"):
+        idx, _, name = ln.partition(",")
+        names[idx] = name.rsplit("/", 1)[-1]
+    out = []
+    for r in rows:
+        f = r.split(",")
+        f[field] = names.get(f[field], f[field])
+        out.append(f)
+    return out
+
+
 def _section(text: str, tag: str) -> list[str]:
     body = text.split(f"<{tag}", 1)[1].split(f"</{tag.split()[0]}>", 1)[0]
     return [ln.strip() for ln in body.splitlines()[1:] if ln.strip()]
@@ -41,13 +55,12 @@ def test_same_as_kick_assemblers(tmp_path):
     cbm.parent.mkdir()
     cbm.write_text("*=$0810\n" + PROGRAM)
     ours = debug_dump(Assembler(Options()).assemble_files([cbm]))
-    # Kick Assembler numbers its autoinclude 0 and the source 1; ours has no autoinclude
-    their_rows = [r for r in _section(theirs, "Block name=\"Unnamed\"")]
-    our_rows = _section(ours, "Block")
-    assert [r.split(",")[:2] + r.split(",")[3:] for r in our_rows] == \
-        [r.split(",")[:2] + r.split(",")[3:] for r in their_rows]
-    their_labels = [r for r in _section(theirs, "Labels") if ",1," in r]
-    assert [r.replace(",0,", ",1,", 1) for r in _section(ours, "Labels")] == their_labels
+    # Rows give their file as an index into <Sources>. Ours has only t.asm; Kick Assembler also lists
+    # its autoinclude, in either order (busy, it sometimes numbers t.asm 0), so compare by file name.
+    their_blocks = _by_file(theirs, _section(theirs, "Block name=\"Unnamed\""), 2)
+    assert _by_file(ours, _section(ours, "Block"), 2) == their_blocks
+    their_labels = [r for r in _by_file(theirs, _section(theirs, "Labels"), 3) if r[3] == "t.asm"]
+    assert _by_file(ours, _section(ours, "Labels"), 3) == their_labels
     assert ours.splitlines()[0] == theirs.splitlines()[0]
 
 
