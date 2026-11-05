@@ -344,8 +344,12 @@ The sidebar shows the project's files as a folder tree, as in VS Code: click a f
 close it, click a file to open it. Folders come first, then files. Files on the build list come
 before the rest of their folder, in build order, with their position shown on the right. Library
 folders outside the project (a Kick Assembler workspace's `../Library`, say) are top-level folders
-named by their path from the project. The project's own top-level folders start open, and the
-folders you open stay open when the list refreshes after a save or build.
+named by their path from the project.
+
+Each project remembers which folders were open: they open again when the project does, at start
+or from Open Recent, and stay open when the list refreshes after a save or build. A project opened
+for the first time starts with its own top-level folders open. The last ten projects are kept, in
+`~/.config/linux64studio/folders.json`.
 
 Right-click a file to open it, reveal it in the file manager or use Git on it, or a folder to
 reveal it.

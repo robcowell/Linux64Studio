@@ -40,3 +40,17 @@ def test_restorable_selected_file_gone(tmp_path):
 def test_restorable_project_gone(tmp_path):
     r, missing = Session(str(tmp_path / "old.cbmprj"), [], -1).restorable()
     assert r.empty and missing == ["old.cbmprj"]
+
+
+def test_open_folders_per_project(tmp_path, monkeypatch):
+    from l64s.session import MAX_PROJECTS, load_open_folders, save_open_folders
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert load_open_folders("/p/a.cbmprj") is None
+    save_open_folders("/p/a.cbmprj", ["/p/Gfx", "/p/Code"])
+    save_open_folders("/q/b.l64proj", [])
+    assert load_open_folders("/p/a.cbmprj") == ["/p/Code", "/p/Gfx"]
+    assert load_open_folders("/q/b.l64proj") == []           # all closed, not "never seen"
+    for i in range(MAX_PROJECTS):
+        save_open_folders(f"/r/{i}.l64proj", [])
+    assert load_open_folders("/p/a.cbmprj") is None          # the oldest is dropped
+    assert load_open_folders(f"/r/{MAX_PROJECTS - 1}.l64proj") == []

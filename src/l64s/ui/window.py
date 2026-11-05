@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
-from ..session import OpenFile, Session  # noqa: E402
+from ..session import OpenFile, Session, load_open_folders, save_open_folders  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
@@ -402,14 +402,11 @@ class MainWindow(Adw.ApplicationWindow):
     def _populate_files(self):
         """The project's files as a folder tree, keeping open the folders that were open."""
         self._git_states = self._git_status_map()
-        old = self._file_tree
-        expanded: set[Path] = set()
-        if old is not None:
-            for i in range(old.get_n_items()):
-                row = old.get_item(i)
-                if row.get_expanded():
-                    expanded.add(row.get_item().node.path)
+        expanded = self._open_folders()
+        if self._tree_project and (not self.project or self._project_key() != self._tree_project):
+            self._remember_open_folders()             # leaving that project: keep its folders for next time
         if not self.project:
+            self._tree_project = None
             self.sidebar_title.set_text("No project")
             self._file_tree = None
             self.file_list.set_model(None)
@@ -419,10 +416,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
         roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
         tree = build_tree(p.directory, p.all_files(), self._build_order, roots)
-        first_time = self._tree_project != str(p.path)
-        self._tree_project = str(p.path)
-        if first_time:                   # a project just opened: its own top-level folders open
-            expanded = {c.path for c in tree.children if c.is_dir and c.path.is_relative_to(tree.path)}
+        first_time = self._tree_project != self._project_key()
+        self._tree_project = self._project_key()
+        if first_time:                   # a project just opened: its folders as they were left
+            saved = load_open_folders(self._tree_project)
+            expanded = ({Path(f) for f in saved} if saved is not None else      # else its top-level folders
+                        {c.path for c in tree.children if c.is_dir and c.path.is_relative_to(tree.path)})
 
         def store(nodes):
             st = Gio.ListStore(item_type=_FileItem)
@@ -439,6 +438,20 @@ class MainWindow(Adw.ApplicationWindow):
             i += 1
         self._file_tree = model
         self.file_list.set_model(Gtk.NoSelection(model=model))
+
+    def _project_key(self) -> str:
+        return str(Path(self.project.path).resolve())
+
+    def _open_folders(self) -> set[Path]:
+        tree = self._file_tree
+        if tree is None:
+            return set()
+        rows = (tree.get_item(i) for i in range(tree.get_n_items()))
+        return {r.get_item().node.path for r in rows if r.get_expanded()}
+
+    def _remember_open_folders(self):
+        if self._tree_project:
+            save_open_folders(self._tree_project, [str(f) for f in self._open_folders()])
 
     def _file_row_setup(self, _f, li):
         box = Gtk.Box(spacing=6)
@@ -819,6 +832,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.capture_session().save()
         except OSError:
             pass
+        self._remember_open_folders()
         if self.debug:
             self.debug.stop()
         dirty = [e for e in self.editors() if e.modified]

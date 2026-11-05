@@ -70,3 +70,41 @@ class Session:
         if selected < 0 and files:
             selected = len(files) - 1
         return Session(project, files, selected), missing
+
+
+# -------------------------------------------------------------------- open folders, per project
+# The sidebar's open folders, remembered for each project (whichever way it's opened again), in
+# ~/.config/linux64studio/folders.json as {project path: [folder paths]}. The most recent projects
+# are kept, as many as the recent-projects list.
+MAX_PROJECTS = 10
+
+
+def _folders_file() -> Path:
+    return config_dir() / "folders.json"
+
+
+def _load_all_folders() -> dict[str, list[str]]:
+    try:
+        data = json.loads(_folders_file().read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): [str(f) for f in v] for k, v in data.items() if isinstance(v, list)}
+
+
+def load_open_folders(project: str) -> list[str] | None:
+    """The folders open when ``project`` was last shown, or None if it never was."""
+    return _load_all_folders().get(project)
+
+
+def save_open_folders(project: str, folders: list[str]) -> None:
+    data = _load_all_folders()
+    data.pop(project, None)
+    data = {project: sorted(folders), **data}                # most recent first
+    data = dict(list(data.items())[:MAX_PROJECTS])
+    try:
+        config_dir().mkdir(parents=True, exist_ok=True)
+        _folders_file().write_text(json.dumps(data, indent=2) + "\n")
+    except OSError:
+        pass

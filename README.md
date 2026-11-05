@@ -13,7 +13,8 @@ can be followed on Linux.
   **Continue where you left off**: at start it opens the last project again, with the same files in
   tabs, the same tab in front and the cursor where it was (Preferences → Editor to turn it off;
   a file named on the command line opens instead) ([session](docs/dialect.md#continue-where-you-left-off)).
-  The sidebar shows the project's files as an expandable **folder tree**, as in VS Code
+  The sidebar shows the project's files as an expandable **folder tree**, as in VS Code,
+  that remembers which folders were open
   ([project files](docs/dialect.md#project-files)).
   Right-click a tab to **Close Others**, **Close to the Right** or **Reveal File** in the file
   manager ([tab menu](docs/dialect.md#tab-menu)).
