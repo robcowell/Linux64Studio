@@ -399,8 +399,27 @@ Each project remembers which folders were open: they open again when the project
 open when the list refreshes after a save or build. A project opened for the first time starts with
 its own top-level folders open.
 
-Right-click a file to open it, reveal it in the file manager or use Git on it, or a folder to
-reveal it.
+### Managing files
+
+Right-click in the tree to manage the project's files, as in CBM prg Studio's Project Explorer:
+
+* **A folder**: **New** (a source, BASIC, pBASIC, sprite, character set, screen design or disk
+  image file in that folder), **New Folder…**, **Rename…**, **Move to Trash…** and **Reveal in File
+  Manager**. Right-click below the files for New and New Folder at the top of the project.
+* **A file**: **Open**, **Rename…**, **Move to Trash…**, **Reveal in File Manager** and the Git
+  commands. For a source file in a CBM prg Studio project, **Add to Build** or **Remove from
+  Build**, and **Build Earlier** / **Build Later** to change the build order (the number beside the
+  file). In a Kick Assembler project, **Set as Main File** chooses the file the assembler builds.
+
+Renaming keeps everything pointing at the file: the build list, Kick's main file, linked exports,
+disk and cartridge contents, music and each file's view settings follow it, and so do its open tab
+(which keeps its unsaved changes) and, for a folder, everything inside. Source lines that include
+the file by name (`incasm`, `incbin`, `#import`) aren't changed: a note says which files still name
+the old one, and **Show** goes to the first. A name that's taken or can't be used is refused as you
+type it.
+
+**Move to Trash** asks first, closes the file's tabs and takes it off the build list (and out of the
+project's other settings). Restore it from the desktop's Trash if it was a mistake.
 
 ## Each project's tabs and folders
 

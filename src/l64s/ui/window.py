@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Graphene, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
 from .menus import build_menubar  # noqa: E402
@@ -131,6 +131,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         # ---------- project sidebar
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._sidebar = side
         self.sidebar_title = Gtk.Label(label="No project", xalign=0, margin_start=10, margin_top=8, margin_bottom=4,
                                        ellipsize=Pango.EllipsizeMode.END, css_classes=["heading"])
         side.append(self.sidebar_title)
@@ -143,6 +144,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.file_list = Gtk.ListView(factory=factory, single_click_activate=True,
                                       css_classes=["navigation-sidebar"])
         self.file_list.connect("activate", self._on_file_activated)
+        root_menu = Gtk.GestureClick(button=3)             # the empty space below the files
+        root_menu.connect("pressed", lambda _g, _n, x, y: self._project_root_menu(x, y))
+        self.file_list.add_controller(root_menu)
         side.append(Gtk.ScrolledWindow(child=self.file_list, vexpand=True))
         outer.set_start_child(side)
         outer.set_shrink_start_child(False)
@@ -269,6 +273,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("git-ignore", lambda *_: self.git_ignore_list())
         add("git-init", lambda *_: self.git_init())
         add("git-file", lambda _a, v: self.git_file(v.get_string()), "s")
+        add("file-op", lambda _a, v: self.file_op(*v.get_string().split("|", 1)), "s")
         add("print-preview", lambda *_: self.print_source(preview=True))
         add("basic-compress", lambda *_: self.basic_keywords("abbreviate"))
         add("basic-uncompress", lambda *_: self.basic_keywords(
@@ -375,6 +380,13 @@ class MainWindow(Adw.ApplicationWindow):
         self._git_branch = self._git_branch_name()
         self.projinfo.refresh_soon(100)
         expanded = self._open_folders()
+        renamed = getattr(self, "_folder_renamed", None)
+        if renamed:                       # a renamed folder keeps open, as do folders inside it
+            o, n = renamed
+            expanded = {n / f.relative_to(o) if (f == o or o in f.parents) else f for f in expanded}
+            self._folder_renamed = None
+        expanded |= getattr(self, "_expand_after_refresh", set())
+        self._expand_after_refresh = set()
         if not self.project:
             self._tree_project = None
             self.sidebar_title.set_text("No project")
@@ -443,7 +455,8 @@ class MainWindow(Adw.ApplicationWindow):
                              tooltip_text="Position in the build order"))
         exp = Gtk.TreeExpander(child=box)
         click = Gtk.GestureClick(button=3)
-        click.connect("pressed", lambda _g, _n, x, y: self._file_menu(exp, x, y))
+        click.connect("pressed", lambda g, _n, x, y: (g.set_state(Gtk.EventSequenceState.CLAIMED),
+                                                      self._file_menu(exp, x, y)))
         exp.add_controller(click)
         li.set_child(exp)
 
@@ -903,7 +916,7 @@ class MainWindow(Adw.ApplicationWindow):
         btn.connect("clicked", create)
         win.present(self)
 
-    def new_file_dialog(self, kind: str):
+    def new_file_dialog(self, kind: str, folder: Path | None = None):
         if not self.project:
             self.toast("Open or create a project first")
             return
@@ -936,7 +949,7 @@ class MainWindow(Adw.ApplicationWindow):
             exts = (".d64", ".d71", ".d81") if kind == "d64" else ("." + kind,)
             if not fname.lower().endswith(exts):
                 fname += "." + kind
-            path = self.project.directory / fname
+            path = (folder or self.project.directory) / fname
             if path.exists():
                 self.toast(f"{fname} already exists")
                 self.open_file(path)
@@ -949,8 +962,9 @@ class MainWindow(Adw.ApplicationWindow):
                 else:
                     path.write_text(f"10 rem {path.stem}\n")
                 if add_build and add_build.get_active():
+                    from ..project.fileops import relative
                     bl = self.project.build_list
-                    bl.insert(max(0, len(bl) - 1), fname)
+                    bl.insert(max(0, len(bl) - 1), relative(self.project, path))
                     self.project.save()
             elif kind == "spt":
                 from ..gfx.sprite import SpriteSet
@@ -2080,38 +2094,84 @@ class MainWindow(Adw.ApplicationWindow):
                           lambda h: self.toast(f"Committed {h}"))
         dlg.choose(self, None, chosen)
 
-    def _file_menu(self, row_widget: Gtk.TreeExpander, x, y):
-        """Right-click in the file tree: open it, show it in the file manager, and Git's commands for it."""
-        row = row_widget.get_list_row()
-        if row is None:
-            return
-        node = row.get_item().node
-        path = node.path
+    def _file_op_item(self, label: str, op: str, path: Path) -> Gio.MenuItem:
+        it = Gio.MenuItem.new(label, None)
+        it.set_action_and_target_value("win.file-op", GLib.Variant.new_string(f"{op}|{path}"))
+        return it
 
-        def item(label, what):
-            it = Gio.MenuItem.new(label, None)
-            it.set_action_and_target_value("win.git-file", GLib.Variant.new_string(f"{what}|{path}"))
-            return it
+    def _new_in_folder_menu(self, folder: Path) -> Gio.Menu:
+        new = Gio.Menu()
+        for label, kind in (("Source File…", "asm"), ("BASIC File…", "bas"), ("pBASIC File…", "pbas"),
+                            ("Sprite Set…", "spt"), ("Character Set…", "cst"), ("Screen Design…", "sdd"),
+                            ("Disk Image…", "d64")):
+            new.append_item(self._file_op_item(label, f"new-{kind}", folder))
+        sec = Gio.Menu()
+        sec.append_submenu("New", new)
+        sec.append_item(self._file_op_item("New Folder…", "new-folder", folder))
+        return sec
 
-        def reveal():
-            it = Gio.MenuItem.new("Reveal in File Manager", None)
-            it.set_action_and_target_value("win.reveal-path", GLib.Variant.new_string(str(path)))
-            return it
-        if node.is_dir:
-            menu = Gio.Menu()
-            menu.append_item(reveal())
-            self._popup_menu(menu, row_widget, x, y)
+    def _project_root_menu(self, x, y):
+        """Right-click below the files: make a file or folder at the top of the project."""
+        if not self.project:
             return
         menu = Gio.Menu()
-        menu.append_item(item("Open", "open"))
-        menu.append_item(reveal())
-        if self._repo(quiet=True) is not None:
+        menu.append_section(None, self._new_in_folder_menu(self.project.directory))
+        reveal = Gio.Menu()
+        reveal.append_item(self._file_op_item("Reveal in File Manager", "reveal", self.project.path))
+        menu.append_section(None, reveal)
+        # not on the ListView itself: it owns its children, and a popover there crashes GTK
+        ok, pt = self.file_list.compute_point(self._sidebar, Graphene.Point().init(x, y))
+        self._popup_menu(menu, self._sidebar, pt.x if ok else x, pt.y if ok else y)
+
+    def _file_menu(self, row_widget: Gtk.TreeExpander, x, y):
+        """Right-click in the file tree: open, rename, delete, the build list, the file manager and Git."""
+        row = row_widget.get_list_row()
+        if row is None or not self.project:
+            return
+        self._popup_menu(self._file_menu_model(row.get_item().node), row_widget, x, y)
+
+    def _file_menu_model(self, node) -> Gio.Menu:
+        from ..project.fileops import build_index
+        path = node.path
+        inside = path.is_relative_to(self.project.directory.resolve())
+        menu = Gio.Menu()
+        if node.is_dir:
+            if inside:
+                menu.append_section(None, self._new_in_folder_menu(path))
+        else:
+            menu.append_item(self._file_op_item("Open", "open", path))
+        edit = Gio.Menu()
+        if inside and path != self.project.directory.resolve():
+            edit.append_item(self._file_op_item("Rename…", "rename", path))
+            edit.append_item(self._file_op_item("Move to Trash…", "delete", path))
+        menu.append_section(None, edit)
+        if not node.is_dir and path.suffix.lower() in SOURCE_EXTS:
+            build = Gio.Menu()
+            if self.project.toolchain == TOOLCHAIN_CBM:
+                i = build_index(self.project, path)
+                if i is None:
+                    build.append_item(self._file_op_item("Add to Build", "build-add", path))
+                else:
+                    build.append_item(self._file_op_item("Remove from Build", "build-remove", path))
+                    if i > 0:
+                        build.append_item(self._file_op_item("Build Earlier", "build-earlier", path))
+                    if i < len(self.project.build_list) - 1:
+                        build.append_item(self._file_op_item("Build Later", "build-later", path))
+            elif (self.project.directory / self.project.main_file).resolve() != path:
+                build.append_item(self._file_op_item("Set as Main File", "set-main", path))
+            menu.append_section(None, build)
+        reveal = Gio.Menu()
+        reveal.append_item(self._file_op_item("Reveal in File Manager", "reveal", path))
+        menu.append_section(None, reveal)
+        if not node.is_dir and self._repo(quiet=True) is not None:
             git = Gio.Menu()
             for label, what in (("Add", "add"), ("Commit This File…", "commit"), ("Changes (diff)", "diff"),
                                 ("History (log)", "log"), ("Remove from the Repository", "remove")):
-                git.append_item(item(label, what))
+                it = Gio.MenuItem.new(label, None)
+                it.set_action_and_target_value("win.git-file", GLib.Variant.new_string(f"{what}|{path}"))
+                git.append_item(it)
             menu.append_section("Git", git)
-        self._popup_menu(menu, row_widget, x, y)
+        return menu
 
     @staticmethod
     def _popup_menu(menu: Gio.Menu, widget: Gtk.Widget, x, y):
@@ -2122,6 +2182,191 @@ class MainWindow(Adw.ApplicationWindow):
         pop.set_pointing_to(rect)
         pop.connect("closed", lambda p: GLib.idle_add(p.unparent))
         pop.popup()
+
+    # ================================================================== managing the project's files
+    def file_op(self, op: str, path_str: str):
+        """A command from the file tree's right-click menu on ``path``."""
+        from ..project import fileops
+        path = Path(path_str)
+        p = self.project
+        if op == "open":
+            self.open_file(path)
+        elif op == "reveal":
+            self.reveal_in_file_manager(path)
+        elif op.startswith("new-") and op != "new-folder":
+            self.new_file_dialog(op[4:], path)
+        elif op == "new-folder":
+            self._name_dialog("New folder", "Create", "", path, lambda name: self._make_folder(path / name))
+        elif op == "rename":
+            self._name_dialog(f"Rename {path.name}", "Rename", path.name, path.parent,
+                              lambda name: self._rename(path, path.parent / name), current=path)
+        elif op == "delete":
+            self._confirm_trash(path)
+        elif p is not None and op.startswith(("build-", "set-main")):
+            changed = {"build-add": lambda: fileops.build_add(p, path),
+                       "build-remove": lambda: fileops.build_remove(p, path),
+                       "build-earlier": lambda: fileops.build_move(p, path, -1),
+                       "build-later": lambda: fileops.build_move(p, path, 1),
+                       "set-main": lambda: self._set_main_file(path)}[op]()
+            if changed:
+                p.save()
+                self._populate_files()
+
+    def _set_main_file(self, path: Path) -> bool:
+        from ..project.fileops import relative
+        self.project.main_file = relative(self.project, path)
+        self.toast(f"Kick Assembler now builds {path.name}")
+        return True
+
+    def _name_dialog(self, heading: str, verb: str, name: str, folder: Path, done, current: Path | None = None):
+        """Ask for a file or folder name in ``folder``; refuse names that clash or can't be used."""
+        from ..project.fileops import check_name
+        dlg = Adw.AlertDialog(heading=heading)
+        entry = Gtk.Entry(text=name, activates_default=True)
+        problem = Gtk.Label(css_classes=["error", "caption"], xalign=0, visible=False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.append(entry)
+        box.append(problem)
+        dlg.set_extra_child(box)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("ok", verb)
+        dlg.set_default_response("ok")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def check(*_):
+            text = entry.get_text().strip()
+            why = check_name(folder, text, current)
+            same = current is not None and text == current.name
+            problem.set_text(why or "")
+            problem.set_visible(bool(why) and bool(text))
+            dlg.set_response_enabled("ok", why is None and not same)
+        entry.connect("changed", check)
+        check()
+        if current is not None and current.is_file() and "." in name:
+            GLib.idle_add(lambda: (entry.select_region(0, name.rindex(".")), False)[1])   # the name, not .asm
+
+        def chosen(d, res):
+            if d.choose_finish(res) == "ok":
+                done(entry.get_text().strip())
+        dlg.choose(self, None, chosen)
+
+    def _make_folder(self, folder: Path):
+        try:
+            folder.mkdir()
+        except OSError as e:
+            self.toast(f"Couldn't make {folder.name}: {e.strerror}")
+            return
+        self._expand_after_refresh = {folder.parent.resolve()}
+        self._populate_files()
+
+    def _affected_editors(self, old: Path) -> list[EditorPage]:
+        """The open tabs showing ``old`` or (for a folder) a file inside it."""
+        old = old.resolve()
+        return [e for e in self.editors() if getattr(e, "path", None)
+                and (Path(e.path).resolve() == old or old in Path(e.path).resolve().parents)]
+
+    def _rename(self, old: Path, new: Path):
+        """Rename a file or folder, then the project's settings and open tabs to match."""
+        from ..project import fileops
+        old_r = old.resolve()
+        affected = self._affected_editors(old_r)
+        try:
+            old.rename(new)
+        except OSError as e:
+            self.toast(f"Couldn't rename {old.name}: {e.strerror}")
+            return
+        new_r = new.resolve()
+        if fileops.rename(self.project, old_r, new_r):
+            self.project.save()
+        for ed in affected:
+            here = Path(ed.path).resolve()
+            self._retarget_tab(ed, new_r / here.relative_to(old_r) if here != old_r else new_r)
+        self._folder_renamed = (old_r, new_r)
+        self._populate_files()
+        self._update_title()
+        if new.is_dir():
+            return
+        texts = {}
+        for f in self.project.all_files():
+            if f.suffix.lower() in SOURCE_EXTS and f.is_file():
+                try:
+                    texts[str(f)] = f.read_text(errors="replace")
+                except OSError:
+                    pass
+        still = fileops.including_lines(texts, old_r)
+        if still:
+            files = sorted({Path(f).name for f, _n in still})
+            toast = Adw.Toast(title=f"{len(still)} include line{'s' if len(still) > 1 else ''} still "
+                                    f"name{'' if len(still) > 1 else 's'} {old.name} ({', '.join(files)})", button_label="Show", timeout=10)
+            toast.connect("button-clicked", lambda *_: self._open_source_line(*still[0]))
+            self.toasts.add_toast(toast)
+
+    def _retarget_tab(self, ed: EditorPage, new: Path):
+        """A file open in a tab was renamed or moved: follow it."""
+        page = self.tab_view.get_page(ed)
+        if page is None:
+            return
+        if isinstance(ed, SourceEditor) and Path(ed.path).suffix.lower() == new.suffix.lower():
+            old_key = str(Path(ed.path).resolve())
+            ed.path = new
+            if self.pages.get(old_key) is page:
+                del self.pages[old_key]
+            self.pages[str(new.resolve())] = page
+            page.set_title(("● " if ed.modified else "") + ed.title)
+            page.set_tooltip(str(new))
+            return
+        # other editors keep their path in more places (export links, ...): reopen them at the new path
+        if ed.modified:
+            self._save(ed)
+        pos = self.tab_view.get_page_position(page)
+        front = self.tab_view.get_selected_page()
+        self._force_close = True
+        self.tab_view.close_page(page)
+        self._force_close = False
+        reopened = self.open_file(new)
+        p2 = self.tab_view.get_page(reopened) if reopened is not None else None
+        if p2 is not None:
+            self.tab_view.reorder_page(p2, min(pos, self.tab_view.get_n_pages() - 1))
+            if front is not page and front is not None and self.tab_view.get_page_position(front) >= 0:
+                self.tab_view.set_selected_page(front)
+
+    def _confirm_trash(self, path: Path):
+        from ..project.fileops import build_index
+        notes = []
+        if path.is_dir():
+            n = sum(1 for f in path.rglob("*") if f.is_file())
+            notes.append(f"It holds {n} file{'s' if n != 1 else ''}.")
+        elif build_index(self.project, path) is not None:
+            notes.append("It comes off the build list.")
+        if self._affected_editors(path):
+            notes.append("Its open tabs close, without saving.")
+        what = "folder" if path.is_dir() else "file"
+        dlg = Adw.AlertDialog(heading=f"Move {path.name} to the Trash?",
+                              body=" ".join(notes + [f"You can restore the {what} from the Trash."]))
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("trash", "Move to Trash")
+        dlg.set_response_appearance("trash", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.choose(self, None, lambda d, res: d.choose_finish(res) == "trash" and self._trash(path))
+
+    def _trash(self, path: Path):
+        from ..project.fileops import forget
+        try:
+            Gio.File.new_for_path(str(path)).trash(None)
+        except GLib.Error as e:
+            self.toast(f"Couldn't move {path.name} to the Trash: {e.message}")
+            return
+        self._force_close = True
+        for ed in self._affected_editors(path):
+            page = self.tab_view.get_page(ed)
+            if page is not None:
+                self.tab_view.close_page(page)
+        self._force_close = False
+        if forget(self.project, path):
+            self.project.save()
+        self._populate_files()
+        self._update_title()
+        self.toast(f"Moved {path.name} to the Trash")
 
     # ================================================================== user tools
     def refresh_user_tools(self):

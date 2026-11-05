@@ -19,8 +19,9 @@ can be followed on Linux.
   and CBM's **status bar** under source files (CAPS, INS/OVR, word wrap, line and column, auto line
   numbering, Git) ([status bar](docs/dialect.md#status-bar)).
   **Light or dark mode** from a toolbar button or Window → Appearance (or follow the system).
-  The sidebar shows the project's files as an expandable **folder tree**, as in VS Code
-  ([project files](docs/dialect.md#project-files)). Each project reopens with the **tabs and folders
+  The sidebar shows the project's files as an expandable **folder tree**, as in VS Code, where files
+  and folders are made, renamed and trashed and the build order set, as in CBM's Project Explorer
+  ([project files](docs/dialect.md#project-files), [managing files](docs/dialect.md#managing-files)). Each project reopens with the **tabs and folders
   it had open** when you left it ([per project](docs/dialect.md#each-projects-tabs-and-folders)).
   Right-click a tab to **Close Others**, **Close to the Right** or **Reveal File** in the file
   manager ([tab menu](docs/dialect.md#tab-menu)).
