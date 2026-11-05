@@ -17,7 +17,7 @@ start of a line, which is where stepping by C line stops.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 _INT_SIZES = {"char": 1, "short": 2, "int": 2, "long": 4, "enum": 2, "void": 0}
 # standard typedefs (stdint.h, stddef.h, stdbool.h) as cc65 defines them
@@ -39,6 +39,12 @@ class CType:
     pointer: int = 0             # levels of *
     dims: tuple[int, ...] = ()   # array dimensions (0 = unknown)
     tag: str = ""                # struct/union/enum name
+    signed: bool = False         # "signed char" written out (plain char is unsigned in cc65)
+
+    @property
+    def plain_char(self) -> bool:
+        """A plain ``char``: a character. ``unsigned char`` / ``signed char`` are numbers (bytes)."""
+        return self.base == "char" and not self.unsigned and not self.signed and not self.pointer
 
     def size(self, structs: dict[str, list[tuple[str, CType]]] | None = None) -> int | None:
         if self.pointer:
@@ -62,13 +68,13 @@ class CType:
         return one
 
     def element(self) -> CType:
-        return CType(self.base, self.unsigned, self.pointer, self.dims[1:], self.tag)
+        return replace(self, dims=self.dims[1:])
 
     def __str__(self) -> str:
         if self.base in ("struct", "union", "enum"):
-            name = f"{self.base} {self.tag}".strip()
+            name = f"{self.base} {self.tag}".strip() if not self.tag.startswith("(") else self.base
         else:
-            name = ("unsigned " if self.unsigned else "") + self.base
+            name = ("unsigned " if self.unsigned else "signed " if self.signed else "") + self.base
         return name + (" " + "*" * self.pointer if self.pointer else "") + "".join(f"[{d or ''}]" for d in self.dims)
 
 
@@ -91,6 +97,7 @@ class CSource:
     functions: dict[str, Function] = field(default_factory=dict)
     structs: dict[str, list[tuple[str, CType]]] = field(default_factory=dict)
     typedefs: dict[str, CType] = field(default_factory=dict)
+    enums: dict[str, dict[int, str]] = field(default_factory=dict)    # tag -> {value: member}
     # every name the file declares at file level, with where, for the editor (symindex): kind is
     # function, prototype, variable, extern, typedef, struct, union, enum, enumconst or macro
     symbols: list[tuple[str, str, int]] = field(default_factory=list)
@@ -103,6 +110,8 @@ class CSource:
             self.structs.setdefault(k, v)
         for k, v in other.typedefs.items():
             self.typedefs.setdefault(k, v)
+        for k, v in other.enums.items():
+            self.enums.setdefault(k, v)
 
 
 # ------------------------------------------------------------------------ reading declarations
@@ -204,7 +213,7 @@ class _Reader:
     # specifiers: storage, qualifiers and the base type. Returns (type, is_typedef, next index) or None
     def specifiers(self, i: int) -> tuple[CType, bool, int] | None:
         toks = self.toks
-        base, unsigned, tag, seen, typedef = None, False, "", False, False
+        base, unsigned, tag, seen, typedef, signed = None, False, "", False, False, False
         longs = 0
         while i < len(toks):
             t = toks[i][0]
@@ -215,7 +224,7 @@ class _Reader:
                 typedef = True
                 i += 1
             elif t in ("signed", "unsigned"):
-                unsigned, seen = t == "unsigned", True
+                unsigned, signed, seen = t == "unsigned", t == "signed", True
                 i += 1
             elif t in ("char", "short", "int", "void"):
                 if not (t == "int" and base in ("short", "long")):
@@ -236,13 +245,15 @@ class _Reader:
                 if i < len(toks) and toks[i][0] == "{":
                     if tag:
                         self.src.symbols.append((tag, base, tag_line))
+                    elif base == "enum":             # typedef enum { ... } name: give it a name of its own
+                        tag = f"(enum at line {toks[i][1]})"
                     i = self.struct_body(i, base, tag)
             elif not seen and (t in self.src.typedefs or t in _STD_TYPEDEFS):
                 if t in self.src.typedefs:
                     td = self.src.typedefs[t]
-                    base, unsigned, tag = td.base, td.unsigned, td.tag
+                    base, unsigned, tag, signed = td.base, td.unsigned, td.tag, td.signed
                     if td.pointer or td.dims:
-                        return CType(td.base, td.unsigned, td.pointer, td.dims, td.tag), typedef, i + 1
+                        return td, typedef, i + 1
                 else:
                     base, unsigned = _STD_TYPEDEFS[t]
                 seen = True
@@ -251,7 +262,7 @@ class _Reader:
                 break
         if not seen:
             return None
-        return CType(base or "int", unsigned, 0, (), tag), typedef, i
+        return CType(base or "int", unsigned, 0, (), tag, signed), typedef, i
 
     def struct_body(self, i: int, kind: str, tag: str) -> int:
         """At '{' of a struct/union/enum body: read its members, return the index after '}'."""
@@ -265,13 +276,24 @@ class _Reader:
                     break
             j += 1
         if kind == "enum":                          # its constants: each name after '{' or ','
-            depth = 0
+            depth, value, names = 0, -1, {}
             for k in range(i, j):
                 t, line = self.toks[k]
                 depth += t in "({["
                 depth -= t in ")}]"
                 if depth == 1 and self.toks[k - 1][0] in ("{", ",") and re.match(r"[A-Za-z_]", t):
                     self.src.symbols.append((t, "enumconst", line))
+                    value += 1
+                    if k + 1 < j and self.toks[k + 1][0] == "=":     # NAME = value
+                        e = k + 2
+                        while e < j and self.toks[e][0] not in (",", "}"):
+                            e += 1
+                        expr = " ".join(x for x, _l in self.toks[k + 2:e])
+                        known = {**self.macros, **{n: str(v) for v, n in names.items()}}
+                        value = constant(expr, known) if expr.strip() not in ("0", "0x0", "0X0") else 0
+                    names[value] = t
+            if tag:
+                self.src.enums[tag] = names
         if kind != "enum" and tag:
             members: list[tuple[str, CType]] = []
             k = i + 1
@@ -322,7 +344,7 @@ class _Reader:
                     i += 1
                 if dims and dims[0] == 0:
                     dims[0] = 0
-            ctype = CType(base.base, base.unsigned, base.pointer + pointer, base.dims + tuple(dims), base.tag)
+            ctype = replace(base, pointer=base.pointer + pointer, dims=base.dims + tuple(dims))
             yield name, ctype, line, i
             if i < end and toks[i][0] == ",":
                 i += 1
@@ -456,20 +478,24 @@ def _char(b: int) -> str:
     return ""
 
 
-def format_value(ctype: CType, data: bytes, structs: dict | None = None) -> str:
-    """The value as its type says: numbers in decimal (and hex), pointers as addresses, char arrays as
-    text, other arrays and structs as {…}. Bytes it doesn't know how to show are shown in hex."""
-    structs = structs or {}
+def format_value(ctype: CType, data: bytes, structs: dict | None = None, enums: dict | None = None) -> str:
+    """The value as its type says: numbers in decimal (and hex), a plain char with its character, an
+    enum by its name, pointers as addresses, char arrays as text, unsigned/signed char arrays as bytes,
+    other arrays and structs as {…}. Bytes it doesn't know how to show are shown in hex."""
+    structs, enums = structs or {}, enums or {}
     if ctype.dims:
         elem = ctype.element()
         size = elem.size(structs)
         if not size:
-            return data.hex(" ")
+            return data.hex(" ").upper()
         if elem.base == "char" and not elem.pointer and not elem.dims:
-            text = data.split(b"\0", 1)[0]
-            shown = "".join(_char(b) or "." for b in text[:40])
-            return f'"{shown}"' + ("…" if len(text) > 40 else "")
-        items = [format_value(elem, data[i:i + size], structs) for i in range(0, min(len(data), size * 8), size)]
+            if elem.plain_char:                     # text
+                text = data.split(b"\0", 1)[0]
+                shown = "".join(_char(b) or "." for b in text[:40])
+                return f'"{shown}"' + ("…" if len(text) > 40 else "")
+            return data[:16].hex(" ").upper() + (" …" if len(data) > 16 else "")     # data: bytes
+        items = [format_value(elem, data[i:i + size], structs, enums)
+                 for i in range(0, min(len(data), size * 8), size)]
         more = len(data) // size > 8
         return "{" + ", ".join(items) + (", …" if more else "") + "}"
     if ctype.pointer:
@@ -482,16 +508,19 @@ def format_value(ctype: CType, data: bytes, structs: dict | None = None) -> str:
         out, off = [], 0
         for name, mtype in members:
             size = mtype.size(structs) or 0
-            out.append(f"{name} = {format_value(mtype, data[off:off + size], structs)}")
+            out.append(f"{name} = {format_value(mtype, data[off:off + size], structs, enums)}")
             if ctype.base == "struct":
                 off += size
         return "{" + ", ".join(out) + "}"
     size = ctype.size(structs)
     if not size or len(data) < size:
         return data.hex(" ")
-    v = _int(data[:size], signed=not ctype.unsigned and ctype.base != "enum")
+    # (cc65's plain char is unsigned; enums are signed ints)
+    v = _int(data[:size], signed=not ctype.unsigned and not ctype.plain_char)
     hexed = f"${_int(data[:size], False):0{size * 2}X}"
-    if ctype.base == "char":
+    if ctype.base == "enum" and v in enums.get(ctype.tag, {}):
+        return f"{enums[ctype.tag][v]} ({v})"
+    if ctype.plain_char:
         ch = _char(data[0])
         return f"{v} ({hexed}{', ' + repr(ch) if ch else ''})"
     return f"{v} ({hexed})"
@@ -593,10 +622,47 @@ class CProgram:
         return fn, out
 
     def show(self, var: Variable, data: bytes) -> str:
-        """``var``'s value from its bytes."""
+        """``var``'s value from its bytes (and for a pointer, what it points to)."""
         if var.ctype is None:
             return data.hex(" ")
-        return format_value(var.ctype, data, self.source.structs)
+        text = format_value(var.ctype, data, self.source.structs, self.source.enums)
+        if var.ctype.pointer and not var.ctype.dims and len(data) >= 2:
+            target = self.points_to(int.from_bytes(data[:2], "little"))
+            if target:
+                text += f" → {target}"
+        return text
+
+    def points_to(self, address: int) -> str | None:
+        """What's at ``address``, by name: a global, an element of a global array (rocks[1]) or a
+        member of one (rocks[1].y). None if it isn't in a global."""
+        if address == 0:
+            return None
+        for name, (start, gap) in self.globals.items():
+            ctype = self.source.globals.get(name)
+            size = self._size(ctype, gap)
+            if not start <= address < start + size:
+                continue
+            off = address - start
+            if ctype is None or off == 0 and not ctype.dims:
+                return name if off == 0 else f"{name}+{off}"
+            if not ctype.dims:
+                return name + self._member(ctype, off)
+            elem = ctype.element()
+            esize = elem.size(self.source.structs) or 1
+            return f"{name}[{off // esize}]" + self._member(elem, off % esize)
+        return None
+
+    def _member(self, ctype: CType, off: int) -> str:
+        """``.member`` for an offset into a struct (empty at its start, or for anything else)."""
+        if off == 0 or ctype.base != "struct" or ctype.pointer:
+            return f"+{off}" if off else ""
+        at = 0
+        for mname, mtype in self.source.structs.get(ctype.tag, []):
+            size = mtype.size(self.source.structs) or 0
+            if at <= off < at + size:
+                return f".{mname}" + (f"+{off - at}" if off > at else "")
+            at += size
+        return f"+{off}"
 
 
 # ------------------------------------------------------------------------ setting values
@@ -651,9 +717,10 @@ def _hex_bytes(text: str, size: int) -> bytes:
     return data
 
 
-def encode_value(ctype: CType | None, text: str, size: int, structs: dict | None = None) -> bytes:
+def encode_value(ctype: CType | None, text: str, size: int, structs: dict | None = None,
+                 enums: dict | None = None) -> bytes:
     """``text`` (as edit_text writes it) as the variable's bytes, or ValueError saying what's wrong."""
-    structs = structs or {}
+    structs, enums = structs or {}, enums or {}
     text = text.strip()
     if not text:
         raise ValueError("Type a value")
@@ -663,6 +730,8 @@ def encode_value(ctype: CType | None, text: str, size: int, structs: dict | None
         elem = ctype.element()
         esize = elem.size(structs)
         if elem.base == "char" and not elem.pointer and not elem.dims and text.startswith('"'):
+            if not elem.plain_char:
+                raise ValueError("Give the bytes in hex, e.g. 05 00 FE FF (it's an array of numbers)")
             if len(text) < 2 or not text.endswith('"'):
                 raise ValueError('A string goes in quotes: "hello"')
             data = bytes(_petscii(c) for c in text[1:-1])
@@ -671,40 +740,51 @@ def encode_value(ctype: CType | None, text: str, size: int, structs: dict | None
             return data + bytes(size - len(data))           # the rest zeroed
         if not esize or elem.dims or elem.base in ("struct", "union"):
             return _hex_bytes(text, size)
+        if elem.base == "char" and not elem.plain_char and "," not in text:    # bytes, as they're shown
+            data = _hex_bytes(text, len(text.replace(",", " ").split()))
+            if len(data) > size:
+                raise ValueError(f"There's room for {size} bytes")
+            return data + bytes(size - len(data))
         items = [x for x in text.strip("{}").split(",") if x.strip()]
         if len(items) * esize > size:
             raise ValueError(f"There's room for {size // esize} item{'s' if size // esize != 1 else ''}")
-        data = b"".join(encode_value(elem, x, esize, structs) for x in items)
+        data = b"".join(encode_value(elem, x, esize, structs, enums) for x in items)
         return data + bytes(size - len(data))
     if ctype.pointer:
         if text.upper() == "NULL":
             return b"\0\0"
         return _int_bytes(_parse_int(text), 2, True)
     csize = ctype.size(structs) or size
-    v = _parse_int(text)
-    unsigned = ctype.unsigned or ctype.base == "enum"
+    names = {n: v for v, n in enums.get(ctype.tag, {}).items()} if ctype.base == "enum" else {}
+    v = names[text] if text in names else _parse_int(text)
+    unsigned = ctype.unsigned or ctype.plain_char
     if v < 0 and unsigned:
         raise ValueError(f"{str(ctype)} can't be negative")
     return _int_bytes(v, csize, unsigned)
 
 
-def edit_text(ctype: CType | None, data: bytes, structs: dict | None = None) -> str:
+def edit_text(ctype: CType | None, data: bytes, structs: dict | None = None, enums: dict | None = None) -> str:
     """The value as it's typed when setting it (encode_value reads it back)."""
-    structs = structs or {}
+    structs, enums = structs or {}, enums or {}
     if ctype is None or ctype.base in ("struct", "union") and not ctype.pointer and not ctype.dims:
         return data.hex(" ").upper()
     if ctype.dims:
         elem = ctype.element()
         esize = elem.size(structs)
         if elem.base == "char" and not elem.pointer and not elem.dims:
+            if not elem.plain_char:
+                return data.hex(" ").upper()
             text = data.split(b"\0", 1)[0]
             if all(_char(b) for b in text):
                 return '"' + "".join(_char(b) for b in text) + '"'
         if not esize or elem.dims or elem.base in ("struct", "union"):
             return data.hex(" ").upper()
-        return ", ".join(edit_text(elem, data[i:i + esize], structs) for i in range(0, len(data), esize))
+        return ", ".join(edit_text(elem, data[i:i + esize], structs, enums) for i in range(0, len(data), esize))
     if ctype.pointer:
         v = int.from_bytes(data[:2], "little")
         return "NULL" if v == 0 else f"${v:04X}"
     size = ctype.size(structs) or len(data)
-    return str(int.from_bytes(data[:size], "little", signed=not ctype.unsigned and ctype.base != "enum"))
+    v = int.from_bytes(data[:size], "little", signed=not ctype.unsigned and not ctype.plain_char)
+    if ctype.base == "enum" and v in enums.get(ctype.tag, {}):
+        return enums[ctype.tag][v]
+    return str(v)

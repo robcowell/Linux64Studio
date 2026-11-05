@@ -3,8 +3,8 @@
 A small C game for the C64, built with cc65 in Linux64Studio: dodge the falling rocks, catch the star
 for 10 points. Joystick in port 2.
 
-Open `starfall.l64proj` and press Ctrl+F5. To play it with the keyboard, VICE needs a joystick on the
-keypad: Preferences → Emulator → extra options `-joydev2 1` (keypad 4/6 move, 0 fires).
+Open `starfall.l64proj` and press Ctrl+F5. To play it with the keyboard, set Preferences → Emulator →
+**Joystick in port 2** to the keypad (4 and 6 move, 0 fires).
 
 What it uses:
 

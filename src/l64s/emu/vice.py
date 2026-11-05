@@ -24,6 +24,23 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+# What can drive the C64's joystick ports in VICE (its -joydev1/-joydev2 numbers): (key, label, device)
+JOYSTICKS = (("none", "None", 0), ("keypad", "Keypad: 8 4 6 2 move, 0 fires", 1),
+             ("keyset1", "VICE keyset A (set its keys in VICE)", 2), ("keyset2", "VICE keyset B", 3),
+             ("joy1", "Joystick or gamepad 1", 4), ("joy2", "Joystick or gamepad 2", 5))
+
+
+def joystick_args(port1: str, port2: str, other_args: list[str] | None = None) -> list[str]:
+    """VICE options for what drives joystick ports 1 and 2 ("none", "keypad", ...). Left out for a
+    port the other options already set (a -joydev typed into Preferences' extra arguments wins)."""
+    devices = {key: dev for key, _label, dev in JOYSTICKS}
+    out: list[str] = []
+    for port, key in ((1, port1), (2, port2)):
+        if key in devices and key != "none" and f"-joydev{port}" not in (other_args or []):
+            out += [f"-joydev{port}", str(devices[key])]
+    return out
+
+
 def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_port: int | None = None,
            extra_args: list[str] | None = None) -> subprocess.Popen:
     exe = find_emulator(emulator)

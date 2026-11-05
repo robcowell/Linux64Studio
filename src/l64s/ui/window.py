@@ -1310,8 +1310,9 @@ class MainWindow(Adw.ApplicationWindow):
             self._launch(res.run_target(self.project) if self.project else res.prg, res.labels)
 
     def _vice_args(self) -> list[str]:
-        """VICE options: the ones in Preferences, then the project's own."""
-        return list(self.settings.emulator_args) + (list(self.project.vice_args) if self.project else [])
+        """VICE options: the ones in Preferences (the joysticks too), then the project's own."""
+        args = list(self.settings.emulator_args) + (list(self.project.vice_args) if self.project else [])
+        return vice.joystick_args(self.settings.joystick_port1, self.settings.joystick_port2, args) + args
 
     def _launch(self, target: Path | str, labels: Path | None = None):
         """Run in VICE: a program, cartridge or disk image (``disk.d64:name`` starts that program)."""

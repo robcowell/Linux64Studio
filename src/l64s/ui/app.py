@@ -167,6 +167,17 @@ class Application(Adw.Application):
         emu_args = Adw.EntryRow(title="Extra VICE arguments", text=" ".join(s.emulator_args))
         emu.add(emu_path)
         emu.add(emu_args)
+        from ..emu.vice import JOYSTICKS
+        joy_keys = [k for k, _l, _d in JOYSTICKS]
+        joy_rows = []
+        for port in (2, 1):                 # (port 2 first: it's the one most games read)
+            current = getattr(s, f"joystick_port{port}")
+            row = Adw.ComboRow(title=f"Joystick in port {port}",
+                               subtitle="Most games read port 2" if port == 2 else None,
+                               model=Gtk.StringList.new([label for _k, label, _d in JOYSTICKS]),
+                               selected=joy_keys.index(current) if current in joy_keys else 0)
+            emu.add(row)
+            joy_rows.append((port, row))
         page.add(emu)
 
         ka = Adw.PreferencesGroup(title="Kick Assembler",
@@ -264,6 +275,8 @@ class Application(Adw.Application):
         def closed(*_):
             s.emulator = emu_path.get_text().strip() or "x64sc"
             s.emulator_args = emu_args.get_text().split()
+            for port, row in joy_rows:
+                setattr(s, f"joystick_port{port}", joy_keys[row.get_selected()])
             sub = jar.get_subtitle()
             s.kickass_jar = "" if sub.startswith("Not set") else sub
             s.java = java.get_text().strip() or "java"

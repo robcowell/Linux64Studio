@@ -27,6 +27,7 @@ class DebugInfo:
     lines: list[tuple[int, int, int, list[int]]] = field(default_factory=list)  # (file, line, type, spans)
     symbols: dict[int, str] = field(default_factory=dict)            # address -> name (labels)
     seg_names: dict[int, str] = field(default_factory=dict)          # id -> CODE, DATA, BSS, ...
+    seg_sizes: dict[int, int] = field(default_factory=dict)          # id -> size in bytes
     labels: dict[str, tuple[int, int | None]] = field(default_factory=dict)   # name -> (address, segment)
     scopes: dict[int, str] = field(default_factory=dict)             # id -> name (_main for main())
     csyms: list[tuple[str, int, str, int | None]] = field(default_factory=list)  # (name, scope, sc, offs)
@@ -73,6 +74,7 @@ def parses(text: str) -> DebugInfo:
             elif kind == "seg":
                 info.segs[_int(f["id"])] = _int(f["start"])
                 info.seg_names[_int(f["id"])] = f.get("name", "")
+                info.seg_sizes[_int(f["id"])] = _int(f.get("size", "0"))
             elif kind == "scope":
                 info.scopes[_int(f["id"])] = f.get("name", "")
             elif kind == "csym":
@@ -158,7 +160,9 @@ def c_globals(info: DebugInfo) -> dict[str, tuple[int, int]]:
         if not name.startswith("_") or name.startswith("__"):
             continue
         nxt = next((a for a, _n, s in data[i + 1:] if s == seg and a > addr), None)
-        gap = (nxt - addr) if nxt is not None else 2
+        if nxt is None:                     # the segment's last label: to the end of the segment
+            nxt = info.segs.get(seg, addr) + info.seg_sizes.get(seg, 2)
+        gap = nxt - addr
         out[name[1:]] = (addr, max(1, min(gap, 256)))
     return out
 

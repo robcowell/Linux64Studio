@@ -659,7 +659,7 @@ class DebuggerPanel(Gtk.Box):
         size = max(1, min(v.size, 256))
         dlg = Adw.AlertDialog(heading=f"Set {v.name}",
                               body=f"{v.type_name} at ${v.address:04X} ({size} byte{'s' if size != 1 else ''})")
-        entry = Gtk.Entry(text=edit_text(v.ctype, row.data, structs), activates_default=True,
+        entry = Gtk.Entry(text=edit_text(v.ctype, row.data, structs, prog.source.enums), activates_default=True,
                           css_classes=["monospace"])
         hint = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
             "A number: decimal, $hex, 0x hex, %binary or 'c'" if v.ctype and not v.ctype.dims and not v.ctype.pointer
@@ -680,7 +680,7 @@ class DebuggerPanel(Gtk.Box):
 
         def check(*_):
             try:
-                encode_value(v.ctype, entry.get_text(), size, structs)
+                encode_value(v.ctype, entry.get_text(), size, structs, prog.source.enums)
             except ValueError as e:
                 problem.set_text(str(e))
                 problem.set_visible(True)
@@ -709,7 +709,8 @@ class DebuggerPanel(Gtk.Box):
         s, prog = self.session, self.c_program
         if not s or s.running or prog is None or v.address is None:
             raise ValueError("Only while the program is stopped")
-        data = encode_value(v.ctype, text, max(1, min(v.size, 256)), prog.source.structs)
+        data = encode_value(v.ctype, text, max(1, min(v.size, 256)), prog.source.structs,
+                            prog.source.enums)
         s.cmd(s.monitor.write_memory, v.address, data)
         self._show_variables(s, self._regs.get("PC", 0), snapshot=False)   # "changed" stays since the stop
         self.refresh_memory(v.address)

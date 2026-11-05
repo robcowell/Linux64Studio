@@ -179,3 +179,14 @@ def test_the_starfall_example_builds(tmp_path):
     assert res.ok, res.log
     assert res.prg.name == "starfall.prg" and res.disk.name == "starfall.d64"
     assert {"rocks", "score", "state"} <= set(res.c_globals) and res.c_lines and res.asm_lines
+
+
+def test_a_segment_s_last_label_runs_to_its_end():
+    from l64s.cc65dbg import c_globals
+    text = ('version\tmajor=2,minor=0\n'
+            'seg\tid=1,name="RODATA",start=0x001000,size=0x00C0,addrsize=absolute,type=ro\n'
+            'seg\tid=2,name="BSS",start=0x002000,size=0x0004,addrsize=absolute,type=rw\n'
+            'sym\tid=1,name="_sprite_data",addrsize=absolute,val=0x1000,seg=1,type=lab\n'
+            'sym\tid=2,name="_a",addrsize=absolute,val=0x2000,seg=2,type=lab\n'
+            'sym\tid=3,name="_b",addrsize=absolute,val=0x2002,seg=2,type=lab\n')
+    assert c_globals(parses(text)) == {"sprite_data": (0x1000, 192), "a": (0x2000, 2), "b": (0x2002, 2)}

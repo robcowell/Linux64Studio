@@ -12,6 +12,14 @@ and memory. The editor highlights the source line, or the line that called the m
 | Ctrl+F10 / Ctrl+F11 | Step over / into one instruction, even in C |
 | F9 | Toggle breakpoint |
 
+## Joysticks
+
+To play a game while running or debugging it, **Preferences → Emulator → Joystick in port 2** (and
+port 1) chooses what drives the C64's joystick in VICE: the **keypad** (8 4 6 2 to move, 0 to fire),
+one of VICE's two keysets (whose keys are set in VICE's own settings), or a real joystick or
+gamepad. Most games read port 2. It's passed to VICE as `-joydev2`; a `-joydev` option typed into
+the extra VICE arguments wins.
+
 ## The Breakpoints list
 
 The **Breakpoints** tab of the bottom panel lists every breakpoint in the project, as CBM prg

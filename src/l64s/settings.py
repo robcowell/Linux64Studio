@@ -16,6 +16,8 @@ def config_dir() -> Path:
 class Settings:
     emulator: str = "x64sc"
     emulator_args: list[str] = field(default_factory=list)
+    joystick_port1: str = "none"   # emu.vice.JOYSTICKS: none, keypad, keyset1, keyset2, joy1, joy2
+    joystick_port2: str = "none"
     kickass_jar: str = ""
     goattracker_dir: str = ""     # folder with goattrk2, sidmonkey, gt2reloc, ins2snd2 ("" = find them)
     vsid: str = "vsid"            # VICE's SID player

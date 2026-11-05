@@ -92,15 +92,20 @@ changed registers are.
 **Double-click a variable to set it** (or to see its bytes: **Show in Memory**). Type the new value
 as its type takes it, and **Set** writes it into the C64's memory; the program carries on with it.
 
-* Numbers in decimal (`-2`), `$hex`, `0x` hex, `%binary`, or a character (`'a'`). A value that
+* Numbers in decimal (`-2`), `$hex`, `0x` hex, `%binary`, or a character (`'a'`); an `enum` by a
+  member's name (`GAME_OVER`) or its number. A value that
   doesn't fit the type (300 in an `unsigned char`, -1 in an `unsigned int`) is refused as you type.
 * Pointers as an address (`$C000`) or `NULL`.
 * `char` arrays as text in quotes (`"hi there"`), stored as cc65 stores a string (PETSCII, with the
-  0 at the end, the rest of the array cleared); other arrays as items with commas (`1, 2, 3`).
+  0 at the end, the rest of the array cleared); `unsigned char` arrays as bytes in hex (`01 02 FF`,
+  the rest cleared); other arrays as items with commas (`1, 2, 3`).
 * Structs, and variables whose type isn't known, as their bytes in hex (`05 00 FE FF`).
 
-* Values are shown as their types say: numbers in decimal and hex (a `char` with its character),
-  pointers as addresses (or `NULL`), `char` arrays as text, other arrays and structs as `{…}`.
+* Values are shown as their types say: numbers in decimal and hex, a plain `char` with its
+  character (cc65's `char` is unsigned, 0-255), an `enum` by its name (`PLAYING (1)`), pointers as
+  addresses (or `NULL`) with what they point to when that's a global (`$18F0 → rocks[0]`,
+  `→ rocks[1].y`), `char` arrays as text, `unsigned char` and `signed char` arrays (data) as bytes in
+  hex, other arrays and structs as `{…}`.
 * A local declared further down the function shows *not declared yet* until its declaration has
   run (cc65 makes room for it there), and one in a block that has ended, *out of scope*.
 * On a function's first line its arguments aren't in place yet: step once (F10).

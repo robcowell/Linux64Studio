@@ -59,7 +59,10 @@ def test_format():
     structs = parse_source(SRC).structs
     assert format_value(CType("int"), b"\xff\xff") == "-1 ($FFFF)"
     assert format_value(CType("int", True), b"\xff\xff") == "65535 ($FFFF)"
-    assert format_value(CType("char", True), b"\x41") == "65 ($41, 'a')"
+    assert format_value(CType("char"), b"\x41") == "65 ($41, 'a')"           # plain char: a character
+    assert format_value(CType("char", True), b"\x41") == "65 ($41)"          # unsigned char: a number
+    assert format_value(CType("char"), b"\xd8") == "216 ($D8, 'X')"          # cc65's char is unsigned
+    assert format_value(CType("char", signed=True), b"\xd8") == "-40 ($D8)"
     assert format_value(CType("long"), b"\x01\x00\x01\x00") == "65537 ($00010001)"
     assert format_value(CType("int", pointer=1), b"\x00\x04") == "$0400"
     assert format_value(CType("char", pointer=1), b"\x00\x00") == "NULL"
@@ -150,9 +153,10 @@ def test_setting_values():
     import pytest
     from l64s.cvars import edit_text, encode_value
     structs = parse_source("struct point { int x; int y; };").structs
-    i8, u8, i16, u16 = CType("char"), CType("char", True), CType("int"), CType("int", True)
+    i8, u8, i16, u16 = CType("char", signed=True), CType("char", True), CType("int"), CType("int", True)
     assert encode_value(i16, "-2", 2) == b"\xfe\xff" and encode_value(u16, "$C000", 2) == b"\x00\xc0"
     assert encode_value(u8, "%1010", 1) == b"\x0a" and encode_value(u8, "'a'", 1) == b"\x41"
+    assert encode_value(CType("char"), "200", 1) == b"\xc8"                      # plain char: 0-255
     assert encode_value(CType("long"), "0x10000", 4) == b"\x00\x00\x01\x00"
     with pytest.raises(ValueError, match="doesn't fit in 1 byte"):
         encode_value(u8, "256", 1)
@@ -180,3 +184,39 @@ def test_setting_values():
         text = edit_text(ctype, data, structs)
         assert encode_value(ctype, text, size, structs) == data, (ctype, text)
     assert edit_text(i16, b"\xfe\xff") == "-2" and edit_text(name, b"\xc8\x49\x21\x00\x00\x00") == '"Hi!"'
+
+
+def test_enums_by_name():
+    from l64s.cvars import edit_text, encode_value
+    src = parse_source("enum state { TITLE, PLAYING, GAME_OVER = 5, LAST };\nenum state state;\n"
+                       "typedef enum { OFF, ON } toggle;\ntoggle power;\n")
+    assert src.enums["state"] == {0: "TITLE", 1: "PLAYING", 5: "GAME_OVER", 6: "LAST"}
+    st, power = src.globals["state"], src.globals["power"]
+    assert format_value(st, b"\x01\x00", enums=src.enums) == "PLAYING (1)"
+    assert format_value(st, b"\x09\x00", enums=src.enums) == "9 ($0009)"           # not a member
+    assert str(power) == "enum" and format_value(power, b"\x01\x00", enums=src.enums) == "ON (1)"
+    assert edit_text(st, b"\x05\x00", enums=src.enums) == "GAME_OVER"
+    assert encode_value(st, "GAME_OVER", 2, enums=src.enums) == b"\x05\x00"
+    assert encode_value(st, "1", 2, enums=src.enums) == b"\x01\x00"
+
+
+def test_byte_arrays_and_text():
+    from l64s.cvars import edit_text, encode_value
+    data = CType("char", True, dims=(4,))
+    assert format_value(data, b"\x00\x18\x00\xff") == "00 18 00 FF"
+    assert format_value(CType("char", True, dims=(20,)), bytes(range(20))).endswith(" …")
+    assert format_value(CType("char", dims=(6,)), b"\xc8\x49\x00\x00\x00\x00") == '"Hi"'
+    assert edit_text(data, b"\x00\x18\x00\xff") == "00 18 00 FF"
+    assert encode_value(data, "01 02", 4) == b"\x01\x02\x00\x00"
+
+
+def test_pointers_say_what_they_point_to():
+    from l64s.cvars import CProgram, Variable
+    src = "struct rock { unsigned int x; unsigned char y; unsigned char speed; };\n" \
+          "struct rock rocks[3];\nunsigned int score;\nstruct rock *r;\n"
+    prog = CProgram({"/g.c": src}, {"rocks": (0x18F0, 12), "score": (0x18FC, 2), "r": (0x18FE, 2)}, {})
+    ptr = Variable("global", "r", prog.source.globals["r"], 0x18FE, 2)
+    assert prog.show(ptr, b"\xf0\x18") == "$18F0 → rocks[0]"
+    assert prog.show(ptr, b"\xf6\x18") == "$18F6 → rocks[1].y"
+    assert prog.points_to(0x18FC) == "score" and prog.points_to(0x18FD) == "score+1"
+    assert prog.show(ptr, b"\x00\x04") == "$0400" and prog.show(ptr, b"\0\0") == "NULL"
