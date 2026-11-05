@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
-from ..session import OpenFile, Session, load_open_folders, save_open_folders  # noqa: E402
+from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
@@ -368,7 +368,8 @@ class MainWindow(Adw.ApplicationWindow):
                 pass
         dlg.open(self, None, done)
 
-    def open_project(self, path: Path):
+    def open_project(self, path: Path, reopen_tabs: bool = True):
+        """Open a project, with the tabs it had open when last left (else its first source file)."""
         if not self._confirm_discard_all():
             return
         try:
@@ -376,6 +377,7 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as e:  # report any bad project file instead of crashing
             self.toast(f"Couldn't open {path.name}: {e}")
             return
+        self._remember_project()
         self._close_all_tabs(force=True)
         self.project = proj
         self.settings.add_recent(str(path.resolve()))
@@ -383,17 +385,25 @@ class MainWindow(Adw.ApplicationWindow):
         self._refresh_recent()
         self._populate_files()
         self._update_title()
-        first = (proj.build_paths()[:1] if proj.toolchain == TOOLCHAIN_CBM
-                 else [proj.directory / proj.main_file] if proj.main_file else [])
-        for p in first:
-            if p.exists():
-                self.open_file(p)
+        state = load_project_state(self._project_key()) if reopen_tabs else None
+        files, selected, missing = state.restorable() if state else ([], -1, [])
+        if files:
+            self._reopen_tabs(files, selected)
+            if missing:
+                self.toast(f"Not found, so not opened: {', '.join(missing)}")
+        elif reopen_tabs:
+            first = (proj.build_paths()[:1] if proj.toolchain == TOOLCHAIN_CBM
+                     else [proj.directory / proj.main_file] if proj.main_file else [])
+            for p in first:
+                if p.exists():
+                    self.open_file(p)
         if proj.imported_from:
             self.toast(f"Opened {proj.imported_from}. Settings are saved to {proj.settings_path().name}")
 
     def close_project(self):
         if not self._confirm_discard_all():
             return
+        self._remember_project()
         self._close_all_tabs(force=True)
         self.project = None
         self._populate_files()
@@ -403,8 +413,6 @@ class MainWindow(Adw.ApplicationWindow):
         """The project's files as a folder tree, keeping open the folders that were open."""
         self._git_states = self._git_status_map()
         expanded = self._open_folders()
-        if self._tree_project and (not self.project or self._project_key() != self._tree_project):
-            self._remember_open_folders()             # leaving that project: keep its folders for next time
         if not self.project:
             self._tree_project = None
             self.sidebar_title.set_text("No project")
@@ -419,7 +427,8 @@ class MainWindow(Adw.ApplicationWindow):
         first_time = self._tree_project != self._project_key()
         self._tree_project = self._project_key()
         if first_time:                   # a project just opened: its folders as they were left
-            saved = load_open_folders(self._tree_project)
+            state = load_project_state(self._tree_project)
+            saved = state.folders if state else None
             expanded = ({Path(f) for f in saved} if saved is not None else      # else its top-level folders
                         {c.path for c in tree.children if c.is_dir and c.path.is_relative_to(tree.path)})
 
@@ -449,9 +458,13 @@ class MainWindow(Adw.ApplicationWindow):
         rows = (tree.get_item(i) for i in range(tree.get_n_items()))
         return {r.get_item().node.path for r in rows if r.get_expanded()}
 
-    def _remember_open_folders(self):
-        if self._tree_project:
-            save_open_folders(self._tree_project, [str(f) for f in self._open_folders()])
+    def _remember_project(self):
+        """Keep the project's open folders and tabs, for when it's opened again."""
+        if not self.project or self._tree_project != self._project_key():
+            return
+        tabs = self.capture_session()
+        save_project_state(self._tree_project,
+                           ProjectState([str(f) for f in self._open_folders()], tabs.files, tabs.selected))
 
     def _file_row_setup(self, _f, li):
         box = Gtk.Box(spacing=6)
@@ -746,12 +759,18 @@ class MainWindow(Adw.ApplicationWindow):
                 self.toast(f"Couldn't continue where you left off: {', '.join(missing)} not found")
             return False
         if session.project:
-            self.open_project(Path(session.project))
+            self.open_project(Path(session.project), reopen_tabs=False)     # the session's tabs instead
             if self.project is None:
                 return False
-            self._close_all_tabs(force=True)      # the session's tabs, not the project's first file
+        self._reopen_tabs(session.files, session.selected)
+        if missing:
+            self.toast(f"Not found, so not opened: {', '.join(missing)}")
+        return True
+
+    def _reopen_tabs(self, files: list[OpenFile], selected: int):
+        """Open files in tabs with the cursor where it was in each, and ``selected`` in front."""
         opened = []
-        for f in session.files:
+        for f in files:
             ed = self.open_file(Path(f.path))
             opened.append(ed)
             if isinstance(ed, SourceEditor) and f.line > 0:
@@ -764,13 +783,10 @@ class MainWindow(Adw.ApplicationWindow):
                         ed.folding.reveal(f.line - 1)
                     GLib.idle_add(lambda e=ed: (e.view.scroll_to_mark(e.buffer.get_insert(), 0.2, True, 0, 0.4),
                                                 False)[1])
-        if 0 <= session.selected < len(opened) and opened[session.selected] is not None:
-            front = self.tab_view.get_page(opened[session.selected])
+        if 0 <= selected < len(opened) and opened[selected] is not None:
+            front = self.tab_view.get_page(opened[selected])
             if front is not None:
                 self.tab_view.set_selected_page(front)
-        if missing:
-            self.toast(f"Not found, so not opened: {', '.join(missing)}")
-        return True
 
     def _on_close_page(self, view, page):
         ed: EditorPage = page.get_child()
@@ -832,7 +848,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.capture_session().save()
         except OSError:
             pass
-        self._remember_open_folders()
+        self._remember_project()
         if self.debug:
             self.debug.stop()
         dirty = [e for e in self.editors() if e.modified]

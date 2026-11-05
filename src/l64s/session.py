@@ -72,39 +72,61 @@ class Session:
         return Session(project, files, selected), missing
 
 
-# -------------------------------------------------------------------- open folders, per project
-# The sidebar's open folders, remembered for each project (whichever way it's opened again), in
-# ~/.config/linux64studio/folders.json as {project path: [folder paths]}. The most recent projects
-# are kept, as many as the recent-projects list.
+# -------------------------------------------------------------------- per project
+# What each project had open (whichever way it's opened again): the sidebar's open folders and
+# the files in tabs, in ~/.config/linux64studio/projects.json as {project path: ProjectState}.
+# The most recent projects are kept, as many as the recent-projects list.
 MAX_PROJECTS = 10
 
 
-def _folders_file() -> Path:
-    return config_dir() / "folders.json"
+@dataclass
+class ProjectState:
+    folders: list[str] | None = None                    # None = never recorded (show the default)
+    files: list[OpenFile] = field(default_factory=list)
+    selected: int = -1
+
+    def restorable(self) -> tuple[list[OpenFile], int, list[str]]:
+        """The files that still exist, the one in front among them, and the names of those gone."""
+        s, missing = Session("", self.files, self.selected).restorable()
+        return s.files, s.selected, missing
 
 
-def _load_all_folders() -> dict[str, list[str]]:
+def _projects_file() -> Path:
+    return config_dir() / "projects.json"
+
+
+def _load_all_states() -> dict[str, dict]:
     try:
-        data = json.loads(_folders_file().read_text())
+        data = json.loads(_projects_file().read_text())
     except (OSError, ValueError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(k): [str(f) for f in v] for k, v in data.items() if isinstance(v, list)}
+        data = {}
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
 
 
-def load_open_folders(project: str) -> list[str] | None:
-    """The folders open when ``project`` was last shown, or None if it never was."""
-    return _load_all_folders().get(project)
+def load_project_state(project: str) -> ProjectState | None:
+    """What ``project`` had open when it was last left, or None if it never was."""
+    d = _load_all_states().get(project)
+    if d is None:
+        return None
+    try:
+        folders = d.get("folders")
+        files = [OpenFile(str(f["path"]), int(f.get("line", 1)), int(f.get("column", 0)))
+                 for f in d.get("files", []) if isinstance(f, dict) and f.get("path")]
+        return ProjectState([str(f) for f in folders] if isinstance(folders, list) else None,
+                            files, int(d.get("selected", -1)))
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
 
 
-def save_open_folders(project: str, folders: list[str]) -> None:
-    data = _load_all_folders()
+def save_project_state(project: str, state: ProjectState) -> None:
+    data = _load_all_states()
     data.pop(project, None)
-    data = {project: sorted(folders), **data}                # most recent first
-    data = dict(list(data.items())[:MAX_PROJECTS])
+    st = asdict(state)
+    if st["folders"] is not None:
+        st["folders"] = sorted(st["folders"])
+    data = dict(list({project: st, **data}.items())[:MAX_PROJECTS])     # most recent first
     try:
         config_dir().mkdir(parents=True, exist_ok=True)
-        _folders_file().write_text(json.dumps(data, indent=2) + "\n")
+        _projects_file().write_text(json.dumps(data, indent=2) + "\n")
     except OSError:
         pass

@@ -346,13 +346,23 @@ before the rest of their folder, in build order, with their position shown on th
 folders outside the project (a Kick Assembler workspace's `../Library`, say) are top-level folders
 named by their path from the project.
 
-Each project remembers which folders were open: they open again when the project does, at start
-or from Open Recent, and stay open when the list refreshes after a save or build. A project opened
-for the first time starts with its own top-level folders open. The last ten projects are kept, in
-`~/.config/linux64studio/folders.json`.
+Each project remembers which folders were open: they open again when the project does, and stay
+open when the list refreshes after a save or build. A project opened for the first time starts with
+its own top-level folders open.
 
 Right-click a file to open it, reveal it in the file manager or use Git on it, or a folder to
 reveal it.
+
+## Each project's tabs and folders
+
+Each project remembers what it had open when you left it (by opening another project, closing it
+or quitting): the files in tabs, the cursor in each, the tab in front and the sidebar's open folders.
+Opening the project again, from Open or Open Recent, brings them back. A project with nothing
+remembered opens its first source file. Files that have since gone are left out, with a note.
+The last ten projects are kept, in `~/.config/linux64studio/projects.json`.
+
+At start, [continue where you left off](#continue-where-you-left-off) opens the last session's tabs
+as before.
 
 ## Tab menu
 

@@ -42,15 +42,25 @@ def test_restorable_project_gone(tmp_path):
     assert r.empty and missing == ["old.cbmprj"]
 
 
-def test_open_folders_per_project(tmp_path, monkeypatch):
-    from l64s.session import MAX_PROJECTS, load_open_folders, save_open_folders
+def test_project_state(tmp_path, monkeypatch):
+    from l64s.session import MAX_PROJECTS, ProjectState, load_project_state, save_project_state
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    assert load_open_folders("/p/a.cbmprj") is None
-    save_open_folders("/p/a.cbmprj", ["/p/Gfx", "/p/Code"])
-    save_open_folders("/q/b.l64proj", [])
-    assert load_open_folders("/p/a.cbmprj") == ["/p/Code", "/p/Gfx"]
-    assert load_open_folders("/q/b.l64proj") == []           # all closed, not "never seen"
+    assert load_project_state("/p/a.cbmprj") is None
+    a = ProjectState(["/p/Gfx", "/p/Code"], [OpenFile("/p/main.asm", 12, 3), OpenFile("/p/s.spt", 0, 0)], 1)
+    save_project_state("/p/a.cbmprj", a)
+    save_project_state("/q/b.l64proj", ProjectState([], [], -1))
+    got = load_project_state("/p/a.cbmprj")
+    assert got.folders == ["/p/Code", "/p/Gfx"] and got.files == a.files and got.selected == 1
+    assert load_project_state("/q/b.l64proj").folders == []      # all closed, not "never seen"
     for i in range(MAX_PROJECTS):
-        save_open_folders(f"/r/{i}.l64proj", [])
-    assert load_open_folders("/p/a.cbmprj") is None          # the oldest is dropped
-    assert load_open_folders(f"/r/{MAX_PROJECTS - 1}.l64proj") == []
+        save_project_state(f"/r/{i}.l64proj", ProjectState())
+    assert load_project_state("/p/a.cbmprj") is None             # the oldest is dropped
+    assert load_project_state(f"/r/{MAX_PROJECTS - 1}.l64proj").folders is None
+
+
+def test_project_state_leaves_out_files_gone(tmp_path):
+    from l64s.session import ProjectState
+    a, b = tmp_path / "a.asm", tmp_path / "b.asm"
+    b.write_text("")
+    files, selected, missing = ProjectState(None, [OpenFile(str(a)), OpenFile(str(b))], 1).restorable()
+    assert [f.path for f in files] == [str(b)] and selected == 0 and missing == ["a.asm"]
