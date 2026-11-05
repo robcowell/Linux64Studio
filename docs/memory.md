@@ -50,6 +50,14 @@ Kick Assembler 5 build, the segments, kinds and labels come from its debug dump 
 [debugger.md](debugger.md#kick-assembler-projects)). With Kick Assembler 4 there's no dump, so
 the program is one segment, labelled from its VICE labels file.
 
+For a C build (cc65), the map comes from ld65's debug file. Each `.c` and assembler file has its
+own colour. Bytes from an `.incbin` count as an included binary. cc65's own library (`c64.lib`:
+the start-up code, `printf` and the runtime) is grey. The map also shows what the program sets
+aside when it runs, though it isn't in the `.prg`: the C variables (BSS) by file, cc65's zero page,
+and the 2K C stack at `$C800-$CFFF`. None of these counts as free space. The variables lie over
+cc65's start-up code, which has run before they're used, so the map shows the variables there.
+Space between the variables and the stack is free, and it's what `malloc` hands out.
+
 **Running program (VICE)** needs a debug session (Shift+F5). It takes a snapshot of memory as
 the CPU sees it, including whatever the program has drawn or changed. A running program pauses
 only for the read and carries on; the debugger doesn't show a stop. With **Every second** the

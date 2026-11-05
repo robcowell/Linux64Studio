@@ -1864,6 +1864,10 @@ class MainWindow(Adw.ApplicationWindow):
             from ..kickdbg import memory_map
             m = memory_map(res.prg.read_bytes(), res.kick_debug, res.prg.name)
             symbols = self._build_symbols(res)
+        elif res.c_debug is not None:
+            from ..cc65dbg import memory_map
+            m = memory_map(res.prg.read_bytes(), res.c_debug, self.project.directory, res.prg.name, res.labels)
+            symbols = self._build_symbols(res)
         else:
             m = memmap.from_prg(res.prg.read_bytes(), res.prg.name)
             symbols = self._build_symbols(res)

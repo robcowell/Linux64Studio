@@ -186,6 +186,12 @@ before):
 Strings are PETSCII on the C64: with the C64's start-up character set, lower-case letters in a
 string show as capitals, and capitals as graphics characters.
 
+## Memory Viewer
+
+**Debugger → Memory Viewer** maps a C build by file: your `.c` and assembler files in their own
+colours, cc65's library in grey, and the variables and C stack the program uses when it runs
+([memory.md](memory.md#last-build-or-running-program)).
+
 ## The code tools
 
 In a C project the tools that write code (**Insert into Editor**, **Copy**, the exports) write

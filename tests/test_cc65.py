@@ -181,6 +181,31 @@ def test_the_starfall_example_builds(tmp_path):
     assert {"rocks", "score", "state"} <= set(res.c_globals) and res.c_lines and res.asm_lines
 
 
+@pytest.mark.skipif(not HAVE_CC65, reason="cc65 isn't installed (sudo apt install cc65)")
+def test_memory_map_of_a_c_build(tmp_path):
+    import shutil as sh
+    from l64s import memmap
+    from l64s.cc65dbg import memory_map
+    from l64s.project.build import build_project
+    from l64s.project.model import load_project
+    sh.copytree(Path(__file__).parent.parent / "examples" / "starfall", tmp_path / "sf",
+                ignore=sh.ignore_patterns("build"))
+    p = load_project(tmp_path / "sf" / "starfall.l64proj")
+    res = build_project(p)
+    m = memory_map(res.prg.read_bytes(), res.c_debug, p.directory, res.prg.name, res.labels)
+    kinds = {(s.owner, s.kind) for s in m.segments}
+    assert {("main.c", "code"), ("sound.c", "code"), ("main.c", "data"), ("sprites.s", "binary"),
+            ("main.c", "variables"), ("c64.lib", "code"), ("C stack", "stack")} <= kinds
+    sprites = next(s for s in m.segments if s.kind == "binary")
+    assert sprites.size == 192 and sprites.lines[0][1] == 8 and sprites.lines[0][0].endswith("sprites.s")
+    main = next(s for s in m.segments if (s.owner, s.kind) == ("main.c", "code"))
+    assert main.lines[0][0].endswith("main.c")
+    assert m.owner_of(res.c_addresses["rocks"]).kind == "variables"          # (over the start-up code)
+    assert all(m.taken(a) for a in range(0xC800, 0xD000))                    # the stack isn't free
+    assert all(lo > 0x1800 and hi < 0xC800 or lo >= 0xD000 for lo, hi in m.free_ranges())
+    assert not any("written by both" in w.message for w in memmap.warnings(m))
+
+
 def test_a_segment_s_last_label_runs_to_its_end():
     from l64s.cc65dbg import c_globals
     text = ('version\tmajor=2,minor=0\n'

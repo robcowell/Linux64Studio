@@ -17,7 +17,8 @@ SYSTEM_REGIONS = [
     (0xE000, 0xFFFF, "KERNAL ROM (RAM underneath)"),
 ]
 
-KINDS = ("code", "data", "binary")
+KINDS = ("code", "data", "binary", "variables", "stack")
+RESERVED_KINDS = ("variables", "stack")     # set aside when the program runs, not loaded from the .prg
 
 
 def system_region(addr: int) -> str:
@@ -46,6 +47,11 @@ class MemoryMap:
     used: bytes                        # 1 where the program put a byte
     segments: list[Segment]
     owners: dict[int, int] = field(default_factory=dict, repr=False)   # address -> segment index
+    reserved: bytes = b""              # 1 where the program keeps run-time memory (C variables, stack)
+
+    def taken(self, addr: int) -> bool:
+        """Loaded by the program or reserved by it when it runs."""
+        return bool(self.used[addr] or (self.reserved and self.reserved[addr]))
 
     def owner_of(self, addr: int) -> Segment | None:
         i = self.owners.get(addr)
@@ -55,7 +61,7 @@ class MemoryMap:
         """Unused stretches of at least `minimum` bytes between lo and hi."""
         out, start = [], None
         for a in range(lo, hi + 1):
-            if not self.used[a]:
+            if not self.taken(a):
                 if start is None:
                     start = a
             elif start is not None:
@@ -143,6 +149,8 @@ def warnings(m: MemoryMap) -> list[Warning]:
         return (a, b) if a <= b else None
 
     for s in m.segments:
+        if s.kind in RESERVED_KINDS:
+            continue                    # (the C runtime's own places: its zero page, variables and stack)
         where = f"{s.owner} ({s.kind}, ${s.start:04X}-${s.end:04X})"
         if r := overlap(s, 0x0000, 0x01FF):
             out.append(Warning(*r, f"{where} is in the zero page or stack, which the system uses as it runs"))
@@ -168,6 +176,8 @@ def warnings(m: MemoryMap) -> list[Warning]:
     # Two segments claiming the same bytes (the assembler warns too)
     seen: dict[int, Segment] = {}
     for s in m.segments:
+        if s.kind in RESERVED_KINDS:
+            continue                    # (cc65 puts the variables over start-up code that has run)
         for a in range(s.start, s.end + 1):
             if a in seen and seen[a] is not s and seen[a].owner != s.owner:
                 out.append(Warning(a, a, f"${a:04X} is written by both {seen[a].owner} and {s.owner}"))

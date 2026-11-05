@@ -23,21 +23,41 @@ from .widgets import ColourButton, set_rgb  # noqa: E402
 # The map's unused memory, in alternate shades for the C64's regions (zero page, screen, BASIC, ...)
 REGION_SHADES = {True: [(0.16, 0.16, 0.18), (0.20, 0.20, 0.23)],      # dark mode
                  False: [(0.96, 0.96, 0.97), (0.89, 0.89, 0.91)]}     # light mode
-KIND_LABEL = {"code": "code", "data": "data", "binary": "included binary"}
+KIND_LABEL = {"code": "code", "data": "data", "binary": "included binary", "variables": "variables (at run time)",
+              "stack": "stack (at run time)"}
 
 
 def is_dark() -> bool:
     return Adw.StyleManager.get_default().get_dark()
 
 
+_HUES: dict[str, float] = {}           # the files of the map shown, spread round the colour wheel
+
+
+def is_runtime(name: str) -> bool:
+    """cc65's library and the C stack: not your files, so grey."""
+    return name.endswith(".lib") or name == "C stack"
+
+
+def spread_hues(names) -> None:
+    """Give the files (in address order) evenly spaced hues, so no two look alike."""
+    own = [n for n in dict.fromkeys(names) if not is_runtime(n)]
+    _HUES.clear()
+    _HUES.update({n: i / max(1, len(own)) for i, n in enumerate(own)})
+
+
 def owner_colour(name: str, kind: str, dark: bool = True) -> tuple[float, float, float]:
-    """A steady, distinct colour per source file; data a little lighter, binaries more muted. In
-    light mode they're deeper, to stand out from the light background."""
-    h = (zlib.crc32(name.encode()) % 360) / 360
+    """A distinct colour per source file; data a little lighter, binaries more muted. In light mode
+    they're deeper, to stand out from the light background. cc65's library and the stack are grey."""
+    h = _HUES.get(name, (zlib.crc32(name.encode()) % 360) / 360)
     if dark:
-        s, v = {"code": (0.65, 0.85), "data": (0.45, 0.95), "binary": (0.35, 0.7)}.get(kind, (0.5, 0.8))
+        s, v = {"code": (0.65, 0.85), "data": (0.45, 0.95), "binary": (0.35, 0.7), "variables": (0.3, 0.55),
+                "stack": (0.12, 0.45)}.get(kind, (0.5, 0.8))
     else:
-        s, v = {"code": (0.75, 0.70), "data": (0.55, 0.80), "binary": (0.45, 0.55)}.get(kind, (0.6, 0.7))
+        s, v = {"code": (0.75, 0.70), "data": (0.55, 0.80), "binary": (0.45, 0.55), "variables": (0.3, 0.88),
+                "stack": (0.1, 0.78)}.get(kind, (0.6, 0.7))
+    if is_runtime(name):
+        s *= 0.12
     return colorsys.hsv_to_rgb(h, s, v)
 
 
@@ -63,6 +83,8 @@ class MapView(Gtk.DrawingArea):
 
     def set_map(self, m: memmap.MemoryMap, live: bool):
         self.map, self.live = m, live
+        if m is not None and m.segments:
+            spread_hues(s.owner for s in m.segments)
         self._surface = None
         self.queue_draw()
 
@@ -93,7 +115,7 @@ class MapView(Gtk.DrawingArea):
                     # a non-zero byte in green: brighter (dark mode) or deeper (light mode) the higher it is
                     lum = (40 + v * 200 // 255) if dark else (210 - v * 170 // 255)
                     px = (lum // 2, lum, lum // 3) if v else base_pix
-                elif m and m.used[a]:
+                elif m and m.taken(a):
                     px = colours.get(m.owners.get(a, -1), unknown)
                 else:
                     px = base_pix

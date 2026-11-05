@@ -31,6 +31,9 @@ class DebugInfo:
     labels: dict[str, tuple[int, int | None]] = field(default_factory=dict)   # name -> (address, segment)
     scopes: dict[int, str] = field(default_factory=dict)             # id -> name (_main for main())
     csyms: list[tuple[str, int, str, int | None]] = field(default_factory=list)  # (name, scope, sc, offs)
+    mods: dict[int, tuple[str, int, int | None]] = field(default_factory=dict)  # id -> (name, file, lib)
+    libs: dict[int, str] = field(default_factory=dict)               # id -> library file
+    mod_spans: dict[int, list[int]] = field(default_factory=dict)    # module -> the spans it put in memory
 
 
 def _fields(text: str) -> dict[str, str]:
@@ -65,7 +68,7 @@ def parses(text: str) -> DebugInfo:
         raise DebugFileError("Not an ld65 debug file")
     for raw in text.splitlines():
         kind, _, rest = raw.partition("\t")
-        if kind not in ("file", "seg", "span", "line", "sym", "csym", "scope"):
+        if kind not in ("file", "seg", "span", "line", "sym", "csym", "scope", "mod", "lib"):
             continue
         f = _fields(rest)
         try:
@@ -77,6 +80,12 @@ def parses(text: str) -> DebugInfo:
                 info.seg_sizes[_int(f["id"])] = _int(f.get("size", "0"))
             elif kind == "scope":
                 info.scopes[_int(f["id"])] = f.get("name", "")
+                if f.get("name", "") == "" and "mod" in f and f.get("span"):     # a module's top scope
+                    info.mod_spans.setdefault(_int(f["mod"]), []).extend(_int(s) for s in f["span"].split("+"))
+            elif kind == "mod":
+                info.mods[_int(f["id"])] = (f.get("name", ""), _int(f["file"]), _int(f["lib"]) if "lib" in f else None)
+            elif kind == "lib":
+                info.libs[_int(f["id"])] = f.get("name", "")
             elif kind == "csym":
                 info.csyms.append((f["name"], _int(f["scope"]), f.get("sc", ""),
                                    _int(f["offs"]) if "offs" in f else None))
@@ -177,3 +186,127 @@ def c_frames(info: DebugInfo) -> dict[str, dict[str, int | None]]:
             continue
         out.setdefault(fn[1:], {})[name] = offs
     return out
+
+
+_DATA_SEGMENTS = {"RODATA", "DATA", "INIT"}
+_RESERVED_SEGMENTS = {"BSS", "ZEROPAGE", "EXTZP"}
+
+
+def _kind(seg_name: str) -> str | None:
+    if seg_name in _CODE_SEGMENTS:
+        return "code"
+    if seg_name in _DATA_SEGMENTS:
+        return "data"
+    if seg_name in _RESERVED_SEGMENTS:
+        return "variables"
+    return "code" if seg_name else None
+
+
+def lbl_values(labels: Path | None) -> dict[str, int]:
+    """name -> value from ld65's VICE label file (it has the linker's __STACKSIZE__ and so on)."""
+    import re
+    try:
+        text = Path(labels).read_text(errors="replace") if labels else ""
+    except OSError:
+        return {}
+    return {m.group(2): int(m.group(1), 16) for m in re.finditer(r"^al\s+([0-9A-Fa-f]+)\s+\.(\S+)", text, re.M)}
+
+
+def memory_map(prg: bytes, info: DebugInfo, base: Path, name: str = "program", labels: Path | None = None):
+    """A MemoryMap for a cc65 build, like the built-in assembler's: each byte by the source file
+    (module) that put it there, cc65's own library as one owner, ``.incbin`` data as included
+    binaries, and what the program sets aside when it runs (its variables, cc65's zero page and the
+    C stack) as reserved."""
+    from .memmap import MemoryMap, Segment, from_prg
+    m = from_prg(prg, name)
+    real = _real_files(info, base)
+    owner = [None] * 0x10000          # (owner, kind) per address
+    reserved = bytearray(0x10000)
+    c_files = {Path(n).stem: Path(n).name for n in info.files.values() if Path(n).suffix.lower() == ".c"}
+    library = next((Path(n).name for n in info.libs.values()), "cc65 library")
+    paths = {Path(r).name: r for r in real.values() if r}       # an owner's file, to open it
+
+    def place(start, size, who, kind):
+        for a in range(start, min(start + size, 0x10000)):
+            if kind == "variables":
+                # (cc65 puts the variables over the start-up code, once it has run: they win)
+                if m.used[a] or not owner[a] or owner[a][1] == "stack":
+                    reserved[a] = 0 if m.used[a] else 1
+                    owner[a] = (who, kind)
+            elif m.used[a] and not (owner[a] and owner[a][1] == "variables"):
+                owner[a] = (who, kind)
+
+    for mid, spans in info.mod_spans.items():
+        mod = info.mods.get(mid)
+        if mod is None:
+            continue
+        mname, fid, lib = mod
+        fname = Path(info.files.get(fid, mname))
+        # a C file's module is cc65's assembler output (main.s): it's main.c's
+        who = Path(info.libs.get(lib, library)).name if lib is not None else c_files.get(fname.stem, fname.name)
+        for sid in spans:
+            span = info.spans.get(sid)
+            if span is None or span[2] == 0 or span[0] not in info.segs:
+                continue
+            place(info.segs[span[0]] + span[1], span[2], who, _kind(info.seg_names.get(span[0], "")))
+    # what's left of each segment is cc65's library (its modules have no scopes in the file)
+    for sid, start in info.segs.items():
+        kind = _kind(info.seg_names.get(sid, ""))
+        size = info.seg_sizes.get(sid, 0)
+        if kind == "variables":
+            for a in range(start, min(start + size, 0x10000)):
+                if not owner[a] or owner[a][1] != "variables":
+                    place(a, 1, library, kind)
+        elif kind:
+            for a in range(start, min(start + size, 0x10000)):
+                if m.used[a] and owner[a] is None:
+                    owner[a] = (library, kind)
+    # .incbin lines in the project's assembler files: included binaries
+    for fid, _line, typ, spans in info.lines:
+        path = real.get(fid)
+        if typ != 0 or path is None:
+            continue
+        try:
+            text = Path(path).read_text(errors="replace").splitlines()[_line - 1]
+        except (OSError, IndexError):
+            continue
+        if ".incbin" not in text.split(";")[0].lower():
+            continue
+        for sid in spans:
+            span = info.spans.get(sid)
+            if span and span[0] in info.segs:
+                start = info.segs[span[0]] + span[1]
+                for a in range(start, min(start + span[2], 0x10000)):
+                    if owner[a]:
+                        owner[a] = (owner[a][0], "binary")
+    # the C stack: the top __STACKSIZE__ bytes of the program's memory
+    v = lbl_values(labels)
+    if {"__MAIN_START__", "__MAIN_SIZE__", "__STACKSIZE__"} <= v.keys():
+        top = min(v["__MAIN_START__"] + v["__MAIN_SIZE__"], 0x10000)
+        for a in range(max(0, top - v["__STACKSIZE__"]), top):
+            if not m.used[a] and owner[a] is None:
+                reserved[a] = 1
+                owner[a] = ("C stack", "stack")
+    srcmap = source_map(info, base)
+    segments: list[Segment] = []
+    owners: dict[int, int] = {}
+    for a in range(0x10000):
+        o = owner[a]
+        if o is None:
+            if m.used[a]:
+                o = (name, "data")                       # (bytes no module claims: the load address)
+            else:
+                continue
+        last = segments[-1] if segments else None
+        if last and (last.owner, last.kind) == o and last.end + 1 == a:
+            last.end = a
+        else:
+            segments.append(Segment(a, a, o[0], o[1], []))
+        seg = segments[-1]
+        if not seg.lines and a in srcmap:
+            seg.lines.append(srcmap[a])
+        owners[a] = len(segments) - 1
+    for seg in segments:
+        if not seg.lines and seg.owner in paths:
+            seg.lines.append((paths[seg.owner], 1))          # (data and variables: the file itself)
+    return MemoryMap(m.memory, m.used, segments, owners, bytes(reserved))
