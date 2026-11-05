@@ -1907,6 +1907,9 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             m = memmap.from_prg(res.prg.read_bytes(), res.prg.name)
             symbols = self._build_symbols(res)
+        if self.project:
+            memmap.mark_music(m, [Path(link.get("output", "")).name for link in self.project.music
+                                  if Path(link.get("source", "")).suffix.lower() != ".ins"])
         return m, symbols, f"Last build: {res.prg.name}"
 
     @staticmethod

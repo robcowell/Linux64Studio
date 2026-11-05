@@ -63,6 +63,15 @@ def test_no_warnings_for_a_tidy_program(tmp_path):
     assert memmap.warnings(m) == []      # data under the BASIC ROM is fine (the VIC-II sees RAM there)
 
 
+def test_no_graphics_warning_for_the_project_s_music(tmp_path):
+    m = build(tmp_path, {"m.asm": "*=$1000\n incbin music.bin\n*=$1800\n incbin g.bin",
+                         "music.bin": bytes(64), "g.bin": bytes(64)})
+    memmap.mark_music(m, ["Music.bin"])
+    assert [s.music for s in m.segments] == [True, False]
+    msgs = [w.message for w in memmap.warnings(m)]
+    assert len(msgs) == 1 and "g.bin" not in msgs[0] and "$1800" in msgs[0]     # only the graphics
+
+
 def test_two_files_writing_the_same_bytes(tmp_path):
     (tmp_path / "a.asm").write_text("*=$c000\n byte 1,2,3\n")
     (tmp_path / "b.asm").write_text("*=$c001\n byte 9\n")

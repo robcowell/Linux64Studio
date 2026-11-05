@@ -221,6 +221,11 @@ def memory_map(prg: bytes, info: DebugInfo, base: Path, name: str = "program", l
     m = from_prg(prg, name)
     real = _real_files(info, base)
     owner = [None] * 0x10000          # (owner, kind) per address
+    in_music = bytearray(0x10000)     # 1 in the MUSIC segment (a tune added with Add to Project)
+    for sid, start in info.segs.items():
+        if info.seg_names.get(sid, "").upper() == "MUSIC":
+            in_music[start:start + info.seg_sizes.get(sid, 0)] = b"\x01" * min(info.seg_sizes.get(sid, 0),
+                                                                              0x10000 - start)
     reserved = bytearray(0x10000)
     c_files = {Path(n).stem: Path(n).name for n in info.files.values() if Path(n).suffix.lower() == ".c"}
     library = next((Path(n).name for n in info.libs.values()), "cc65 library")
@@ -300,7 +305,7 @@ def memory_map(prg: bytes, info: DebugInfo, base: Path, name: str = "program", l
         if last and (last.owner, last.kind) == o and last.end + 1 == a:
             last.end = a
         else:
-            segments.append(Segment(a, a, o[0], o[1], []))
+            segments.append(Segment(a, a, o[0], o[1], [], music=bool(in_music[a])))
         seg = segments[-1]
         if not seg.lines and a in srcmap:
             seg.lines.append(srcmap[a])

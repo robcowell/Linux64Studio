@@ -190,3 +190,6 @@ def test_the_glowcave_example_builds(tmp_path):
     m = memory_map(prg, res.c_debug, p.directory, res.prg.name, res.labels)
     assert {("gfx.s", "binary"), ("music.s", "binary"), ("maze.c", "data"), ("main.c", "code")} <= \
         {(s.owner, s.kind) for s in m.segments}
+    from l64s import memmap
+    assert next(s for s in m.segments if s.owner == "music.s" and s.kind == "binary").music
+    assert not any("character ROM" in w.message for w in memmap.warnings(m))    # (the music at $1000)

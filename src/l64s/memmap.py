@@ -35,6 +35,7 @@ class Segment:
     owner: str        # source file (or "program")
     kind: str         # code, data or binary
     lines: list[tuple[str, int]] = field(default_factory=list, repr=False)  # (file, line) of the first entry
+    music: bool = False   # the project's music (a packed song, or a C project's MUSIC segment)
 
     @property
     def size(self) -> int:
@@ -133,6 +134,24 @@ def from_memory(memory: bytes) -> MemoryMap:
     return MemoryMap(mem, bytes(0x10000), [])
 
 
+def mark_music(m: MemoryMap, names) -> None:
+    """Mark the included binaries that are the project's music: those whose include line names one of
+    ``names`` (the packed songs' output files, e.g. music.bin)."""
+    wanted = {n.lower() for n in names if n}
+    if not wanted:
+        return
+    for s in m.segments:
+        if s.kind != "binary" or s.music or not s.lines or not s.lines[0][0]:
+            continue
+        file, line = s.lines[0]
+        try:
+            text = Path(file).read_text(errors="replace").splitlines()[line - 1].lower()
+        except (OSError, IndexError):
+            continue
+        if any(n in text for n in wanted):
+            s.music = True
+
+
 @dataclass
 class Warning:
     start: int
@@ -167,7 +186,7 @@ def warnings(m: MemoryMap) -> list[Warning]:
         if r := overlap(s, 0xD000, 0xDFFF):
             out.append(Warning(*r, f"{where} is under the I/O area: it loads into the RAM there, which the CPU "
                                    f"only sees with I/O switched out ($01)"))
-        if s.kind == "binary":
+        if s.kind == "binary" and not s.music:          # (music isn't for the VIC-II: $1000 is its usual place)
             for lo, hi in ((0x1000, 0x1FFF), (0x9000, 0x9FFF)):
                 if r := overlap(s, lo, hi):
                     out.append(Warning(*r, f"{where}: if this is graphics for the VIC-II, it can't see it here. "

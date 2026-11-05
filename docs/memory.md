@@ -26,7 +26,9 @@ Code a macro produced counts as the file that used the macro, not the library th
   * code under the BASIC or KERNAL ROM, which the CPU doesn't run unless the ROM is banked
     out. Data there is fine, because the VIC-II reads the RAM;
   * an included binary at `$1000-$1FFF` or `$9000-$9FFF`. If it's graphics, the VIC-II can't see
-    it: in VIC banks 0 and 2 it reads the character ROM there instead of RAM;
+    it: in VIC banks 0 and 2 it reads the character ROM there instead of RAM. The project's music
+    doesn't count, because `$1000` is where music usually goes. That means a packed song (the file
+    its **Pack on every build** writes) or a C project's `MUSIC` area;
   * two files writing the same bytes.
 
 ## Views
