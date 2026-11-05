@@ -205,6 +205,32 @@ def scan_ca65(text: str, file: str = "") -> list[tuple[Symbol, str]]:
     return out
 
 
+_CA65_UNNAMED_DEF = re.compile(r"^\s*:(?![:=+\-<>])")
+_CA65_UNNAMED_REF = re.compile(r":(\++|-+|<+|>+)")
+
+
+def ca65_unnamed_target(lines: list[str], line_no: int, col: int) -> int | None:
+    """The line of the unnamed label (``:``) a ``:+``/``:-`` (or ``:>``/``:<``) at the cursor refers
+    to: ``:-`` the nearest at or above the line (one at the start of the line comes before its
+    instruction), ``:--`` the one before that; ``:+`` the next below. None if the cursor isn't on one."""
+    if not 0 < line_no <= len(lines):
+        return None
+    text = _strip_comment(lines[line_no - 1])
+    for m in _CA65_UNNAMED_REF.finditer(text):
+        if m.start() <= col <= m.end():
+            marks = m.group(1)
+            back, count = marks[0] in "-<", len(marks)
+            break
+    else:
+        return None
+    defs = [n for n, ln in enumerate(lines, start=1) if _CA65_UNNAMED_DEF.match(_strip_comment(ln))]
+    if back:
+        before = [n for n in defs if n <= line_no]
+        return before[-count] if len(before) >= count else None
+    after = [n for n in defs if n > line_no]
+    return after[count - 1] if len(after) >= count else None
+
+
 def is_c(file: str | Path | None) -> bool:
     return bool(file) and Path(file).suffix.lower() in C_EXTS
 

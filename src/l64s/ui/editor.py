@@ -472,7 +472,7 @@ class SourceEditor(EditorPage):
         menu.append("Go to Definition", "win.goto-definition")
         menu.append("Add TODO…", "win.add-todo")
         menu.append_submenu("Convert Number", sub)
-        if not self.is_c:          # the analyser and Kick tables are for assembler and BASIC
+        if not self.is_c and not self.ca65:      # the analyser reads CBM prg Studio, Kick and BASIC
             menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
         if not self.is_basic and not self.is_c and not self.ca65:
             kick = Gio.Menu()

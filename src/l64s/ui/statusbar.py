@@ -28,10 +28,17 @@ def _install_css():
     _css_installed = True
 
 
-class StatusBar(Gtk.Box):
+class StatusBar(Gtk.ScrolledWindow):
+    """(A scroller with no scrollbar: on a narrow window the fields at the right are cut off, rather than
+    the bar setting how narrow the window can be.)"""
+
     def __init__(self, on_toggle: Callable[[str], None]):
-        super().__init__(spacing=0, css_classes=["l64s-statusbar"])
+        super().__init__(hscrollbar_policy=Gtk.PolicyType.EXTERNAL, vscrollbar_policy=Gtk.PolicyType.NEVER,
+                         propagate_natural_height=True, propagate_natural_width=True,
+                         css_classes=["l64s-statusbar"])
         _install_css()
+        self._box = Gtk.Box(spacing=0)
+        self.set_child(self._box)
         self._on_toggle = on_toggle
         self._keys: list[str] = []
         self._widgets: dict[str, Gtk.Widget] = {}
@@ -53,17 +60,17 @@ class StatusBar(Gtk.Box):
                 w.add_css_class("dim-label")
 
     def _rebuild(self, fields: list[Field]):
-        while (c := self.get_first_child()) is not None:
-            self.remove(c)
+        while (c := self._box.get_first_child()) is not None:
+            self._box.remove(c)
         self._widgets.clear()
         for i, f in enumerate(fields):
             if i:
-                self.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL, margin_top=4, margin_bottom=4))
+                self._box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL, margin_top=4, margin_bottom=4))
             if f.toggle:
                 w = Gtk.Button(css_classes=["flat", "caption"], focus_on_click=False)
                 w.connect("clicked", lambda _b, k=f.key: self._on_toggle(k))
             else:
                 w = Gtk.Label(css_classes=["caption"])
             self._widgets[f.key] = w
-            self.append(w)
+            self._box.append(w)
         self._keys = [f.key for f in fields]

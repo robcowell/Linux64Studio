@@ -56,33 +56,85 @@ def _light_dark_button() -> Gtk.Button:
     return btn
 
 
-def build_toolbar(recent: Gio.MenuModel, program_choice: Gtk.Widget | None = None) -> Gtk.Box:
+# What goes when the window is narrow (see MainWindow: Adw breakpoints): the tools first, then the
+# debugger and editing buttons, then the ones at the right. Files and building always stay.
+GROUP_NAMES = ("files", "edit", "build", "debug", "tools")
+NARROW_STAGES = ((1300, ("tools",)), (1100, ("tools", "debug", "edit")), (720, ("tools", "debug", "edit", "right")))
+RIGHT = (("Light or Dark Mode", "app.toggle-dark"), ("Preferences", "app.preferences"),
+         ("Keyboard Shortcuts", "app.shortcuts"))
+
+
+class Toolbar(Gtk.Box):
+    """The toolbar row, in groups that hide on a narrow window, their commands then in ⋯."""
+
+    def __init__(self, recent: Gio.MenuModel, program_choice: Gtk.Widget | None = None):
+        super().__init__(css_classes=["toolbar"], spacing=2)
+        self.groups: dict[str, Gtk.Box] = {}
+        self._items: dict[str, list[tuple[str, str, str | None]]] = {}    # group -> (label, action, target)
+        groups = [[]]
+        for b in BUTTONS:
+            if b is None:
+                groups.append([])
+            else:
+                groups[-1].append(b)
+        for gi, (name, buttons) in enumerate(zip(GROUP_NAMES, groups)):
+            box = Gtk.Box(spacing=2)
+            if gi:
+                box.append(_sep())
+            if name == "files":
+                box.append(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu(),
+                                          tooltip_text="New"))
+                box.append(Adw.SplitButton(icon_name="document-open-symbolic", tooltip_text="Open Project (Ctrl+O)",
+                                           dropdown_tooltip="Open a recent project", action_name="win.open-project",
+                                           menu_model=recent))
+                box.append(Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Save (Ctrl+S)",
+                                      action_name="win.save"))
+            items = []
+            for icon, tip, action, target in buttons:
+                btn = Gtk.Button(icon_name=icon, tooltip_text=tip, action_name=action, focus_on_click=False)
+                if target is not None:
+                    btn.set_action_target_value(GLib.Variant.new_string(target))
+                if action == "win.run-project":
+                    btn.add_css_class("suggested-action")
+                box.append(btn)
+                items.append((tip.split(" (")[0], action, target))
+                if action == "win.debug-project" and program_choice is not None:
+                    box.append(program_choice)
+            self.groups[name], self._items[name] = box, items
+            self.append(box)
+        self.append(Gtk.Box(hexpand=True))
+        self.overflow = Gtk.MenuButton(icon_name="view-more-symbolic", visible=False,
+                                       tooltip_text="More (the buttons that don't fit)")
+        self.append(self.overflow)
+        right = Gtk.Box(spacing=2)
+        right.append(_light_dark_button())
+        right.append(Gtk.Button(icon_name="preferences-system-symbolic", tooltip_text="Preferences (Ctrl+,)",
+                                action_name="app.preferences", focus_on_click=False))
+        right.append(Gtk.Button(icon_name="help-browser-symbolic", tooltip_text="Keyboard Shortcuts",
+                                action_name="app.shortcuts", focus_on_click=False))
+        self.groups["right"] = right
+        self._items["right"] = [(label, action, None) for label, action in RIGHT]
+        self.append(right)
+
+    def overflow_menu(self, hidden: tuple[str, ...]) -> Gio.Menu:
+        """The ⋯ menu when the ``hidden`` groups are hidden: their commands, a section each."""
+        menu = Gio.Menu()
+        for name in ("edit", "debug", "tools", "right"):
+            if name not in hidden:
+                continue
+            sec = Gio.Menu()
+            for label, action, target in self._items[name]:
+                item = Gio.MenuItem.new(label, None)
+                if target is not None:
+                    item.set_action_and_target_value(action, GLib.Variant.new_string(target))
+                else:
+                    item.set_detailed_action(action)
+                sec.append_item(item)
+            menu.append_section(None, sec)
+        return menu
+
+
+def build_toolbar(recent: Gio.MenuModel, program_choice: Gtk.Widget | None = None) -> Toolbar:
     """The toolbar; ``program_choice`` (the current program, for projects with several) goes after
     the build buttons, where CBM prg Studio has its target."""
-    bar = Gtk.Box(css_classes=["toolbar"], spacing=2)
-    bar.append(Gtk.MenuButton(icon_name="document-new-symbolic", menu_model=new_menu(), tooltip_text="New"))
-    opener = Adw.SplitButton(icon_name="document-open-symbolic", tooltip_text="Open Project (Ctrl+O)",
-                             dropdown_tooltip="Open a recent project", action_name="win.open-project",
-                             menu_model=recent)
-    bar.append(opener)
-    bar.append(Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Save (Ctrl+S)", action_name="win.save"))
-    for b in BUTTONS:
-        if b is None:
-            bar.append(_sep())
-            continue
-        icon, tip, action, target = b
-        btn = Gtk.Button(icon_name=icon, tooltip_text=tip, action_name=action, focus_on_click=False)
-        if target is not None:
-            btn.set_action_target_value(GLib.Variant.new_string(target))
-        if action == "win.run-project":
-            btn.add_css_class("suggested-action")
-        bar.append(btn)
-        if action == "win.debug-project" and program_choice is not None:
-            bar.append(program_choice)
-    bar.append(Gtk.Box(hexpand=True))
-    bar.append(_light_dark_button())
-    bar.append(Gtk.Button(icon_name="preferences-system-symbolic", tooltip_text="Preferences (Ctrl+,)",
-                          action_name="app.preferences", focus_on_click=False))
-    bar.append(Gtk.Button(icon_name="help-browser-symbolic", tooltip_text="Keyboard Shortcuts",
-                          action_name="app.shortcuts", focus_on_click=False))
-    return bar
+    return Toolbar(recent, program_choice)

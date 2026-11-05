@@ -83,3 +83,22 @@ def test_unchanged_files_arent_rescanned(tmp_path):
     before = idx._files[str(Path(f).resolve())]
     idx.update([tmp_path / "fast.s", tmp_path / "util.c"], kickass=False, ca65=True)
     assert idx._files[str(Path(f).resolve())] is before
+
+
+def test_unnamed_labels():
+    from l64s.symindex import ca65_unnamed_target
+    lines = ["        ldx #8",            # 1
+             ":       dex",               # 2
+             "        beq :+",            # 3
+             ":       bne :-",            # 4: :- is this line's own label
+             "        bne :--",           # 5
+             "        jmp :++  ; :- in a comment",   # 6
+             ":       rts",               # 7
+             ":       nop"]               # 8
+    assert ca65_unnamed_target(lines, 3, 13) == 4
+    assert ca65_unnamed_target(lines, 4, 13) == 4
+    assert ca65_unnamed_target(lines, 5, 13) == 2
+    assert ca65_unnamed_target(lines, 6, 13) == 8
+    assert ca65_unnamed_target(lines, 6, 25) is None             # in the comment
+    assert ca65_unnamed_target(lines, 1, 8) is None              # not on one
+    assert ca65_unnamed_target(lines, 3, 12) == 4                # on the colon itself

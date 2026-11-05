@@ -261,7 +261,8 @@ file name and its own options; the source folders, output folder and disk image 
   **Rename Program…** and **Delete Program** change the current one (deleting keeps the files).
 * One program is **current**, and the toolbar's drop-down (where CBM prg Studio has its target) or
   **Project → Program** chooses it. Build, Run and Debug use it, and so do the file tree's build
-  order numbers, **Add to Build**, and Project Properties' build list and options.
+  order numbers, **Add to Build**, and Project Properties' build list and options (whose headings
+  name the program).
 * **Build → Build All Programs** builds each program in turn and lists any that failed (each
   message starts with the program's name), then writes the project's disk image with every
   program on it, by name, in order. Building just the current program also updates the disk, with
@@ -400,6 +401,12 @@ Build Current File, Build and Run, and Debug; the debugger's Toggle Breakpoint, 
 Step Into and Step Out; Memory Viewer, Memory Manager, Disassembler, Screen Code Builder and SID
 Designer; and at the right, a light/dark switch, Preferences and Keyboard Shortcuts. Hover over a
 button for its name and shortcut.
+
+On a narrow window the toolbar gives way rather than holding the window wide: the tools go first,
+then the editing and debugger buttons, then the ones at the right, and their commands are in the
+**⋯** menu that appears instead. The file and build buttons always stay. At the narrowest the
+window title and the Project Information panel step aside too (the panel comes back when the window
+is wider). The window can be as narrow as 560 pixels, half a laptop screen.
 
 **Light and dark**: the toolbar's moon (or sun) button switches between light and dark mode, and
 **Window → Appearance** chooses Follow System, Light or Dark (as Preferences → Editor → Appearance

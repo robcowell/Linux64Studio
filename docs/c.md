@@ -171,6 +171,9 @@ before):
   (Types & Macros). ca65's names are case-sensitive. F12 on `jsr _twice` goes to the C function
   `twice`, and on an `.include` or `.incbin` line opens the file, looking in the file's folder, the
   project's source folders and cc65's own `asminc` folder.
+* F12 on an unnamed-label reference goes to the label: `:-` to the nearest `:` above (one at the
+  start of the same line counts), `:--` to the one before that, `:+` and `:++` below.
+* **Analyse…** isn't offered for ca65 files: it reads CBM prg Studio, Kick Assembler and BASIC.
 
 Strings are PETSCII on the C64: with the C64's start-up character set, lower-case letters in a
 string show as capitals, and capitals as graphics characters.

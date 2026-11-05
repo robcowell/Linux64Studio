@@ -79,10 +79,27 @@ class MainWindow(Adw.ApplicationWindow):
         self.last_build: BuildResult | None = None
         self._vice_procs = []
         self._build_ui()
+        self._add_breakpoints()
         self.connect("close-request", self._on_close_request)
         self._update_title()
 
     # ================================================================== UI construction
+    def _add_breakpoints(self):
+        # On a narrow window, groups of toolbar buttons give way to a ⋯ menu (so the window can be as
+        # narrow as half a laptop screen): with breakpoints, the window's size request is its minimum.
+        from .toolbar import NARROW_STAGES
+        self.set_size_request(560, 400)
+        for width, hidden in NARROW_STAGES:             # widest first: the narrowest that matches wins
+            bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"max-width: {width}px"))
+            for name in hidden:
+                bp.add_setter(self.toolbar.groups[name], "visible", False)
+            bp.add_setter(self.toolbar.overflow, "visible", True)
+            bp.add_setter(self.toolbar.overflow, "menu-model", self.toolbar.overflow_menu(hidden))
+            if "right" in hidden:     # the narrowest: the title (the file's path) and Project Information go too
+                bp.add_setter(self.title_widget, "visible", False)
+                bp.add_setter(self.projinfo, "visible", False)
+            self.add_breakpoint(bp)
+
     def _build_ui(self):
         tv = Adw.ToolbarView()
         self.set_content(tv)
@@ -2267,6 +2284,13 @@ class MainWindow(Adw.ApplicationWindow):
         if ed.is_c:
             self._goto_c_definition(ed, line_no, col, line_text)
             return
+        if getattr(ed, "ca65", False):              # ca65's unnamed labels: bne :- / jmp :++
+            from ..symindex import ca65_unnamed_target
+            target = ca65_unnamed_target(ed.get_text().splitlines(), line_no, col)
+            if target is not None:
+                self._push_back(ed)
+                ed.goto_line(target)
+                return
         inc = include_at(line_text, ed.path.parent) if ed.path else None
         if inc is not None and not inc.exists() and getattr(ed, "ca65", False):
             # ca65 looks in the project's source folders, then cc65's own asminc folder
@@ -3304,7 +3328,12 @@ class MainWindow(Adw.ApplicationWindow):
         win = Adw.PreferencesDialog(title="Project Properties")
         page = Adw.PreferencesPage(title="Project", icon_name="document-properties-symbolic")
         win.add(page)
-        g = Adw.PreferencesGroup(title="Output")
+        from ..project.model import current_program, program_names
+        several = len(program_names(p)) > 1
+        prog = f" — program {current_program(p)}" if several else ""    # (the rest is the whole project's)
+        g = Adw.PreferencesGroup(title="Output" + prog, description=(
+            "These are the current program's (choose another on the toolbar); the rest of the settings "
+            "are the whole project's." if several else None))
         exe = Adw.EntryRow(title="Program file (.prg)", text=p.executable)
         g.add(exe)
         page.add(g)
@@ -3316,7 +3345,7 @@ class MainWindow(Adw.ApplicationWindow):
         main = Adw.EntryRow(title="Main file (Kick Assembler)", text=p.main_file)
         g.add(main)
 
-        bg = Adw.PreferencesGroup(title="Build order", description=(
+        bg = Adw.PreferencesGroup(title="Build order" + prog, description=(
             "The program's C (.c) and assembler (.s) files, compiled one by one and linked in this order."
             if p.toolchain == TOOLCHAIN_CC65 else
             "Files are assembled together in this order, like CBM prg Studio's build list. Labels and macros "
@@ -3367,7 +3396,7 @@ class MainWindow(Adw.ApplicationWindow):
         bpage = Adw.PreferencesPage(title="Build", icon_name="system-run-symbolic")
         win.add(bpage)
         is_c = p.toolchain == TOOLCHAIN_CC65
-        kg = Adw.PreferencesGroup(title="C (cc65)" if is_c else "Kick Assembler", description=(
+        kg = Adw.PreferencesGroup(title=("C (cc65)" if is_c else "Kick Assembler") + prog, description=(
             "Every file is compiled with cl65 -t c64 -g and these options; the source folders are include "
             "paths (#include and .include) and show in the file tree." if is_c else None))
         bpage.add(kg)
