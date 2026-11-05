@@ -1,0 +1,12 @@
+{
+  "name": "starfall",
+  "toolchain": "cc65",
+  "build_list": ["main.c", "sound.c", "sprites.s"],
+  "main_file": "main.c",
+  "executable": "starfall.prg",
+  "output_dir": "build",
+  "assembler_args": ["-O"],
+  "exports": {"sprites.spt": {"bin": "sprites.bin"}},
+  "disk_image": "build/starfall.d64",
+  "disk_name": "STARFALL"
+}

@@ -165,3 +165,17 @@ def test_stack_pointer_from_labels(tmp_path):
     (tmp_path / "b.lbl").write_text("al 000022 .c_sp\n")
     assert cc65.stack_pointer(tmp_path / "a.lbl") == 2 and cc65.stack_pointer(tmp_path / "b.lbl") == 0x22
     assert cc65.stack_pointer(tmp_path / "none.lbl") == 2
+
+
+@pytest.mark.skipif(not HAVE_CC65, reason="cc65 isn't installed (sudo apt install cc65)")
+def test_the_starfall_example_builds(tmp_path):
+    import shutil as sh
+    from l64s.project.build import build_project
+    from l64s.project.model import load_project
+    src = Path(__file__).parent.parent / "examples" / "starfall"
+    sh.copytree(src, tmp_path / "starfall", ignore=sh.ignore_patterns("build"))
+    p = load_project(tmp_path / "starfall" / "starfall.l64proj")
+    res = build_project(p)
+    assert res.ok, res.log
+    assert res.prg.name == "starfall.prg" and res.disk.name == "starfall.d64"
+    assert {"rocks", "score", "state"} <= set(res.c_globals) and res.c_lines and res.asm_lines

@@ -12,6 +12,9 @@ sudo apt install cc65
 
 ## A C project
 
+`examples/starfall` is a small C game to start from or look at: sprites drawn in the sprite
+editor, the joystick, the raster, SID sound effects and sprite collisions, in C with a little ca65.
+
 **File → New → Project…** and choose **C (cc65)**. A new project gets a `main.c` that prints a
 message and flashes the border until a key is pressed, so **Ctrl+F5** (Build Project and Run) shows
 it working straight away.
