@@ -10,10 +10,11 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
 from ..session import OpenFile, Session  # noqa: E402
+from ..project.filetree import Node, build_tree  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
                              new_project)
@@ -40,6 +41,24 @@ from .screencode_builder import ScreenCodeBuilder  # noqa: E402
 from .sid_designer import SidDesigner  # noqa: E402
 from .sid_view import SfxView, SidFileView, SongView  # noqa: E402
 from .sprite_editor import SpriteEditor  # noqa: E402
+
+class _FileItem(GObject.Object):
+    """A file or folder in the sidebar's tree."""
+    def __init__(self, node: Node):
+        super().__init__()
+        self.node = node
+
+
+def _file_icon(path: Path) -> str:
+    sfx = path.suffix.lower()
+    if sfx in SOURCE_EXTS:
+        return "text-x-generic-symbolic"
+    if sfx in (".spt", ".cst", ".sdd", ".spd", ".ctm"):
+        return "image-x-generic-symbolic"
+    if sfx in (".sng", ".ins", ".sid", ".l64sid"):
+        return "audio-x-generic-symbolic"
+    return "application-x-executable-symbolic"
+
 
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst", ".tkn"}
 
@@ -175,11 +194,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.sidebar_title = Gtk.Label(label="No project", xalign=0, margin_start=10, margin_top=8, margin_bottom=4,
                                        ellipsize=Pango.EllipsizeMode.END, css_classes=["heading"])
         side.append(self.sidebar_title)
-        self.file_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
-        self.file_list.connect("row-activated", self._on_file_activated)
-        file_menu = Gtk.GestureClick(button=3)
-        file_menu.connect("pressed", self._file_menu)
-        self.file_list.add_controller(file_menu)
+        self._file_tree: Gtk.TreeListModel | None = None
+        self._tree_project: str | None = None        # whose folders _populate_files last showed
+        self._build_order: dict[Path, int] = {}
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._file_row_setup)
+        factory.connect("bind", self._file_row_bind)
+        self.file_list = Gtk.ListView(factory=factory, single_click_activate=True,
+                                      css_classes=["navigation-sidebar"])
+        self.file_list.connect("activate", self._on_file_activated)
         side.append(Gtk.ScrolledWindow(child=self.file_list, vexpand=True))
         outer.set_start_child(side)
         outer.set_shrink_start_child(False)
@@ -191,6 +214,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.tab_view = Adw.TabView(vexpand=True)
         self.tab_view.connect("close-page", self._on_close_page)
         self.tab_view.connect("notify::selected-page", lambda *_: self._on_tab_selected())
+        self._menu_page: Adw.TabPage | None = None       # the tab whose right-click menu is open
+        self.tab_view.set_menu_model(self._tab_menu_model())
+        self.tab_view.connect("setup-menu", self._on_tab_setup_menu)
         self._last_source: SourceEditor | None = None
         tab_bar = Adw.TabBar(view=self.tab_view, autohide=False)
         tabs_box.append(tab_bar)
@@ -250,6 +276,13 @@ class MainWindow(Adw.ApplicationWindow):
         add("save", lambda *_: self.save_current())
         add("save-all", lambda *_: self.save_all())
         add("close-tab", lambda *_: self._close_current_tab())
+        add("tab-close", lambda *_: self._close_tabs("this"))
+        add("tab-close-others", lambda *_: self._close_tabs("others"))
+        add("tab-close-right", lambda *_: self._close_tabs("right"))
+        add("tab-close-all", lambda *_: self._close_tabs("all"))
+        add("tab-reveal", lambda *_: self._reveal_tab_file())
+        add("reveal-path", lambda _a, v: self.reveal_in_file_manager(Path(v.get_string())), "s")
+        add("tab-copy-path", lambda *_: self._copy_tab_path())
         add("close-project", lambda *_: self.close_project())
         add("build-project", lambda *_: self.build(run=False))
         add("build-file", lambda *_: self.build(run=False, current_file=True))
@@ -367,59 +400,88 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_title()
 
     def _populate_files(self):
+        """The project's files as a folder tree, keeping open the folders that were open."""
         self._git_states = self._git_status_map()
-        while (row := self.file_list.get_row_at_index(0)) is not None:
-            self.file_list.remove(row)
+        old = self._file_tree
+        expanded: set[Path] = set()
+        if old is not None:
+            for i in range(old.get_n_items()):
+                row = old.get_item(i)
+                if row.get_expanded():
+                    expanded.add(row.get_item().node.path)
         if not self.project:
             self.sidebar_title.set_text("No project")
+            self._file_tree = None
+            self.file_list.set_model(None)
             return
         p = self.project
         self.sidebar_title.set_text(p.name + ("  (Kick Assembler)" if p.toolchain == TOOLCHAIN_KICKASS else ""))
-        build = {str((p.directory / n).resolve()): i for i, n in enumerate(p.build_list)}
-        files = p.all_files()
-        groups = [("Source", lambda f: f.suffix.lower() in SOURCE_EXTS),
-                  ("Graphics", lambda f: f.suffix.lower() in (".spt", ".cst", ".sdd", ".spd", ".ctm")),
-                  ("Binary", lambda f: f.suffix.lower() == ".bin"),
-                  ("Music", lambda f: f.suffix.lower() in (".sng", ".ins", ".sid", ".l64sid")),
-                  ("Programs", lambda f: f.suffix.lower() in (".prg", ".d64", ".d71", ".d81", ".crt"))]
-        for title, pred in groups:
-            members = [f for f in files if pred(f)]
-            if not members:
-                continue
-            if p.toolchain == TOOLCHAIN_CBM and title == "Source":
-                members.sort(key=lambda f: (build.get(str(f.resolve()), 999), f.name.lower()))
-            hdr = Gtk.Label(label=title, xalign=0, css_classes=["dim-label", "caption-heading"],
-                            margin_start=8, margin_top=8)
-            row = Gtk.ListBoxRow(child=hdr, activatable=False, selectable=False)
-            self.file_list.append(row)
-            for f in members:
-                try:
-                    rel = f.relative_to(p.directory)
-                except ValueError:
-                    rel = Path(f.name)
-                box = Gtk.Box(spacing=6, margin_start=6)
-                icon = {"Source": "text-x-generic-symbolic", "Graphics": "image-x-generic-symbolic",
-                        "Music": "audio-x-generic-symbolic"}.get(title, "application-x-executable-symbolic")
-                box.append(Gtk.Image(icon_name=icon))
-                lbl = Gtk.Label(label=str(rel), xalign=0, ellipsize=Pango.EllipsizeMode.START, hexpand=True)
-                box.append(lbl)
-                gs = self._git_states.get(f.resolve()) if hasattr(self, "_git_states") else None
-                if gs is not None:
-                    box.append(Gtk.Label(label=gs.letter, tooltip_text=f"Git: {gs.description}",
-                                         css_classes=["caption-heading", {"?": "dim-label", "A": "success",
-                                                      "D": "error", "U": "error"}.get(gs.letter, "warning")]))
-                bi = build.get(str(f.resolve()))
-                if bi is not None:
-                    box.append(Gtk.Label(label=str(bi + 1), css_classes=["dim-label", "caption"],
-                                         tooltip_text="Position in the build order", margin_end=6))
-                r = Gtk.ListBoxRow(child=box)
-                r.path = f
-                self.file_list.append(r)
+        self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
+        roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
+        tree = build_tree(p.directory, p.all_files(), self._build_order, roots)
+        first_time = self._tree_project != str(p.path)
+        self._tree_project = str(p.path)
+        if first_time:                   # a project just opened: its own top-level folders open
+            expanded = {c.path for c in tree.children if c.is_dir and c.path.is_relative_to(tree.path)}
 
-    def _on_file_activated(self, _lb, row):
-        path = getattr(row, "path", None)
-        if path:
-            self.open_file(path)
+        def store(nodes):
+            st = Gio.ListStore(item_type=_FileItem)
+            for n in nodes:
+                st.append(_FileItem(n))
+            return st
+        model = Gtk.TreeListModel.new(store(tree.children), False, False,
+                                      lambda item: store(item.node.children) if item.node.is_dir else None)
+        i = 0
+        while i < model.get_n_items():   # opening a folder inserts its rows after it, which this visits
+            row = model.get_item(i)
+            if row.get_item().node.path in expanded:
+                row.set_expanded(True)
+            i += 1
+        self._file_tree = model
+        self.file_list.set_model(Gtk.NoSelection(model=model))
+
+    def _file_row_setup(self, _f, li):
+        box = Gtk.Box(spacing=6)
+        box.append(Gtk.Image())
+        box.append(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, hexpand=True))
+        box.append(Gtk.Label(css_classes=["caption-heading"]))                 # Git state
+        box.append(Gtk.Label(css_classes=["dim-label", "caption"], margin_end=6,
+                             tooltip_text="Position in the build order"))
+        exp = Gtk.TreeExpander(child=box)
+        click = Gtk.GestureClick(button=3)
+        click.connect("pressed", lambda _g, _n, x, y: self._file_menu(exp, x, y))
+        exp.add_controller(click)
+        li.set_child(exp)
+
+    def _file_row_bind(self, _f, li):
+        exp: Gtk.TreeExpander = li.get_child()
+        row: Gtk.TreeListRow = li.get_item()
+        exp.set_list_row(row)
+        node = row.get_item().node
+        icon, name, git, order = list(exp.get_child())
+        icon.set_from_icon_name("folder-symbolic" if node.is_dir else _file_icon(node.path))
+        name.set_text(node.name)
+        exp.set_tooltip_text(str(node.path))
+        gs = None if node.is_dir else self._git_states.get(node.path)
+        git.set_visible(gs is not None)
+        if gs is not None:
+            git.set_text(gs.letter)
+            git.set_tooltip_text(f"Git: {gs.description}")
+            git.set_css_classes(["caption-heading", {"?": "dim-label", "A": "success", "D": "error",
+                                                     "U": "error"}.get(gs.letter, "warning")])
+        bi = None if node.is_dir else self._build_order.get(node.path)
+        order.set_visible(bi is not None)
+        order.set_text(str(bi + 1) if bi is not None else "")
+
+    def _on_file_activated(self, _view, position):
+        row = self._file_tree.get_item(position) if self._file_tree else None
+        if row is None:
+            return
+        node = row.get_item().node
+        if node.is_dir:
+            row.set_expanded(not row.get_expanded())
+        else:
+            self.open_file(node.path)
 
     def _update_title(self):
         page = self.tab_view.get_selected_page()
@@ -573,6 +635,76 @@ class MainWindow(Adw.ApplicationWindow):
         if page:
             self.tab_view.close_page(page)
 
+    # ------------------------------------------------------------------ tab right-click menu
+    @staticmethod
+    def _tab_menu_model() -> Gio.Menu:
+        menu = Gio.Menu()
+        close = Gio.Menu()
+        close.append("Close", "win.tab-close")
+        close.append("Close Others", "win.tab-close-others")
+        close.append("Close to the Right", "win.tab-close-right")
+        close.append("Close All", "win.tab-close-all")
+        menu.append_section(None, close)
+        file = Gio.Menu()
+        file.append("Reveal File", "win.tab-reveal")
+        file.append("Copy Path", "win.tab-copy-path")
+        menu.append_section(None, file)
+        return menu
+
+    def _on_tab_setup_menu(self, view, page):
+        # Called with None once the menu closes, possibly before the chosen item activates,
+        # so keep the last tab rather than clearing it.
+        if page is None:
+            return
+        self._menu_page = page
+        n, pos = view.get_n_pages(), view.get_page_position(page)
+        has_file = bool(getattr(page.get_child(), "path", None))
+        for name, on in (("tab-close-others", n > 1), ("tab-close-right", pos < n - 1),
+                         ("tab-reveal", has_file), ("tab-copy-path", has_file)):
+            self.lookup_action(name).set_enabled(on)
+
+    def _menu_tab(self) -> Adw.TabPage | None:
+        return self._menu_page or self.tab_view.get_selected_page()
+
+    def _close_tabs(self, which: str):
+        """Close the menu's tab, the others, those to its right or all; each unsaved one asks first."""
+        page = self._menu_tab()
+        if page is None:
+            return
+        pages = [self.tab_view.get_nth_page(i) for i in range(self.tab_view.get_n_pages())]
+        pos = pages.index(page)
+        doomed = {"this": [page], "others": pages[:pos] + pages[pos + 1:],
+                  "right": pages[pos + 1:], "all": pages}[which]
+        if which in ("others", "right"):
+            self.tab_view.set_selected_page(page)
+        for p in reversed(doomed):
+            self.tab_view.close_page(p)
+
+    def _reveal_tab_file(self):
+        page = self._menu_tab()
+        path = getattr(page.get_child(), "path", None) if page else None
+        if path:
+            self.reveal_in_file_manager(Path(path))
+
+    def reveal_in_file_manager(self, path: Path):
+        """Open the desktop's file manager at the folder holding ``path``, with it selected."""
+        launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(Path(path).resolve())))
+
+        def done(lnch, res):
+            try:
+                lnch.open_containing_folder_finish(res)
+            except GLib.Error as e:
+                if not e.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED):
+                    self.toast(f"Couldn't show {Path(path).name} in the file manager: {e.message}")
+        launcher.open_containing_folder(self, None, done)
+
+    def _copy_tab_path(self):
+        page = self._menu_tab()
+        path = getattr(page.get_child(), "path", None) if page else None
+        if path:
+            self.get_clipboard().set(str(Path(path).resolve()))
+            self.toast("Copied the path")
+
     # ------------------------------------------------------------------ continue where I left off
     def capture_session(self) -> Session:
         """The project and the files open in tabs (not tool pages), with the cursor in each."""
@@ -654,6 +786,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _forget_page(self, page):
         ed = page.get_child()
+        if page is self._menu_page:
+            self._menu_page = None
         if ed is self._pc_editor:
             self._pc_editor = None
         for k, v in list(self.pages.items()):
@@ -1853,26 +1987,43 @@ class MainWindow(Adw.ApplicationWindow):
                           lambda h: self.toast(f"Committed {h}"))
         dlg.choose(self, None, chosen)
 
-    def _file_menu(self, _g, _n, x, y):
-        """Right-click in the file list: open it, and Git's commands for it."""
-        row = self.file_list.get_row_at_y(int(y))
-        path = getattr(row, "path", None) if row else None
-        if path is None:
+    def _file_menu(self, row_widget: Gtk.TreeExpander, x, y):
+        """Right-click in the file tree: open it, show it in the file manager, and Git's commands for it."""
+        row = row_widget.get_list_row()
+        if row is None:
             return
+        node = row.get_item().node
+        path = node.path
+
         def item(label, what):
             it = Gio.MenuItem.new(label, None)
             it.set_action_and_target_value("win.git-file", GLib.Variant.new_string(f"{what}|{path}"))
             return it
+
+        def reveal():
+            it = Gio.MenuItem.new("Reveal in File Manager", None)
+            it.set_action_and_target_value("win.reveal-path", GLib.Variant.new_string(str(path)))
+            return it
+        if node.is_dir:
+            menu = Gio.Menu()
+            menu.append_item(reveal())
+            self._popup_menu(menu, row_widget, x, y)
+            return
         menu = Gio.Menu()
         menu.append_item(item("Open", "open"))
+        menu.append_item(reveal())
         if self._repo(quiet=True) is not None:
             git = Gio.Menu()
             for label, what in (("Add", "add"), ("Commit This File…", "commit"), ("Changes (diff)", "diff"),
                                 ("History (log)", "log"), ("Remove from the Repository", "remove")):
                 git.append_item(item(label, what))
             menu.append_section("Git", git)
+        self._popup_menu(menu, row_widget, x, y)
+
+    @staticmethod
+    def _popup_menu(menu: Gio.Menu, widget: Gtk.Widget, x, y):
         pop = Gtk.PopoverMenu.new_from_model(menu)
-        pop.set_parent(self.file_list)
+        pop.set_parent(widget)
         rect = Gdk.Rectangle()
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         pop.set_pointing_to(rect)

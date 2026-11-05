@@ -338,6 +338,30 @@ deleted is left out, with a note saying so.
 * Turn it off in Preferences → Editor → **Continue where I left off**. The session is kept in
   `~/.config/linux64studio/session.json`.
 
+## Project files
+
+The sidebar shows the project's files as a folder tree, as in VS Code: click a folder to open or
+close it, click a file to open it. Folders come first, then files. Files on the build list come
+before the rest of their folder, in build order, with their position shown on the right. Library
+folders outside the project (a Kick Assembler workspace's `../Library`, say) are top-level folders
+named by their path from the project. The project's own top-level folders start open, and the
+folders you open stay open when the list refreshes after a save or build.
+
+Right-click a file to open it, reveal it in the file manager or use Git on it, or a folder to
+reveal it.
+
+## Tab menu
+
+Right-click a tab for:
+
+* **Close**, **Close Others**, **Close to the Right** and **Close All**. A tab with unsaved changes
+  asks first (Save, Discard or Cancel) and stays open if you cancel; the others still close.
+* **Reveal File** opens the desktop's file manager at the folder holding the tab's file, with the
+  file selected.
+* **Copy Path** puts the file's full path on the clipboard.
+
+Reveal File and Copy Path are greyed out for tool pages and files not yet saved.
+
 ## Not ported from CBM prg Studio
 
 * **The sliding puzzle** (Extras → Puzzle), a tile-sliding game to pass the time. It has nothing to
