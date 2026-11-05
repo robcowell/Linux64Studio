@@ -8,8 +8,9 @@ The square on the left is all of memory: one pixel per byte, 256 bytes (a page) 
 `$0000` at the top left and `$FFFF` at the bottom right. Every source file has its own colour
 (data slightly lighter, included binaries muted). The shaded bands behind are the C64's
 regions: zero page and stack, the KERNAL/BASIC work area, screen RAM, the BASIC program area,
-the BASIC ROM, `$C000`, I/O and the KERNAL ROM. Hover for the address, region, value, owning
-file and label. Click to pick an address.
+the BASIC ROM, `$C000`, I/O and the KERNAL ROM. The map is light or dark to match the window
+(Window → Appearance), with deeper file colours in light mode. Hover for the address, region,
+value, owning file and label. Click to pick an address.
 
 Code a macro produced counts as the file that used the macro, not the library that defines it.
 

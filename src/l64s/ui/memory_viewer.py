@@ -20,14 +20,24 @@ from .hexview import HexView  # noqa: E402
 from .render import Bitmap, draw_char_into, paint_scaled, render_sprite  # noqa: E402
 from .widgets import ColourButton, set_rgb  # noqa: E402
 
-REGION_SHADES = [(0.16, 0.16, 0.18), (0.20, 0.20, 0.23)]
+# The map's unused memory, in alternate shades for the C64's regions (zero page, screen, BASIC, ...)
+REGION_SHADES = {True: [(0.16, 0.16, 0.18), (0.20, 0.20, 0.23)],      # dark mode
+                 False: [(0.96, 0.96, 0.97), (0.89, 0.89, 0.91)]}     # light mode
 KIND_LABEL = {"code": "code", "data": "data", "binary": "included binary"}
 
 
-def owner_colour(name: str, kind: str) -> tuple[float, float, float]:
-    """A steady, distinct colour per source file; data a little lighter, binaries more muted."""
+def is_dark() -> bool:
+    return Adw.StyleManager.get_default().get_dark()
+
+
+def owner_colour(name: str, kind: str, dark: bool = True) -> tuple[float, float, float]:
+    """A steady, distinct colour per source file; data a little lighter, binaries more muted. In
+    light mode they're deeper, to stand out from the light background."""
     h = (zlib.crc32(name.encode()) % 360) / 360
-    s, v = {"code": (0.65, 0.85), "data": (0.45, 0.95), "binary": (0.35, 0.7)}.get(kind, (0.5, 0.8))
+    if dark:
+        s, v = {"code": (0.65, 0.85), "data": (0.45, 0.95), "binary": (0.35, 0.7)}.get(kind, (0.5, 0.8))
+    else:
+        s, v = {"code": (0.75, 0.70), "data": (0.55, 0.80), "binary": (0.45, 0.55)}.get(kind, (0.6, 0.7))
     return colorsys.hsv_to_rgb(h, s, v)
 
 
@@ -44,6 +54,7 @@ class MapView(Gtk.DrawingArea):
         self.symbols: dict[int, str] = {}
         self._surface = None
         self.set_draw_func(self._draw)
+        Adw.StyleManager.get_default().connect("notify::dark", lambda *_: self.set_map(self.map, self.live))
         click = Gtk.GestureClick()
         click.connect("pressed", self._click)
         self.add_controller(click)
@@ -64,23 +75,26 @@ class MapView(Gtk.DrawingArea):
         import cairo
         data = bytearray(256 * 256 * 4)
         m = self.map
+        dark = is_dark()
+        unknown = (220, 220, 220) if dark else (110, 110, 110)       # used, but by no known file
         colours: dict[int, tuple[int, int, int]] = {}
         for i, s in enumerate(m.segments if m else []):
-            r, g, b = owner_colour(s.owner, s.kind)
+            r, g, b = owner_colour(s.owner, s.kind, dark)
             colours[i] = (int(b * 255), int(g * 255), int(r * 255))
         for page in range(256):
             region = next(i for i, (lo, hi, _n) in enumerate(memmap.SYSTEM_REGIONS) if lo <= page * 256 <= hi)
-            br, bg, bb = REGION_SHADES[region % 2]
+            br, bg, bb = REGION_SHADES[dark][region % 2]
             base_pix = (int(bb * 255), int(bg * 255), int(br * 255))
             for col in range(256):
                 a = page * 256 + col
                 o = a * 4
                 if m and self.live:
                     v = m.memory[a]
-                    lum = 40 + v * 200 // 255 if v else 0
+                    # a non-zero byte in green: brighter (dark mode) or deeper (light mode) the higher it is
+                    lum = (40 + v * 200 // 255) if dark else (210 - v * 170 // 255)
                     px = (lum // 2, lum, lum // 3) if v else base_pix
                 elif m and m.used[a]:
-                    px = colours.get(m.owners.get(a, -1), (220, 220, 220))
+                    px = colours.get(m.owners.get(a, -1), unknown)
                 else:
                     px = base_pix
                 data[o], data[o + 1], data[o + 2], data[o + 3] = px[0], px[1], px[2], 255
@@ -92,7 +106,8 @@ class MapView(Gtk.DrawingArea):
         scale, ox, oy = self._geometry()
         paint_scaled(cr, self._surface, ox, oy, scale, scale)
         # region boundaries
-        cr.set_source_rgba(1, 1, 1, 0.25)
+        dark = is_dark()
+        cr.set_source_rgba(*((1, 1, 1, 0.25) if dark else (0, 0, 0, 0.25)))
         cr.set_line_width(1)
         for lo, _hi, _n in memmap.SYSTEM_REGIONS[1:]:
             y = oy + (lo >> 8) * scale + 0.5
@@ -101,7 +116,7 @@ class MapView(Gtk.DrawingArea):
         cr.stroke()
         if self.selected is not None:
             x, y = ox + (self.selected & 0xFF) * scale, oy + (self.selected >> 8) * scale
-            cr.set_source_rgb(1, 0.85, 0)
+            cr.set_source_rgb(*((1, 0.85, 0) if dark else (0.85, 0.35, 0)))
             cr.set_line_width(2)
             cr.rectangle(x - 3, y - 3, max(scale, 1) + 6, max(scale, 1) + 6)
             cr.stroke()
@@ -222,6 +237,9 @@ class MemoryViewer(EditorPage):
         self.get_session = get_session      # () -> DebugSession | None
         self.open_source = open_source      # (file, line) -> None
         self.map: memmap.MemoryMap | None = None
+        self._chips: list[Gtk.DrawingArea] = []   # the segment list's colour swatches
+        Adw.StyleManager.get_default().connect(
+            "notify::dark", lambda *_: [c.queue_draw() for c in self._chips])
         self.symbols: dict[int, str] = {}
         self.address = 0x0400
         self._timer = None
@@ -399,11 +417,14 @@ class MemoryViewer(EditorPage):
         while (child := self.legend.get_first_child()) is not None:
             self.legend.remove(child)
         totals: dict[str, int] = {}
+        self._chips = []
         for s in m.segments:
             totals[s.owner] = totals.get(s.owner, 0) + s.size
             box = Gtk.Box(spacing=8, margin_start=6, margin_end=6, margin_top=2, margin_bottom=2)
             chip = Gtk.DrawingArea(content_width=12, content_height=12, valign=Gtk.Align.CENTER)
-            chip.set_draw_func(lambda _w, cr, w, h, c=owner_colour(s.owner, s.kind): (cr.set_source_rgb(*c), cr.paint()))
+            chip.set_draw_func(lambda _w, cr, w, h, o=s.owner, k=s.kind:
+                               (cr.set_source_rgb(*owner_colour(o, k, is_dark())), cr.paint()))
+            self._chips.append(chip)
             box.append(chip)
             box.append(Gtk.Label(label=f"${s.start:04X}-${s.end:04X}", css_classes=["monospace"]))
             box.append(Gtk.Label(label=f"{s.size:>6}", css_classes=["monospace", "dim-label"]))
@@ -414,7 +435,9 @@ class MemoryViewer(EditorPage):
         for owner, n in sorted(totals.items(), key=lambda kv: -kv[1]):
             box = Gtk.Box(spacing=4)
             chip = Gtk.DrawingArea(content_width=10, content_height=10, valign=Gtk.Align.CENTER)
-            chip.set_draw_func(lambda _w, cr, w, h, c=owner_colour(owner, "code"): (cr.set_source_rgb(*c), cr.paint()))
+            chip.set_draw_func(lambda _w, cr, w, h, o=owner:
+                               (cr.set_source_rgb(*owner_colour(o, "code", is_dark())), cr.paint()))
+            self._chips.append(chip)
             box.append(chip)
             box.append(Gtk.Label(label=f"{owner} ({n})", css_classes=["caption"]))
             self.legend.append(box)
