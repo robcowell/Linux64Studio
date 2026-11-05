@@ -81,9 +81,13 @@ class Application(Adw.Application):
         return self.window
 
     def do_activate(self):
-        self._ensure_window().present()
+        first = self.window is None
+        win = self._ensure_window()
+        win.present()
+        if first and self.settings.continue_session:
+            win.restore_session()
 
-    def do_open(self, files, _n, _hint):
+    def do_open(self, files, _n, _hint):        # files named on the command line: no session
         win = self._ensure_window()
         win.present()
         for f in files:
@@ -185,13 +189,16 @@ class Application(Adw.Application):
         tabw.set_value(s.tab_width)
         spaces = Adw.SwitchRow(title="Insert spaces instead of tabs", active=s.insert_spaces)
         save_first = Adw.SwitchRow(title="Save files before building", active=s.save_before_build)
+        resume = Adw.SwitchRow(title="Continue where I left off",
+                               subtitle="At start, open the last project and files, with the cursor where it was",
+                               active=s.continue_session)
         complete = Adw.SwitchRow(title="Suggest completions as you type",
                                  subtitle="Labels, constants, macros, instructions and directives. Ctrl+Space "
                                           "shows them at any time", active=s.auto_complete)
         scheme = Adw.ComboRow(title="Appearance", model=Gtk.StringList.new(["Follow system", "Light", "Dark"]),
                               selected=["system", "light", "dark"].index(s.dark_mode)
                               if s.dark_mode in ("system", "light", "dark") else 0)
-        for w in (font, tabw, spaces, complete, save_first, scheme):
+        for w in (font, tabw, spaces, complete, save_first, resume, scheme):
             ed.add(w)
         page.add(ed)
         pb = Adw.PreferencesGroup(title="BASIC")
@@ -238,6 +245,7 @@ class Application(Adw.Application):
             s.tab_width = int(tabw.get_value())
             s.insert_spaces = spaces.get_active()
             s.save_before_build = save_first.get_active()
+            s.continue_session = resume.get_active()
             s.auto_complete = complete.get_active()
             s.pbasic_start = int(pb_start.get_value())
             s.pbasic_step = int(pb_step.get_value())

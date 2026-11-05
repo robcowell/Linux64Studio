@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from ..emu import vice  # noqa: E402
+from ..session import OpenFile, Session  # noqa: E402
 from ..project.build import BuildResult, build_project  # noqa: E402
 from ..project.model import (TOOLCHAIN_CBM, TOOLCHAIN_KICKASS, Project, load_project,  # noqa: E402
                              new_project)
@@ -572,6 +573,60 @@ class MainWindow(Adw.ApplicationWindow):
         if page:
             self.tab_view.close_page(page)
 
+    # ------------------------------------------------------------------ continue where I left off
+    def capture_session(self) -> Session:
+        """The project and the files open in tabs (not tool pages), with the cursor in each."""
+        sel = self.tab_view.get_selected_page()
+        files, selected = [], -1
+        for i in range(self.tab_view.get_n_pages()):
+            page = self.tab_view.get_nth_page(i)
+            ed = page.get_child()
+            if not getattr(ed, "path", None):            # a tool page or an unsaved file
+                continue
+            line = col = 0
+            if isinstance(ed, SourceEditor):
+                it = ed.buffer.get_iter_at_mark(ed.buffer.get_insert())
+                line, col = it.get_line() + 1, it.get_line_offset()
+            if page is sel:
+                selected = len(files)
+            files.append(OpenFile(str(Path(ed.path).resolve()), line, col))
+        project = str(Path(self.project.path).resolve()) if self.project else ""
+        return Session(project, files, selected)
+
+    def restore_session(self, session: Session | None = None) -> bool:
+        """Open the last session again. Returns whether there was anything to open."""
+        session, missing = (session or Session.load()).restorable()
+        if session.empty:
+            if missing:
+                self.toast(f"Couldn't continue where you left off: {', '.join(missing)} not found")
+            return False
+        if session.project:
+            self.open_project(Path(session.project))
+            if self.project is None:
+                return False
+            self._close_all_tabs(force=True)      # the session's tabs, not the project's first file
+        opened = []
+        for f in session.files:
+            ed = self.open_file(Path(f.path))
+            opened.append(ed)
+            if isinstance(ed, SourceEditor) and f.line > 0:
+                ok, it = ed.buffer.get_iter_at_line(f.line - 1)
+                if ok:
+                    if f.column:
+                        it.forward_chars(min(f.column, it.get_chars_in_line()))
+                    ed.buffer.place_cursor(it)
+                    if hasattr(ed, "folding"):
+                        ed.folding.reveal(f.line - 1)
+                    GLib.idle_add(lambda e=ed: (e.view.scroll_to_mark(e.buffer.get_insert(), 0.2, True, 0, 0.4),
+                                                False)[1])
+        if 0 <= session.selected < len(opened) and opened[session.selected] is not None:
+            front = self.tab_view.get_page(opened[session.selected])
+            if front is not None:
+                self.tab_view.set_selected_page(front)
+        if missing:
+            self.toast(f"Not found, so not opened: {', '.join(missing)}")
+        return True
+
     def _on_close_page(self, view, page):
         ed: EditorPage = page.get_child()
         if not ed.modified or getattr(self, "_force_close", False):
@@ -626,6 +681,10 @@ class MainWindow(Adw.ApplicationWindow):
         w, h = self.get_default_size()
         self.settings.window_width, self.settings.window_height = w, h
         self.settings.save()
+        try:
+            self.capture_session().save()
+        except OSError:
+            pass
         if self.debug:
             self.debug.stop()
         dirty = [e for e in self.editors() if e.modified]

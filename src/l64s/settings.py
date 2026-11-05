@@ -45,6 +45,7 @@ class Settings:
     pbasic_prefix: str = "@"
     pbasic_preview: bool = False  # show each pBASIC file's numbered BASIC after building
     recent_projects: list[str] = field(default_factory=list)
+    continue_session: bool = True   # open the last project and files at start (session.py)
     window_width: int = 1280
     window_height: int = 820
 

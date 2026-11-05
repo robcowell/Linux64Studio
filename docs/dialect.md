@@ -324,6 +324,20 @@ so a path with spaces stays one argument; quote an argument that has spaces of i
 | `.spd` SpritePad v1 | binary: `SPD`, version, counts, 3 colours, 64 bytes per sprite, 4 per animation | the 64th byte is the attribute (bit 7 multicolour, low nibble colour) and is part of SpritePad's `.bin` exports **verified** (Vol 2) |
 | `.ctm` CharPad v5 | binary, as in CharPad's own format notes | charset, colour and map exports match the book's `.bin` files; all 213 `.ctm` files in the download re-save byte-identical **verified** (Vol 2) |
 
+## Continue where you left off
+
+When Linux64Studio closes it remembers what was open: the project, the files in tabs, which tab
+was in front and where the cursor was in each source file. At the next start it opens them all
+again, so you carry on where you stopped. Tool pages (the calculators, the disassembler, the memory
+manager) aren't kept, nor are files never saved. A file or project that has since been moved or
+deleted is left out, with a note saying so.
+
+* Closing the project before quitting means the next start has no project, only any loose files.
+* Starting with a file or project on the command line (`linux64studio game.cbmprj`) opens that
+  instead of the last session.
+* Turn it off in Preferences → Editor → **Continue where I left off**. The session is kept in
+  `~/.config/linux64studio/session.json`.
+
 ## Not ported from CBM prg Studio
 
 * **The sliding puzzle** (Extras → Puzzle), a tile-sliding game to pass the time. It has nothing to
