@@ -63,6 +63,22 @@ a label is a quick way to run a routine again. The flag buttons (N V – B D I Z
 status bit. Registers and flags that changed since the program last stopped are highlighted,
 so after a step you can see what the instruction did.
 
+## Cycles
+
+Under the flags, **Cycles** shows how many cycles the last run took, and a total since **Reset**.
+Each count is exact, including the cycles the VIC-II takes (on a badline, or for sprites), so a step
+over `lda $d012` on a badline shows the stall too.
+
+* Without **Count all**, a single instruction's cycles are shown: a step into, or a step over
+  anything but a JSR. They come from the raster position before and after, which changes nothing in
+  the machine.
+* With **Count all** ticked, every run is counted, however long: a continue to a breakpoint, a step
+  over a subroutine, a step by C line, a pause. This uses CIA 2's two timers as a 32-bit cycle
+  counter, so a program that uses CIA 2's timers itself would be disturbed. Its control registers
+  are put back when you untick it, but the timers' latches are left at `$FFFF`.
+
+To time a whole routine over many calls, [routine timing](#routine-timing) does it for every call.
+
 ## Editing memory
 
 The hex view shows 256 bytes, with the screen-code characters beside them.
@@ -274,6 +290,21 @@ It's in Kick Assembler's own format: for the same instructions, the rows are wha
 5.25 writes (`tests/asm/test_debugdump.py` runs both). As in Kick Assembler's, a line in a macro
 is listed at the macro's own line, not where the macro is used. Source `breakpoint` and `watch`
 directives go in its Breakpoints and Watchpoints.
+
+**Debugger → Debug in RetroDebugger / C64 Debugger** builds the project and opens the program in
+RetroDebugger (or C64 Debugger, its forerunner) with the debug dump and the labels, so it shows the
+source as the program runs. In RetroDebugger the source is in its own window: **C64 → Source code**.
+While the program runs, the highlighted line follows the PC; pause it to step through the source. A disk image or cartridge is opened as one. For a CBM prg Studio project
+without *Write a debug dump* switched on, the dump is written for it at that moment. A C (cc65)
+program gets its labels only: ld65's own `.dbg` is a different format, which these debuggers don't
+read. Breakpoints set in Linux64Studio's margin aren't passed on; `breakpoint` directives in the
+source are, through the dump.
+
+`tools/install-retrodebugger.sh` downloads the latest RetroDebugger for Linux into
+`~/.local/share/linux64studio/RetroDebugger`, where it's found. Or name the program in **Preferences →
+General → RetroDebugger / C64 Debugger**, with any extra arguments (`-layout 9` for its source view).
+Otherwise the first `retrodebugger`, `RetroDebugger`, `C64Debugger` or `c64debugger` on the PATH is
+used. It's started with `-wait 2000 -debuginfo game.dbg -symbols game.vs -prg game.prg -autojmp`.
 
 ## Notes on VICE
 

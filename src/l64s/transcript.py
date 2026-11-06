@@ -23,6 +23,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from .emu.cycles import CycleCounter
 from .emu.values import ValueError_, flags_text, parse_bytes, parse_number
 
 REGISTERS = {"a": "A", "x": "X", "y": "Y", "sp": "SP", "pc": "PC", "p": "FL", "fl": "FL"}
@@ -241,10 +242,6 @@ class Runner:
             self._stop_vice()
             m.delete_checkpoint(cid)
 
-    def _timers(self) -> int:
-        t = self.monitor.read_memory(0xDD04, 0xDD07)
-        return (t[2] | t[3] << 8) << 16 | (t[0] | t[1] << 8)
-
     def _call(self, address: int, name: str = ""):
         """JSR to the routine, run it until it returns, and count its cycles (CIA 2's timers, as a
         32-bit count of cycles, for the length of the call). The PC is put back afterwards."""
@@ -254,18 +251,14 @@ class Runner:
         m.write_memory(0x0100 + ((sp - 1) & 0xFF), bytes([(TRAP - 1) & 0xFF, ((TRAP - 1) >> 8) & 0xFF]))
         self._set_register("SP", (sp - 2) & 0xFF)
         self._set_register("PC", address)
-        # the timers last, once the registers are set (VICE's step after a register write takes time)
-        controls = m.read_memory(0xDD0E, 0xDD0F)
-        m.write_memory(0xDD0E, b"\x00\x00", side_effects=True)                 # both stopped
-        m.write_memory(0xDD04, b"\xff\xff\xff\xff", side_effects=True)         # latches: $FFFF
-        m.write_memory(0xDD0F, bytes([0x51]), side_effects=True)                # B counts A's underflows
-        m.write_memory(0xDD0E, bytes([0x11]), side_effects=True)                # A counts cycles
-        start = self._timers()
+        # the counter last, once the registers are set (VICE's step after a register write takes time)
+        counter = CycleCounter(m)
+        start = counter.start()
         try:
             self._until(TRAP, sp, failure=f"The call to {name or f'${address:04X}'} didn't return")
-            self.cycles = (start - self._timers()) - self.call_offset
+            self.cycles = (start - counter.read()) - self.call_offset
         finally:
-            m.write_memory(0xDD0E, controls, side_effects=True)
+            counter.stop()
             self._set_register("PC", pc)
 
     # ------------------------------------------------------------------ the commands

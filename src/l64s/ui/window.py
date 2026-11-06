@@ -376,6 +376,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("profile", lambda *_: self.profile_project())
         add("time-routine-here", lambda *_: self.time_routine_here())
         add("run-transcript", lambda *_: self.run_transcript())
+        add("external-debugger", lambda *_: self.build(run=True, external=True))
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
@@ -1334,7 +1335,7 @@ class MainWindow(Adw.ApplicationWindow):
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
 
     def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False,
-              timing=None, transcript=None):
+              timing=None, transcript=None, external: bool = False):
         ed = self.current_editor()
         if not self.project:
             if isinstance(ed, SourceEditor) and ed.path:
@@ -1370,11 +1371,11 @@ class MainWindow(Adw.ApplicationWindow):
                 from ..asm.errors import Diagnostic
                 res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
                                   traceback.format_exc())
-            GLib.idle_add(self._build_done, res, run, debug, profile, timing, transcript)
+            GLib.idle_add(self._build_done, res, run, debug, profile, timing, transcript, external)
         threading.Thread(target=work, daemon=True).start()
 
     def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None,
-                    transcript=None):
+                    transcript=None, external: bool = False):
         self.last_build = res
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
@@ -1394,6 +1395,9 @@ class MainWindow(Adw.ApplicationWindow):
             return
         if transcript is not None:
             self._start_transcript(res, *transcript)
+            return
+        if external:
+            self._start_external_debugger(res)
             return
         if not run:
             self.toast(f"Built {res.prg.name}")
@@ -1544,6 +1548,33 @@ class MainWindow(Adw.ApplicationWindow):
         """Debugger > Profile in VICE: build the project, then run it in VICE and measure it."""
         self.open_profiler()
         self.build(run=True, profile=True)
+
+    # ------------------------------------------------------------------ RetroDebugger / C64 Debugger
+    def _start_external_debugger(self, res: BuildResult):
+        """Debugger > Debug in RetroDebugger: the program, its debug dump (.dbg, in Kick Assembler's
+        format: Kick Assembler's own, or written now for the built-in assembler) and its labels."""
+        from ..emu import extdebug
+        exe = extdebug.find(self.settings.external_debugger)
+        if exe is None:
+            self.toast("RetroDebugger isn't installed: run tools/install-retrodebugger.sh, or set it in "
+                       "Preferences → General")
+            return
+        target = Path(str(res.run_target(self.project) if self.project else res.prg))
+        dbg = None
+        if res.kick_debug is not None or (res.asm_result is not None and res.prg is not None):
+            dbg = res.prg.with_suffix(".dbg")
+            if res.asm_result is not None and not (self.project and self.project.debug_dump):
+                from ..asm.output import debug_dump
+                dbg.write_text(debug_dump(res.asm_result))       # (the project doesn't keep one)
+        # a cc65 build's .dbg is ld65's own format, which these debuggers don't read: labels only
+        args = extdebug.command(exe, target, dbg, res.labels, self.settings.external_debugger_args)
+        try:
+            extdebug.launch(args)
+        except OSError as e:
+            self.toast(f"Couldn't start {Path(exe).name}: {e}")
+            return
+        self._set_log(res.log + "\n" + " ".join(args))
+        self.toast(f"Opening {target.name} in {Path(exe).name}" + ("" if dbg else " (labels only: no debug dump)"))
 
     # ------------------------------------------------------------------ transcripts
     def run_transcript(self):

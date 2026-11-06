@@ -401,6 +401,35 @@ class DebuggerPanel(Gtk.Box):
             flags.append(b)
             self.flag_buttons.append(b)
         left.append(flags)
+        # Cycles: since the last stop (one instruction's from the raster position; anything with
+        # Count, from CIA 2's timers), and a total since Reset
+        cyc = Gtk.Box(spacing=6)
+        cyc.append(Gtk.Label(label="<b>Cycles</b>", use_markup=True, margin_start=4))
+        self.cycles_label = Gtk.Label(label="—", xalign=0, css_classes=["monospace"], selectable=True,
+                                      ellipsize=Pango.EllipsizeMode.END, max_width_chars=22,
+                                      tooltip_text="The cycles the last run took (exact, with the cycles the "
+                                                   "VIC-II took), then the total since Reset. Without Count all, "
+                                                   "only a single instruction's are known.")
+        cyc.append(self.cycles_label)
+        self.cycles_reset = Gtk.Button(label="Reset", css_classes=["flat"], sensitive=False,
+                                       tooltip_text="Start the total again from 0")
+        self.cycles_reset.connect("clicked", lambda *_: self._reset_cycles())
+        cyc.append(self.cycles_reset)
+        self.count_cycles = Gtk.CheckButton(label="Count all", sensitive=False, tooltip_text=(
+            "Count the cycles of every run, however long: a continue to a breakpoint, a step over a "
+            "subroutine, a step by C line. Uses CIA 2's timers as a cycle counter (a program that uses "
+            "them itself would be disturbed). Off, only single instructions are counted, from the raster "
+            "position."))
+        self.count_cycles.connect("toggled", self._count_toggled)
+        cyc.append(self.count_cycles)
+        left.append(cyc)
+        self._counter = None              # emu.cycles.CycleCounter, while Count all is on
+        self._count_at_stop = 0
+        self._cycles_total = 0
+        self._raster_at_stop: tuple[int, int] | None = None
+        self._pc_at_stop: int | None = None
+        self._one_instruction = False     # the run that ended was one instruction (or an interrupt's start)
+        self._timing = None
         # WATCH directives: each label's byte (and the word there), shown at every stop
         self.watch_label = Gtk.Label(xalign=0, css_classes=["monospace"], selectable=True, wrap=True,
                                      margin_start=4, visible=False)
@@ -471,6 +500,9 @@ class DebuggerPanel(Gtk.Box):
         self.session = session
         self._regs, self._prev_regs = {}, {}
         self._mem_this_stop, self._mem_last_stop = {}, {}
+        self._counter, self._cycles_total, self._raster_at_stop, self._timing = None, 0, None, None
+        self.count_cycles.set_active(False)
+        self.cycles_label.set_text("—")
         session.connect("connected", lambda *_: self._set_running(True))
         session.connect("stopped", self._on_stopped)
         session.connect("resumed", lambda *_: self._set_running(True))
@@ -487,6 +519,8 @@ class DebuggerPanel(Gtk.Box):
             b.set_sensitive(editable)
         self.write_entry.set_sensitive(editable)
         self.memory.editable = editable
+        self.count_cycles.set_sensitive(editable)
+        self.cycles_reset.set_sensitive(editable)
         self.buttons["continue"].set_sensitive(not running)
         self.buttons["pause"].set_sensitive(running)
         for k in ("into", "over", "out"):
@@ -503,6 +537,9 @@ class DebuggerPanel(Gtk.Box):
             b.set_sensitive(False)
         self.write_entry.set_sensitive(False)
         self.memory.editable = False
+        self.count_cycles.set_sensitive(False)
+        self.cycles_reset.set_sensitive(False)
+        self._counter = None
         if self.session:
             self.session.stop()
         self.session = None
@@ -517,6 +554,7 @@ class DebuggerPanel(Gtk.Box):
         if key == "pause" and s.stepping:
             s.cancel_step()                    # stops where it's got to
             return
+        self._one_instruction = False
         if key in ("into", "over") and not s.running and pc is not None and s.steps_by_c_line(pc):
             s.step_line(over=key == "over")    # in C: to the next line, not the next instruction
             return
@@ -524,6 +562,7 @@ class DebuggerPanel(Gtk.Box):
             key = key.split("-")[0]            # by instruction, even in C
         if key in ("continue", "into", "over") and pc in s.checkpoints and not s.running:
             opcode = (s.cmd(m.read_memory, pc, pc) or b"\0")[0]
+            self._one_instruction = key == "into" or (key == "over" and opcode != 0x20)
             s.cmd(s.leave_breakpoint, pc)      # runs the instruction at the breakpoint
             if key == "into":
                 return                         # that was the step
@@ -540,8 +579,11 @@ class DebuggerPanel(Gtk.Box):
             if regs:
                 self._on_stopped(s, regs.get("PC", 0))
         elif key == "into":
+            self._one_instruction = True
             s.cmd(m.step, 1, False)
         elif key == "over":
+            opcode = (s.cmd(m.read_memory, pc, pc) or b"\0")[0] if pc is not None else 0x20
+            self._one_instruction = opcode != 0x20          # over a JSR runs the whole subroutine
             s.cmd(m.step, 1, True)
         elif key == "out":
             s.cmd(m.step_out)
@@ -558,6 +600,8 @@ class DebuggerPanel(Gtk.Box):
             self._prev_regs = dict(self._regs) if self._regs else dict(regs)
         self._regs = dict(regs)
         pc = regs.get("PC", pc)
+        if snapshot:
+            self._count(session, regs)
         self._show_registers()
         self._show_code(session, pc)
         self._show_watches(session)
@@ -565,6 +609,54 @@ class DebuggerPanel(Gtk.Box):
         src = session.srcmap.get(pc)
         self.emit("show-source", src[0] if src else "", src[1] if src else 0)
         self._show_variables(session, pc, snapshot)
+
+    # ---------------------------------------------------------------- cycles
+    def _count(self, session, regs: dict[str, int]):
+        """The cycles of the run that just stopped."""
+        from ..emu.cycles import NTSC, PAL, raster_cycles
+        if self._timing is None:
+            flag = (session.cmd(session.monitor.read_memory, 0x02A6, 0x02A6) or b"\1")[0]
+            self._timing = PAL if flag else NTSC
+        here = (regs.get("LIN", 0), regs.get("CYC", 0))
+        if here == self._raster_at_stop and regs.get("PC") == self._pc_at_stop:
+            return                             # the same stop again (Pause shows it, and VICE reports it)
+        self._pc_at_stop = regs.get("PC")
+        ran = None
+        if self._counter is not None:
+            now = session.cmd(self._counter.read)
+            if now is not None:
+                ran = self._count_at_stop - now
+                self._count_at_stop = now
+        elif self._one_instruction and self._raster_at_stop is not None:
+            ran = raster_cycles(self._raster_at_stop, here, self._timing)
+        self._raster_at_stop = here
+        self._one_instruction = False
+        if ran is not None:
+            self._cycles_total += ran
+            self.cycles_label.set_text(f"{ran:,} (total {self._cycles_total:,})")
+        else:
+            self.cycles_label.set_text(f"— (total {self._cycles_total:,})")
+
+    def _reset_cycles(self):
+        self._cycles_total = 0
+        self.cycles_label.set_text("— (total 0)")
+
+    def _count_toggled(self, button):
+        from ..emu.cycles import CycleCounter
+        s = self.session
+        if s is None or s.running:
+            return
+        if button.get_active() and self._counter is None:
+            self._counter = CycleCounter(s.monitor)
+            start = s.cmd(self._counter.start)
+            if start is None:
+                self._counter = None
+                return
+            self._count_at_stop = start
+            self.cycles_label.set_text(f"0 (total {self._cycles_total:,})")
+        elif not button.get_active() and self._counter is not None:
+            s.cmd(self._counter.stop)
+            self._counter = None
 
     # ---------------------------------------------------------------- C variables
     def set_c_program(self, program, sp_address: int = 0x02):

@@ -82,7 +82,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                    ("Build _All Programs", "win.build-all")],
                   [("Build Project and _Run", "win.run-project"),
                    ("Build Current File and R_un", "win.run-file")])
-    debugger = _menu([("_Debug Project", "win.debug-project")],
+    debugger = _menu([("_Debug Project", "win.debug-project"),
+                      ("Debug in _RetroDebugger / C64 Debugger", "win.external-debugger")],
                      [("_Continue", "win.debug-continue"), ("Step _Over", "win.debug-over"),
                       ("Step _Into", "win.debug-into"), ("Step O_ut", "win.debug-out")],
                      [("Step Over One Instruction", "win.debug-over-instruction"),

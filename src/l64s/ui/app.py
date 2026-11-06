@@ -182,6 +182,19 @@ class Application(Adw.Application):
             joy_rows.append((port, row))
         page.add(emu)
 
+        from ..emu.extdebug import find as find_debugger
+        found = find_debugger()
+        ext = Adw.PreferencesGroup(title="RetroDebugger / C64 Debugger",
+                                   description="Debugger → Debug in RetroDebugger opens the program in it, with its "
+                                               "source. Leave the path empty to use one on the PATH or the one "
+                                               "tools/install-retrodebugger.sh installs" +
+                                               (f" (found: {found})." if found else " (none found yet)."))
+        ext_path = Adw.EntryRow(title="Debugger executable", text=s.external_debugger)
+        ext_args = Adw.EntryRow(title="Extra arguments (such as -layout 9)", text=" ".join(s.external_debugger_args))
+        ext.add(ext_path)
+        ext.add(ext_args)
+        page.add(ext)
+
         ka = Adw.PreferencesGroup(title="Kick Assembler",
                                   description="Used for Kick Assembler projects (Retro Game Dev Vol 2, VS Code "
                                               "workspaces). Point this at KickAss.jar, or leave it unset to use "
@@ -277,6 +290,8 @@ class Application(Adw.Application):
         def closed(*_):
             s.emulator = emu_path.get_text().strip() or "x64sc"
             s.emulator_args = emu_args.get_text().split()
+            s.external_debugger = ext_path.get_text().strip()
+            s.external_debugger_args = ext_args.get_text().split()
             for port, row in joy_rows:
                 setattr(s, f"joystick_port{port}", joy_keys[row.get_selected()])
             sub = jar.get_subtitle()
