@@ -126,6 +126,8 @@ debugged ([debugger](debugger.md)):
 * When the program stops, the editor shows the C line it's on, and the Debugger tab the registers,
   memory and disassembly, with the program's labels (C functions and globals have cc65's leading
   underscore: `_main`).
+* **Debugger → Profile in VICE** measures where the time goes, by C function and C line, cc65's
+  runtime helpers included ([profiler](debugger.md#profiler)).
 
 ### Variables
 

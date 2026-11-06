@@ -32,6 +32,7 @@ from .editor import HAVE_SOURCEVIEW, EditorPage, SourceEditor  # noqa: E402
 from .screen_editor import ScreenEditor  # noqa: E402
 from .binary_tool import BinaryTool  # noqa: E402
 from .analyser_view import SourceAnalyser  # noqa: E402
+from .profiler_view import ProfilerView  # noqa: E402
 from .basic_stats_view import BasicStatistics  # noqa: E402
 from .datagen_view import DataGenerator  # noqa: E402
 from .disassembler_view import DisassemblerView  # noqa: E402
@@ -370,6 +371,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("import-charpad", lambda *_: self.import_charpad())
         add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
+        add("profile", lambda *_: self.profile_project())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
@@ -724,7 +726,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "profiler": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -934,6 +936,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _forget_page(self, page):
         ed = page.get_child()
+        if hasattr(ed, "closing"):
+            ed.closing()
         if page is self._menu_page:
             self._menu_page = None
         if ed is self._pc_editor:
@@ -1318,7 +1322,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _overrides(self) -> dict[str, str]:
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
 
-    def build(self, run: bool = False, current_file: bool = False, debug: bool = False):
+    def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False):
         ed = self.current_editor()
         if not self.project:
             if isinstance(ed, SourceEditor) and ed.path:
@@ -1336,7 +1340,7 @@ class MainWindow(Adw.ApplicationWindow):
             only = ed.path
         if self.settings.save_before_build:
             self.save_all()
-        if self.debug and debug:
+        if self.debug and (debug or profile):
             self.debug.stop()
             self.debug = None
         self.bottom_stack.set_visible_child_name("output")
@@ -1354,10 +1358,10 @@ class MainWindow(Adw.ApplicationWindow):
                 from ..asm.errors import Diagnostic
                 res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
                                   traceback.format_exc())
-            GLib.idle_add(self._build_done, res, run, debug)
+            GLib.idle_add(self._build_done, res, run, debug, profile)
         threading.Thread(target=work, daemon=True).start()
 
-    def _build_done(self, res: BuildResult, run: bool, debug: bool):
+    def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False):
         self.last_build = res
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
@@ -1373,7 +1377,9 @@ class MainWindow(Adw.ApplicationWindow):
         if not run:
             self.toast(f"Built {res.prg.name}")
             return
-        if debug:
+        if profile:
+            self._start_profile(res)
+        elif debug:
             self._start_debug(res)
         else:
             self._launch(res.run_target(self.project) if self.project else res.prg, res.labels)
@@ -1493,6 +1499,27 @@ class MainWindow(Adw.ApplicationWindow):
         except FileNotFoundError as e:
             self.toast(str(e))
             self.debug = None
+
+    # ------------------------------------------------------------------ the profiler
+    def open_profiler(self) -> ProfilerView:
+        tool = next((ed for ed in self.editors() if isinstance(ed, ProfilerView)), None)
+        if tool:
+            self.tab_view.set_selected_page(self.tab_view.get_page(tool))
+            return tool
+        return self._add_page(ProfilerView(self.profile_project, self._open_source_line, self._line_text))
+
+    def profile_project(self):
+        """Debugger > Profile in VICE: build the project, then run it in VICE and measure it."""
+        self.open_profiler()
+        self.build(run=True, profile=True)
+
+    def _start_profile(self, res: BuildResult):
+        view = self.open_profiler()
+        target = res.run_target(self.project) if self.project else res.prg
+        from ..profiler import resolver_for
+        view.begin(target, resolver_for(res, self._build_symbols(res)), self.settings.emulator, self._vice_args())
+        if view.message:
+            self.toast(view.message)
 
     def _c_program(self, res: BuildResult):
         """A C build's variables for the debugger: types from the project's C sources (as they are in

@@ -62,7 +62,9 @@ def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_po
         args += ["-cartcrt", str(prg)]  # cartridges are plugged in, not loaded
     else:
         args += ["-autostartprgmode", "1", str(prg)]
-    return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    # VICE's log goes nowhere: it writes a line each time the monitor lets it go on ("Sync reset"),
+    # so a pipe that isn't read fills after a few thousand debugger steps, and VICE stops dead.
+    return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
 
 

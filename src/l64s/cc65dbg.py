@@ -34,6 +34,7 @@ class DebugInfo:
     mods: dict[int, tuple[str, int, int | None]] = field(default_factory=dict)  # id -> (name, file, lib)
     libs: dict[int, str] = field(default_factory=dict)               # id -> library file
     mod_spans: dict[int, list[int]] = field(default_factory=dict)    # module -> the spans it put in memory
+    scope_spans: dict[int, list[int]] = field(default_factory=dict)  # scope -> its spans (a C function's code)
 
 
 def _fields(text: str) -> dict[str, str]:
@@ -80,6 +81,8 @@ def parses(text: str) -> DebugInfo:
                 info.seg_sizes[_int(f["id"])] = _int(f.get("size", "0"))
             elif kind == "scope":
                 info.scopes[_int(f["id"])] = f.get("name", "")
+                if f.get("name") and f.get("span"):
+                    info.scope_spans[_int(f["id"])] = [_int(s) for s in f["span"].split("+")]
                 if f.get("name", "") == "" and "mod" in f and f.get("span"):     # a module's top scope
                     info.mod_spans.setdefault(_int(f["mod"]), []).extend(_int(s) for s in f["span"].split("+"))
             elif kind == "mod":
@@ -186,6 +189,36 @@ def c_frames(info: DebugInfo) -> dict[str, dict[str, int | None]]:
             continue
         out.setdefault(fn[1:], {})[name] = offs
     return out
+
+
+def _span_ranges(info: DebugInfo, spans: list[int], code_only: bool = True) -> list[tuple[int, int]]:
+    out = []
+    for sid in spans:
+        span = info.spans.get(sid)
+        seg = info.seg_names.get(span[0], "") if span else ""
+        if (span and span[2] and span[0] in info.segs
+                and (seg in _CODE_SEGMENTS if code_only else seg not in _RESERVED_SEGMENTS)):
+            start = info.segs[span[0]] + span[1]
+            out.append((start, start + span[2]))
+    return out
+
+
+def code_ranges(info: DebugInfo):
+    """For the profiler: ([(start, end, name)] of each named scope's code (a C function is _name, a
+    ca65 .proc its name), [(start, end, module)] of what each module put in memory, code or data
+    (a tune's player is data to ld65): its source file's name (main.c), or library: module
+    (c64.lib: popax.o)). End is one past the last byte."""
+    funcs = [(a, b, info.scopes.get(sid, "")) for sid, spans in info.scope_spans.items()
+             for a, b in _span_ranges(info, spans)]
+    mods = []
+    for mid, spans in info.mod_spans.items():
+        name, fid, lib = info.mods.get(mid, ("", 0, None))
+        if lib is not None:
+            name = f"{Path(info.libs.get(lib, '')).name}: {name}" if info.libs.get(lib) else name
+        elif info.files.get(fid):
+            name = Path(info.files[fid]).name
+        mods += [(a, b, name) for a, b in _span_ranges(info, spans, code_only=False)]
+    return sorted(funcs), sorted(mods)
 
 
 _DATA_SEGMENTS = {"RODATA", "DATA", "INIT"}

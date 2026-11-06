@@ -87,7 +87,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                      [("Step Over One Instruction", "win.debug-over-instruction"),
                       ("Step Into One Instruction", "win.debug-into-instruction")],
                      [("Toggle _Breakpoint", "win.toggle-breakpoint")],
-                     [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")])
+                     [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")],
+                     [("_Profile in VICE", "win.profile")])
     basic = _menu([("_List BASIC Program (.prg)…", "win.list-prg"), ("_Renumber…", "win.renumber"),
                    ("Re_format…", "win.reformat-basic"), ("_Statistics", "win.basic-statistics")],
                   [("_Compress (abbreviate keywords)", "win.basic-compress"),

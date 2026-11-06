@@ -103,6 +103,42 @@ build it came from.
 The snapshot files are read directly for listing and comparing, without VICE (`tests/test_snapshot.py`;
 the save and restore round trip through VICE runs with `L64S_VICE_TESTS=1`).
 
+## Profiler
+
+**Debugger → Profile in VICE** builds the project, runs it in VICE, and measures where the 6510's
+time goes, while the program runs at its real speed. Play the game as it's measured: what you're
+doing is what's measured. The **Profiler** tab fills as it goes:
+
+* **Routines**: each routine's share of the CPU's time. For assembler, a routine is the code from
+  one label to the next. Local labels (`@loop`, `!loop`) count as part of the label above them.
+  For C it's the function, static ones too, plus cc65's runtime helpers (`pushax`, `ldaxysp`,
+  marked `c64.lib`). Time in the ROMs is named by KERNAL routine (`KERNAL IRQ handler`,
+  `KERNAL SCNKEY keyboard scan`) or `BASIC ROM`.
+* **Lines**: the same by source line, with the line's text. In Kick Assembler a macro's code counts
+  at the macro's own line, as in the debugger.
+* **Files**: the same by source file, with the KERNAL as one.
+* **Frame**: the frame from raster line 0 at the top down to the last line (311 on PAL). Each line
+  is split between the routines that run while the VIC-II draws it, as the border-colour trick shows
+  it, but measured. The shaded band is the screen's 25 text rows; hover over a line for its routines.
+  A raster interrupt shows up as a band at its line.
+
+Click a routine or line to go to it in the source. **Reset** starts the counts again from now,
+for measuring one part of a game (get to the level, then Reset). **Stop** stops measuring; the
+program carries on in VICE. The copy button copies the profile as text.
+
+A main loop that waits for the next frame (for the raster line to come round, or for a flag the
+interrupt sets) usually comes out on top. That's the frame's spare time: the less of it there is,
+the closer the game is to slowing down. In Glowcave it's `wait_frame()`, about two thirds of the time.
+
+How it measures: VICE's monitor only answers once a frame, so asking for the PC on a timer would
+always find the same place. Instead the profiler has VICE run a random number of instructions,
+from one to a few hundred, then stop. It reads where the program got to: the PC, and the raster
+line and cycle. Then it lets it go on. That's about 500 samples a second. Each sample counts with
+its instruction's cycles, so a share is of time, not of instructions. The raster position also says
+how much time passed between samples, which keeps the program at its real speed. The sound may
+crackle, as VICE stops so often. A share is an estimate, more exact the longer you let it run:
+with 10,000 samples, a 10% share is within about half a percent.
+
 ## Kick Assembler projects
 
 Kick Assembler projects (Vol 2, or your own) get the same source-level debugging: breakpoints in
@@ -144,5 +180,8 @@ These are worked around automatically, and were found with VICE 3.7.1:
   followed by the step VICE ignores, with any breakpoint at the PC switched off, so your next
   step runs exactly one instruction.
 * Setting breakpoints at start-up makes VICE stop briefly. Those stops are never shown.
+* VICE logs a line each time the monitor lets it carry on. Its log isn't kept (it goes to
+  `/dev/null`): when it was kept in a pipe nothing read, a long session filled the pipe after about
+  5,000 steps and VICE stopped dead.
 * Stepping or continuing from a breakpoint runs that instruction with the breakpoint switched
   off, then switches it back on.
