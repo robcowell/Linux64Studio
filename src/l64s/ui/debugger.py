@@ -133,14 +133,14 @@ class DebugSession(GObject.Object):
                 if a in self.conditions:
                     m.set_condition(self.checkpoints[a], self.conditions[a])
             self.start_cycles = machine.cycles           # (the panel counts from here)
-            m.resume()
+            # started before it runs: it may stop at a breakpoint at once, and that stop must count
             self.running = True
             self.event_seq += 1
             self.starting = False
+            GLib.idle_add(self.emit, "connected")       # (queued before any stop, so handled first)
+            m.resume()
         except (OSError, MonitorError) as e:
             GLib.idle_add(self.emit, "ended", f"Couldn't start the simulator: {e}")
-            return
-        GLib.idle_add(self.emit, "connected")
 
     def _load_overlays(self):
         """At the program's start: write the memory to load before debugging, and carry on."""
@@ -776,11 +776,16 @@ class DebuggerPanel(Gtk.Box):
             flag = (session.cmd(session.monitor.read_memory, 0x02A6, 0x02A6) or b"\1")[0]
             self._timing = PAL if flag else NTSC
         here = (regs.get("LIN", 0), regs.get("CYC", 0))
-        if here == self._raster_at_stop and regs.get("PC") == self._pc_at_stop:
+        if session.simulate:
+            # every cycle, exactly; and that says whether it's the same stop again (a stop a whole
+            # frame later is at the same raster position)
+            if session.monitor.cycles == self._count_at_stop and regs.get("PC") == self._pc_at_stop:
+                return
+        elif here == self._raster_at_stop and regs.get("PC") == self._pc_at_stop:
             return                             # the same stop again (Pause shows it, and VICE reports it)
         self._pc_at_stop = regs.get("PC")
         ran = None
-        if session.simulate:                               # every cycle, exactly
+        if session.simulate:
             now = session.monitor.cycles
             ran = now - self._count_at_stop
             self._count_at_stop = now

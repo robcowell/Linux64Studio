@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from l64s.routine_timing import CPU_IRQ, JSR, KERNAL_IRQ, Call, Timing, loops_to_entry, return_point
+from l64s.routine_timing import CPU_IRQ, JSR, KERNAL_IRQ, Call, Timing, call_cycles, loops_to_entry, return_point
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
 
@@ -44,6 +44,12 @@ def test_a_routine_that_loops_to_its_first_instruction():
     assert loops_to_entry(bytes.fromhex("ad3760d0034c0010" + "60"), 0x1000)
     # a loop inside it, not to its start: ldx #8 / loop: dex / bne loop / rts
     assert not loops_to_entry(bytes.fromhex("a208cad0fd60"), 0x1000)
+
+
+def test_a_call_of_more_than_a_frame():
+    # the raster says 6,991 cycles (it went round twice meanwhile); the count, roughly, 46,303
+    assert call_cycles(6991, 46310, 19656) == 6991 + 2 * 19656
+    assert call_cycles(500, 503, 19656) == 500                       # under a frame: as the raster says
 
 
 def test_the_figures():
@@ -97,3 +103,46 @@ def test_timing_glowcaves_routines_in_vice(tmp_path):
     wait = measure("_wait_frame")            # loops to its start; once a frame, waiting most of it (the title)
     assert wait.per_frame() == pytest.approx(1.0, abs=0.1)
     assert wait.stats()["max"] > 15000 and all(c.cycles < wait.frame_cycles for c in wait.calls)
+
+
+LONG = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   sei             ; nothing else, and the screen blanked: the VIC-II takes no cycles
+        lda #$0b
+        sta $d011
+loop    jsr delay
+        jmp loop
+delay   ldy #36         ; 46,303 cycles: more than two frames
+@outer  ldx #0
+@inner  dex
+        bne @inner
+        dey
+        bne @outer
+        rts
+"""
+
+
+@pytest.mark.skipif(not (os.environ.get("L64S_VICE_TESTS") == "1" and shutil.which("x64sc")),
+                    reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_timing_a_routine_longer_than_a_frame_in_vice(tmp_path):
+    import statistics
+
+    from l64s.asm.cli import main as l64asm
+    from l64s.profiler import ViceRun
+    from l64s.routine_timing import Timer
+    src = tmp_path / "long.asm"
+    src.write_text(LONG)
+    assert l64asm([str(src), "-o", str(tmp_path / "long.prg")]) == 0
+    run = ViceRun(tmp_path / "long.prg", lambda m: Timer(m, 0x0819, lambda t: None), lambda m: None,
+                  extra_args=["-sounddev", "dummy"])
+    run.start()
+    time.sleep(8)
+    run.stop()
+    time.sleep(1.5)
+    timing = run.worker.timing
+    run.quit()
+    cycles = [c.cycles for c in timing.calls]
+    assert len(cycles) > 20
+    assert statistics.mode(cycles) == 46303, cycles[:10]
+    assert sum(1 for c in cycles if c == 46303) > 0.9 * len(cycles)

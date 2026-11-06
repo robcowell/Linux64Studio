@@ -170,17 +170,27 @@ loaded, and RUN is typed (a program not at `$0801` starts at its first byte, or 
 crossings and branches included, so the cycle counter counts every run exactly, with no **Count
 all** needed. `tests/test_sim.py` checks the counts against VICE's.
 
-What isn't simulated: the VIC-II, SID and CIAs. `$D000`-`$DFFF` is memory that reads back what was
-written to it, with a few exceptions:
+What isn't simulated: most of the VIC-II, SID and CIAs. `$D000`-`$DFFF` is memory that reads back
+what was written to it, except for what makes timing and interrupts work:
 
 * The raster line (`$D012`, and `$D011`'s top bit) counts as on a PAL C64, 63 cycles a line, so code
-  that waits for a line gets there. `$D019`'s raster flag is set when the compare line goes by.
+  that waits for a line gets there.
+* The VIC-II's **raster interrupt**: when the raster reaches the line in `$D012` (and `$D011`'s top
+  bit), `$D019`'s flag is set, and with it switched on in `$D01A`, there's an interrupt. Writing 1
+  to `$D019` clears the flag.
+* CIA 1's **timer A** (`$DC04`/`$DC05`, started and stopped with `$DC0E`) counts down a cycle at a
+  time and sets `$DC0D`'s flag when it runs out, with an interrupt if `$DC0D` has it on. That's the
+  KERNAL's own interrupt, 60 times a second, so its clock ticks and its cursor blinks. Reading
+  `$DC0D` clears the flags (the debugger's reads don't).
 * The keyboard and joysticks (`$DC00`, `$DC01`) read as nothing pressed. Type keys into the
   keyboard buffer with a transcript's `type`.
-* The CIAs' interrupt flags read 0.
 
-No interrupts happen, so stepping never goes off into an interrupt handler. But code that waits for
-an interrupt (a raster interrupt, the KERNAL's jiffy clock) waits for ever. The VIC-II never takes
+Interrupts happen as on a C64 while the program runs, through `$FFFE`, so a raster interrupt
+handler, music played from one, or the KERNAL's clock all work, and a breakpoint in a handler stops
+there. A single step never goes into one: Step Into and Step Over run the instruction at the PC, and
+any interrupt waits until the program runs on. Stepping over a JSR runs the subroutine with
+interrupts, as running does. CIA 2, its NMI, the CIAs' other timers and time-of-day clocks, and
+sprite collisions aren't there. The VIC-II never takes
 cycles from the CPU either, so the counts are those of a blanked screen. The screen is a picture of
 memory, not an emulated VIC-II: a change made halfway down the frame shows on all of it, and sprites
 are drawn in front of everything. As in CBM prg Studio, the program stops at a `BRK`, and at an
@@ -269,8 +279,10 @@ comes from the second CIA's time-of-day clock, which runs on emulated time. Timi
 clock, so a program that uses CIA 2's time-of-day clock itself will see it changed. Calls are measured up
 to about 60 a second, chosen at random so they're a fair share. A routine that loops back to its
 own first instruction (`while (!ready) {}` in C) has every call measured. The program keeps close
-to its real speed, so you can play it meanwhile. A call taking a whole frame or more would be
-counted short by whole frames, as the raster position goes round.
+to its real speed, so you can play it meanwhile. A call can take any time, a frame or more included:
+the raster position goes round once a frame, so CIA 2's timers count the cycles too, as a 32-bit
+count, to say how many whole frames went by. A program that uses CIA 2's timers itself will see
+them changed (their latches are left at `$FFFF`).
 
 ## Transcripts
 
@@ -338,8 +350,9 @@ A few things to know:
 * **Debugger → Run Transcript Without VICE**, or `l64test --simulate`, runs them on the
   [simulated C64](#debugging-without-vice) instead: no emulator to start, nothing on screen, so it
   suits CI with no display. Calls' cycles are exact, with no timers used, and `wait` is the C64's
-  own time. A transcript that tests the VIC-II, SID or CIAs, or waits for an interrupt, needs VICE.
-  The tutorials' transcripts pass on both.
+  own time. Interrupts happen there too (the raster interrupt and CIA 1's timer), but a transcript
+  that tests the rest of the VIC-II, the SID or the CIAs needs VICE, and so does one that loads from
+  a disk. The tutorials' transcripts pass on both, but for the disk one's.
 
 ## Kick Assembler projects
 

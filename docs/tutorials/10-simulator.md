@@ -66,7 +66,7 @@ same ROM code as on a C64.
 3. Remove the breakpoint and put one on `jsr CHROUT`. Click **Stop debugging**, then press
    **Ctrl+Shift+F5** again: it stops before the first character is printed.
 4. Press **F10** (Step Over) to run the whole `CHROUT` call. The first character is 147, `{clear}`,
-   and **Cycles** shows what clearing the screen cost, the KERNAL's code included: about 37,700
+   and **Cycles** shows what clearing the screen cost, the KERNAL's code included: about 38,000
    cycles, nearly two frames. Then press **F8** (Continue) a few times. It stops at `jsr CHROUT` for
    each character, about 290 cycles apart, and the message appears on the Screen a letter at a time.
    Drag the divider above the Debugger tab up to make the Screen bigger.
@@ -77,12 +77,14 @@ same ROM code as on a C64.
 
 The 6510 is simulated exactly, cycle for cycle, with the C64's memory and its ROMs. The raster line
 counts as on a real C64 (63 cycles a line, 312 lines a frame), so waiting for line 250 works. The
-VIC-II, SID and CIAs aren't simulated: their registers are just memory. And there are no interrupts,
-so stepping never wanders off into the KERNAL's interrupt handler.
+VIC-II, SID and CIAs mostly aren't simulated: their registers are just memory. But the VIC-II's
+raster interrupt and CIA 1's timer are, so interrupts happen as on a C64: the KERNAL's own, 60 times
+a second, and any a program sets up. A step never goes into one, though: **F11** runs the
+instruction at the PC, and the interrupt waits until the program runs on.
 
-That makes it good for logic: tables, maths, game rules, what a routine leaves in memory. Code that
-needs the real chips needs VICE: sound, sprite collisions, or anything an interrupt runs, such as a
-raster interrupt or music. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
+That makes it good for logic: tables, maths, game rules, what a routine leaves in memory, and the
+timing of a main loop or an interrupt. Code that needs the real chips needs VICE: sound you can hear,
+sprite collisions, the screen as the VIC-II really draws it. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.
 
 ## Tests without VICE

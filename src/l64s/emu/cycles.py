@@ -30,10 +30,11 @@ class CycleCounter:
         m = self.monitor
         if self._controls is None:
             self._controls = m.read_memory(0xDD0E, 0xDD0F)
-        m.write_memory(0xDD0E, b"\x00\x00", side_effects=True)                 # both stopped
+        tod = m.read_memory(0xDD0E, 0xDD0E)[0] & 0x80      # (the time-of-day clock's 50/60 Hz: kept)
+        m.write_memory(0xDD0E, bytes([tod, 0]), side_effects=True)             # both stopped
         m.write_memory(0xDD04, b"\xff\xff\xff\xff", side_effects=True)         # latches: $FFFF
         m.write_memory(0xDD0F, bytes([0x51]), side_effects=True)                # B counts A's underflows
-        m.write_memory(0xDD0E, bytes([0x11]), side_effects=True)                # A counts cycles
+        m.write_memory(0xDD0E, bytes([0x11 | tod]), side_effects=True)          # A counts cycles
         return self.read()
 
     def read(self) -> int:

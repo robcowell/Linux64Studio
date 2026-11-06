@@ -98,6 +98,7 @@ again: the build packs the new version, so the program plays it straight away.
 
 * Write a song of your own in GoatTracker, save it as `tune.sng`, and build again.
 * Change `sta IRQMASK`'s 1 to 0 and see the music stop: no interrupts, no frames.
-* [Debugging without VICE](10-simulator.md) can't play it: the simulator has no interrupts.
+* Debug it [without VICE](10-simulator.md): the interrupt runs there too, and a breakpoint on
+  `jsr MUSIC+3` stops once a frame. There's no sound, though: the simulator has no SID.
 
 Next: [a game on a disk](8-disk.md).

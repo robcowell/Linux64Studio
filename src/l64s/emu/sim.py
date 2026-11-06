@@ -5,11 +5,17 @@ included). Around it is the C64's memory: 64K of RAM, with the BASIC, KERNAL and
 (VICE's copies, when installed) banked in and out by the processor port at $00/$01, as on the real
 machine. So KERNAL calls run for real; without the ROMs, ``skip_kernal`` steps over them instead.
 
-What isn't there: the VIC-II, SID and CIAs. $D000-$DFFF is memory that reads back what was written,
-except that the raster line ($D012, $D011's top bit, $D019's raster flag) counts as on a PAL C64, so
-code that waits for a line doesn't wait forever; the keyboard and joysticks ($DC00, $DC01) read as
-nothing pressed; and the CIAs' interrupt flags read 0. No interrupts happen, so stepping never goes
-off into an interrupt handler, and code that waits for one waits for ever.
+What isn't there: most of the VIC-II, SID and CIAs. $D000-$DFFF is memory that reads back what was
+written, except for what makes a program's timing and interrupts work:
+
+* the raster line ($D012, and $D011's top bit) counts as on a PAL C64, and the VIC-II's raster
+  interrupt ($D012 and $D011 for the line, $D019 its flag, $D01A to switch it on) happens on it;
+* CIA 1's timer A ($DC04/$DC05, started with $DC0E) counts down a cycle at a time, and interrupts
+  through $DC0D, as the KERNAL's 60-a-second interrupt does;
+* the keyboard and joysticks ($DC00, $DC01) read as nothing pressed.
+
+Interrupts happen as on a C64 while the program runs (an IRQ when one of those is on and the I flag
+is clear), but a single step never goes into one: a step is the instruction at the PC.
 
 ``Machine`` is the simulated C64. ``SimMonitor`` runs one with the same methods as
 ``binmon.BinaryMonitor`` (VICE's binary monitor), so the debugger and transcripts drive either.
@@ -62,7 +68,16 @@ class Memory:
         self.io = bytearray(0x1000)
         self.basic, self.kernal, self.chargen = roms.get("basic"), roms.get("kernal"), roms.get("chargen")
         self.clock = clock                     # () -> cycles so far (for the raster line)
-        self.raster_ack = 0                    # the cycle $D019's raster flag was last cleared at
+        # the VIC-II's interrupt flags ($D019's low bits: 1 is the raster), and when the raster next
+        # reaches the compare line (None: a line past the frame's end, never)
+        self.vic_flags = 0
+        self.next_raster: int | None = 0
+        # CIA 1's timer A: its latch, whether it's running (and one-shot), its count at cycle t0, when
+        # it next runs out; and the CIA's interrupt flags and mask ($DC0D)
+        self.ta_latch, self.ta_value, self.ta_t0 = 0xFFFF, 0xFFFF, 0
+        self.ta_running, self.ta_oneshot = False, False
+        self.ta_next: int | None = None
+        self.cia_flags, self.cia_mask = 0, 0
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
@@ -112,9 +127,7 @@ class Memory:
     def poke(self, a: int, v: int, cpu: bool = False) -> None:
         v &= 0xFF
         if 0xD000 <= a < 0xE000 and self.io_in:
-            if a == 0xD019 and v & 1:
-                self.raster_ack = self.clock()        # writing 1 clears the raster flag
-            self.io[a - 0xD000] = v
+            self._io_write(a & 0xFFF, v)
             return
         self.ram[a] = v
         if a < 2:
@@ -127,14 +140,45 @@ class Memory:
         if r == 0x011:
             return (self.io[r] & 0x7F) | ((self.line() & 0x100) >> 1)
         if r == 0x019:
-            return (self.io[r] & 0x70) | (0x81 if self._raster_flag() else 0)
+            return 0x70 | self.vic_flags | (0x80 if self.vic_irq() else 0)
         if r in (0xC00, 0xC01):
             return 0xFF                                # nothing pressed
-        if r in (0xC0D, 0xD0D):
+        if r == 0xC04:
+            return self.ta_count() & 0xFF
+        if r == 0xC05:
+            return self.ta_count() >> 8
+        if r == 0xC0D:
+            v = self.cia_flags | (0x80 if self.cia_irq() else 0)
+            if cpu:
+                self.cia_flags = 0                     # reading clears them
+            return v
+        if r == 0xD0D:
             return 0
         if 0x800 <= r < 0xC00:
             return self.io[r] & 0x0F | 0xF0           # colour RAM is four bits
         return self.io[r]
+
+    def _io_write(self, r: int, v: int) -> None:
+        if r == 0x019:
+            self.vic_flags &= ~v & 0x0F                # writing 1 clears a flag
+            return
+        if r == 0xC04:
+            self.ta_latch = (self.ta_latch & 0xFF00) | v
+        elif r == 0xC05:
+            self.ta_latch = (self.ta_latch & 0x00FF) | v << 8
+            if not self.ta_running:                     # stopped: the count is loaded too
+                self.ta_value = self.ta_latch
+        elif r == 0xC0D:
+            if v & 0x80:
+                self.cia_mask |= v & 0x1F
+            else:
+                self.cia_mask &= ~v & 0x1F
+        elif r == 0xC0E:
+            self._ta_control(v)
+            v &= 0xEF                                   # (the force-load bit isn't kept)
+        self.io[r] = v
+        if r in (0x011, 0x012):
+            self.schedule_raster()
 
     # ------------------------------------------------------------------ the raster line
     def line(self) -> int:
@@ -143,17 +187,59 @@ class Memory:
     def compare_line(self) -> int:
         return self.io[0x12] | (self.io[0x11] & 0x80) << 1
 
-    def _raster_flag(self) -> bool:
-        """Whether the raster has reached the compare line since the flag was last cleared."""
-        now, since = self.clock(), self.raster_ack
-        if now - since >= FRAME:
-            return self.compare_line() < LINES
+    def schedule_raster(self) -> None:
+        """When the raster next starts the compare line."""
         target = self.compare_line()
         if target >= LINES:
-            return False
-        first = since // CYCLES_PER_LINE + 1          # the lines started since then
-        last = now // CYCLES_PER_LINE
-        return any(n % LINES == target for n in range(first, last + 1))
+            self.next_raster = None
+            return
+        now = self.clock()
+        t = now - now % FRAME + target * CYCLES_PER_LINE
+        self.next_raster = t if t > now else t + FRAME
+
+    def vic_irq(self) -> bool:
+        return bool(self.vic_flags & self.io[0x1A] & 0x0F)
+
+    # ------------------------------------------------------------------ CIA 1's timer A
+    def ta_count(self) -> int:
+        """Timer A's count now."""
+        if not self.ta_running:
+            return self.ta_value
+        gone = self.clock() - self.ta_t0
+        if gone <= self.ta_value:
+            return self.ta_value - gone
+        period = self.ta_latch + 1
+        return self.ta_latch - (gone - self.ta_value - 1) % period
+
+    def _ta_control(self, v: int) -> None:
+        count = self.ta_count()
+        if v & 0x10:                                    # force load
+            count = self.ta_latch
+        self.ta_oneshot = bool(v & 0x08)
+        self.ta_running = bool(v & 0x01)
+        self.ta_value, self.ta_t0 = count, self.clock()
+        self.ta_next = self.ta_t0 + count + 1 if self.ta_running else None
+
+    def cia_irq(self) -> bool:
+        return bool(self.cia_flags & self.cia_mask)
+
+    def tick(self, now: int) -> None:
+        """What's happened by cycle ``now``: the raster reaching the compare line, timer A running out."""
+        if self.next_raster is not None and now >= self.next_raster:
+            self.vic_flags |= 1
+            self.next_raster += FRAME * ((now - self.next_raster) // FRAME + 1)
+        if self.ta_next is not None and now >= self.ta_next:
+            self.cia_flags |= 1
+            if self.ta_oneshot:
+                self.ta_running, self.ta_value, self.ta_next = False, self.ta_latch, None
+                self.io[0xC0E] &= 0xFE
+            else:
+                period = self.ta_latch + 1
+                self.ta_next += period * ((now - self.ta_next) // period + 1)
+
+    def irq(self) -> bool:
+        """Whether something's asking for an interrupt."""
+        return self.vic_irq() or self.cia_irq()
 
     def read(self, start: int, end: int) -> bytes:
         return bytes(self.peek(a) for a in range(start, end + 1))
@@ -228,6 +314,9 @@ class Machine:
         self._next_id = 1
         self._index()
         self.stopped_at: int | None = None     # the PC a checkpoint last stopped the machine at
+        # where a run started from a checkpoint's stop: the checkpoints there aren't tried again until
+        # its instruction has run (an interrupt first, and back, doesn't stop there again)
+        self.resume_at: int | None = None
 
     @property
     def cycles(self) -> int:
@@ -312,12 +401,19 @@ class Machine:
         return stopper
 
     # ------------------------------------------------------------------ running
-    def step(self, check: bool = True) -> None:
+    def step(self, check: bool = True, interrupts: bool = False) -> None:
         """Run one instruction. Raises Stopped if it can't, or a checkpoint stops the machine first
-        (``check``: look for an exec checkpoint at the PC before running)."""
+        (``check``: look for an exec checkpoint at the PC before running). With ``interrupts``, an
+        interrupt that's waiting (and the I flag clear) is taken instead: the 6510 goes to its handler
+        through $FFFE, in 7 cycles."""
         c = self.cpu
+        m = self.memory
+        m.tick(c.processorCycles)
+        if interrupts and not c.p & 0x04 and m.irq():
+            c.irq()
+            return
         pc = c.pc
-        if check and pc in self.exec_at:
+        if check and pc in self.exec_at and pc != self.resume_at:
             cp = self._hit(self.exec_at[pc])
             if cp is not None:
                 raise Stopped("checkpoint", cp)
@@ -333,7 +429,8 @@ class Machine:
                 c.processorCycles += 12            # its JSR and RTS
                 return
         c.step()
-        m = self.memory
+        if pc == self.resume_at:
+            self.resume_at = None
         if m.touched:
             touched, m.touched = m.touched, []
             stopper = None
@@ -344,19 +441,19 @@ class Machine:
             if stopper is not None:
                 raise Stopped("checkpoint", stopper)
 
-    def run(self, max_cycles: int | None = None, halt: threading.Event | None = None, until=None) -> Stopped:
+    def run(self, max_cycles: int | None = None, halt: threading.Event | None = None, until=None,
+            interrupts: bool = True) -> Stopped:
         """Run until something stops the machine, and say what. ``until()``, tried after each
         instruction, stops it when true (why 'step'); ``halt`` being set stops it too ('halt'). Where a
-        checkpoint stopped it last, the first instruction runs without the checkpoints there being
-        tried again (they were hit already)."""
+        checkpoint stopped it last, its instruction runs without the checkpoints there being tried
+        again (they were hit already). ``interrupts``: take them as they come."""
         end = None if max_cycles is None else self.cycles + max_cycles
-        check = self.stopped_at != self.cpu.pc
+        self.resume_at = self.cpu.pc if self.stopped_at == self.cpu.pc else None
         self.stopped_at = None
         n = 0
         try:
             while True:
-                self.step(check)
-                check = True
+                self.step(True, interrupts)
                 if until is not None and until():
                     return Stopped("step")
                 n += 1
@@ -470,7 +567,7 @@ class SimMonitor:
         if report and self.last_stop == "halt":
             self._report_stop()
 
-    def _start(self, until=None) -> None:
+    def _start(self, until=None, interrupts: bool = True) -> None:
         if not self.connected:
             raise MonitorError("The simulator isn't running")
         self._stop_running()
@@ -478,7 +575,7 @@ class SimMonitor:
         self._event(EVT_RESUMED, struct.pack("<H", self.machine.cpu.pc))
 
         def go():
-            s = self.machine.run(halt=self._halt, until=until)
+            s = self.machine.run(halt=self._halt, until=until, interrupts=interrupts)
             self.last_stop = s.why
             if s.why != "halt":
                 self._thread = None
@@ -565,7 +662,8 @@ class SimMonitor:
                 return True
             left["test"] = m.step_over_until() if over else None
             return False
-        self._start(until)
+        # a step is the instruction at the PC: no interrupt. Over a JSR, the subroutine runs, with them
+        self._start(until, interrupts=over and m.memory.peek(m.cpu.pc) == JSR)
 
     def step_out(self) -> None:
         self._stop_running()

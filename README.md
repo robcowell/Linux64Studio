@@ -235,9 +235,9 @@ See [docs/music.md](docs/music.md).
 * A **cycle counter** in the Debugger tab: each step's exact cycles, and a total
   ([cycles](docs/debugger.md#cycles)).
 * **Debug without VICE** (Ctrl+Shift+F5): the program on a simulated C64, as in CBM prg Studio's own
-  debugger: a 6510 (py65) with exact cycles, the real ROMs, the raster line, and a Screen view, but no
-  VIC-II, SID, CIAs or interrupts. Transcripts run on it too (`l64test --simulate`), with no
-  emulator or display ([debugging without VICE](docs/debugger.md#debugging-without-vice)).
+  debugger: a 6510 (py65) with exact cycles, the real ROMs, the raster line and interrupts (the
+  VIC-II's raster interrupt and CIA 1's timer), and a Screen view, but not the rest of the VIC-II,
+  SID or CIAs. Transcripts run on it too (`l64test --simulate`), with no emulator or display ([debugging without VICE](docs/debugger.md#debugging-without-vice)).
 * **Debug in RetroDebugger / C64 Debugger** opens the program there with its debug dump
   (`tools/install-retrodebugger.sh` installs RetroDebugger).
 * Builds can also write a Kick Assembler-style `.dbg` debug dump for C64 Debugger, RetroDebugger

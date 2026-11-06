@@ -7,7 +7,9 @@ vector points at) the interrupted instruction. A second checkpoint stops there, 
 pointer is back where it was before the call, which skips a return from anything the routine
 calls itself. The raster line and cycle at the two stops give the cycles between them exactly,
 including any interrupt that comes in meanwhile, as that's time the routine takes too. (Stopping
-doesn't change the emulated machine: the time it takes isn't the program's.)
+doesn't change the emulated machine: the time it takes isn't the program's.) The raster position
+goes round once a frame, so CIA 2's timers count cycles too (emu.cycles.CycleCounter), to say how
+many whole frames a call took as well.
 
 A checkpoint that doesn't stop counts every call (unless the routine loops back to its own first
 instruction: then only the calls measured are counted, and every call is measured). The program's
@@ -103,6 +105,12 @@ class Timing:
         return "\n".join(out) + "\n"
 
 
+def call_cycles(in_frame: int, counted: int, frame: int) -> int:
+    """A call's cycles: ``in_frame`` from the raster positions (exact, but less than a frame), with as
+    many whole frames as ``counted`` (CIA 2's timers: the cycles, give or take a few) says went by."""
+    return in_frame + max(0, round((counted - in_frame) / frame)) * frame
+
+
 def return_point(entry: int, sp: int, stack: bytes, vectors: dict[int, int], memory_at) -> tuple[str, int, int] | None:
     """Where a call of the routine at ``entry`` returns to, from the state at its first instruction:
     (how, return address, the stack pointer once it's back), or None if it isn't called by a JSR nor
@@ -173,6 +181,7 @@ class Timer:
         self._stopped = threading.Event()
         self._checkpoints: set[int] = set()
         self._cia_controls: bytes | None = None
+        self._counter = None            # emu.cycles.CycleCounter: whole frames, for calls that long
         import random
         self._rnd = random.Random()
         self.count_all = True           # False: only the measured calls are counted (it loops to its start)
@@ -221,6 +230,9 @@ class Timer:
                     if not known_timing:                # (the KERNAL's PAL flag, set by now)
                         t.timing, known_timing = timing_for(m.read_memory(0x02A6, 0x02A6)[0]), True
                         self._start_clock(t.timing is PAL)
+                        from .emu.cycles import CycleCounter
+                        self._counter = CycleCounter(m)
+                        self._counter.start()
                         code = m.read_memory(self.entry, min(0xFFFF, self.entry + 511))
                         if not loops_to_entry(code, self.entry):
                             counter = self._add(self.entry, stop=False)
@@ -243,13 +255,15 @@ class Timer:
                                          "returns to isn't known")
                     t.how, ret, back_sp = where
                     pos = line * t.timing[0] + regs.get("CYC", 0)
-                    exit_cp = (self._add(ret), back_sp, pos, line)
+                    exit_cp = (self._add(ret), back_sp, pos, line, self._counter.read())
                     m.enable_checkpoint(measure, False)
                     measuring = False
                 elif stopped and exit_cp is not None and sp == exit_cp[1] and pc != self.entry:
-                    cid, _sp, start, start_line = exit_cp
+                    cid, _sp, start, start_line, count = exit_cp
                     pos = line * t.timing[0] + regs.get("CYC", 0)
-                    t.calls.append(Call((pos - start) % t.frame_cycles, start_line, line))
+                    t.calls.append(Call(call_cycles((pos - start) % t.frame_cycles,
+                                                    (count - self._counter.read()) & 0xFFFFFFFF, t.frame_cycles),
+                                        start_line, line))
                     self._delete(cid)
                     exit_cp = None
                     if counter is None:
@@ -338,6 +352,8 @@ class Timer:
             m.ping()                                     # (stops VICE, if it's running)
             for cid in list(self._checkpoints):
                 self._delete(cid)
+            if self._counter is not None:
+                self._counter.stop()
             if self._cia_controls is not None:           # CIA 2's clock settings as they were
                 m.write_memory(0xDD0E, self._cia_controls[:1], side_effects=True)
                 m.write_memory(0xDD0F, self._cia_controls[1:], side_effects=True)

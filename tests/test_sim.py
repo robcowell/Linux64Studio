@@ -66,8 +66,87 @@ def test_the_raster_line_counts_as_on_a_pal_c64():
     mem.poke(0xD019, 1)
     assert not mem.peek(0xD019) & 1
     m.cpu.processorCycles += FRAME
+    mem.tick(m.cpu.processorCycles)                                 # (as the run loop does)
     assert mem.peek(0xD019) & 1
     assert mem.peek(0xDC01) == 0xFF                                 # no keys down
+
+
+RASTER_IRQ = bytes([
+    0x78,                    # sei
+    0xA9, 0x20, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF,     # $FFFE -> $1020, the handler
+    0xA9, 0x64, 0x8D, 0x12, 0xD0,                                   # line 100
+    0xA9, 0x01, 0x8D, 0x1A, 0xD0,                                   # raster interrupts on
+    0x58,                    # cli
+    0x4C, 0x16, 0x10,        # $1016: jmp $1016
+])
+HANDLER = bytes([0xEE, 0x00, 0xC0, 0xA9, 0x01, 0x8D, 0x19, 0xD0, 0x40])   # inc $c000 / ack / rti
+
+
+def irq_machine(code: bytes) -> Machine:
+    m = ram_only(code)
+    m.memory.poke(1, 0x35)                                          # I/O in, ROMs out
+    m.memory.write(0x1020, HANDLER)
+    return m
+
+
+def test_a_raster_interrupt_once_a_frame():
+    m = irq_machine(RASTER_IRQ)
+    m.run(max_cycles=FRAME * 5)
+    # once a frame (and once at the cli: the flag's been set since line 0, as on a C64, unacknowledged)
+    assert m.memory.ram[0xC000] in (5, 6)
+    # on line 100: the handler starts there
+    cp = m.add_checkpoint(0x1020, None, 4, stop=True, temporary=False)
+    assert m.run(max_cycles=FRAME * 2).checkpoint is cp
+    assert m.registers()["LIN"] == 100
+
+
+def test_cia_1_timer_a_interrupts():
+    # $DC04/5 = $4025 (the KERNAL's 60 a second), interrupts from timer A on, start it continuous
+    code = bytes([0x78, 0xA9, 0x30, 0x8D, 0xFE, 0xFF, 0xA9, 0x10, 0x8D, 0xFF, 0xFF,
+                  0xA9, 0x25, 0x8D, 0x04, 0xDC, 0xA9, 0x40, 0x8D, 0x05, 0xDC,
+                  0xA9, 0x81, 0x8D, 0x0D, 0xDC, 0xA9, 0x11, 0x8D, 0x0E, 0xDC, 0x58,
+                  0x4C, 0x20, 0x10])                                # $1020: jmp $1020
+    m = ram_only(code)
+    m.memory.poke(1, 0x35)
+    m.memory.write(0x1030, bytes([0xAD, 0x0D, 0xDC, 0xEE, 0x00, 0xC0, 0x40]))   # lda $dc0d (acks) / inc / rti
+    m.run(max_cycles=985_248)                                       # a second
+    assert 59 <= m.memory.ram[0xC000] <= 61
+    assert m.memory.read(0xDC0D, 0xDC0D) == b"\0"                   # (a monitor read doesn't ack it)
+
+
+def test_a_step_never_goes_into_an_interrupt():
+    m = irq_machine(RASTER_IRQ)
+    m.run(max_cycles=FRAME // 2)                                    # in the loop, interrupts on
+    mon = SimMonitor(None, m)
+    mon.connect()
+    m.memory.vic_flags |= 1                                         # one's waiting
+    for _ in range(3):
+        mon.step(1)
+        mon.ping()
+        assert m.cpu.pc == 0x1016
+    mon.resume()
+    mon.ping()
+    assert m.memory.ram[0xC000] >= 1                                # running, it's taken
+
+
+def test_carrying_on_from_a_breakpoint_with_an_interrupt_waiting():
+    m = irq_machine(RASTER_IRQ)
+    cp = m.add_checkpoint(0x1016, None, 4, stop=True, temporary=False)
+    assert m.run().checkpoint is cp
+    before = m.memory.ram[0xC000]
+    m.memory.vic_flags |= 1
+    s = m.run(max_cycles=FRAME // 4)                                # the interrupt, then back: no stop there
+    assert m.memory.ram[0xC000] == before + 1
+    assert s.why == "checkpoint" and cp.hits >= 2                   # (the next time round, it stops)
+
+
+@needs_roms
+def test_the_kernal_interrupt_ticks_the_clock():
+    m = Machine()
+    m.boot()
+    before = m.memory.ram[0xA2]
+    m.run(max_cycles=985_248)                                       # a second
+    assert (m.memory.ram[0xA2] - before) & 0xFF in range(58, 62)    # the jiffy clock: 60 a second
 
 
 def test_cycles_are_the_6510s():
@@ -174,7 +253,7 @@ def test_the_screen_as_the_vic_ii_would_show_it():
 
 
 @needs_roms
-@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "9-profiler", "10-simulator"])
+@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "9-profiler", "10-simulator"])
 def test_the_tutorials_transcripts_pass_on_the_simulator(name, tmp_path):
     """Without VICE: what the tutorials say each program does, on the simulated C64."""
     project = next((ROOT / "examples" / "tutorials" / name).glob("*.l64proj"))
