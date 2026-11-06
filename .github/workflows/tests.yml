@@ -1,0 +1,57 @@
+# The tests, on every push and pull request: everything that runs without VICE's emulator, the
+# tutorials' transcripts on the simulated C64 included (tests/test_sim.py). The tests that start
+# VICE (L64S_VICE_TESTS=1) and those that need the books' downloads (tests/book) run locally.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages (GTK 4 and libadwaita for PyGObject; VICE's tools; cc65; Java for Kick Assembler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
+            vice cc65 default-jre-headless unzip xvfb
+
+      # Ubuntu's vice package has no ROMs (Debian takes them out); VICE's own source release has
+      # them. The simulator (emu/sim.py) runs the real BASIC and KERNAL, and finds them here.
+      - name: The C64's ROMs (cached)
+        id: roms
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/vice/C64
+          key: vice-roms-3.7.1
+      - name: Fetch the ROMs from VICE 3.7.1's source release
+        if: steps.roms.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/vice.tar.gz" \
+            https://sourceforge.net/projects/vice-emu/files/releases/vice-3.7.1.tar.gz/download
+          mkdir -p ~/.local/share/vice/C64
+          tar -xzf "$RUNNER_TEMP/vice.tar.gz" -C ~/.local/share/vice/C64 --strip-components=3 \
+            vice-3.7.1/data/C64/basic-901226-01.bin vice-3.7.1/data/C64/kernal-901227-03.bin \
+            vice-3.7.1/data/C64/chargen-901225-01.bin
+
+      - name: Kick Assembler (cached)
+        id: kickass
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/linux64studio/KickAssembler
+          key: kickassembler-5
+      - name: Fetch Kick Assembler
+        if: steps.kickass.outputs.cache-hit != 'true'
+        run: tools/install-kickassembler.sh
+
+      - uses: astral-sh/setup-uv@v5
+      - name: Linux64Studio, in a virtual environment that sees the system's PyGObject
+        run: |
+          uv venv --python /usr/bin/python3 --system-site-packages .venv
+          uv pip install --python .venv -e . pytest
+
+      - name: Tests
+        run: xvfb-run -a .venv/bin/python -m pytest -q -rs

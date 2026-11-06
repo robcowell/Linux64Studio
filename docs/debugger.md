@@ -197,11 +197,20 @@ handler, music played from one, or the KERNAL's clock all work, and a breakpoint
 there. A single step never goes into one: Step Into and Step Over run the instruction at the PC, and
 any interrupt waits until the program runs on. Stepping over a JSR runs the subroutine with
 interrupts, as running does. CIA 2, its NMI, and the CIAs' other timers and time-of-day clocks
-aren't there. Collisions come from the frame as memory has it at its end, so a sprite moved and back
-within a frame, or a raster split, isn't seen as the VIC-II would see it. The VIC-II never takes
-cycles from the CPU either, so the counts are those of a blanked screen. The screen is a picture of
-memory, not an emulated VIC-II: a change made halfway down the frame shows on all of it, and sprites
-are drawn in front of everything. As in CBM prg Studio, the program stops at a `BRK`, and at an
+aren't there. The VIC-II never takes cycles from the CPU either, so the counts are those of a
+blanked screen.
+
+The **Screen** is drawn a raster line at a time, each line with the VIC-II's registers as they were
+on it: the simulator records every write to them, with the line it happened on. So raster splits
+show as on a C64: a border or background colour changed halfway down, a mode or character set
+changed for the bottom of the screen, and sprites moved further down once drawn, to be shown again
+(multiplexed). The sprite collisions are worked out from the same lines. While the program runs,
+the Screen shows the last whole frame; stopped, it shows this frame down to the line the raster has
+reached, and below that the registers as they are now, so a change you've just made shows from that
+line down. Still only a picture of memory: the screen and colour memory are read as they are now,
+not as each line was drawn; a register written partway along a line counts from that line on;
+vertical fine scrolling, the 38-column and 24-row modes, and sprite priority aren't drawn (sprites
+are in front of everything). As in CBM prg Studio, the program stops at a `BRK`, and at an
 opcode the 6510 doesn't document (the simulator doesn't run those). **Skip** moves past either.
 
 **Click the Screen to play the program**: the arrow keys or the keypad (8, 4, 6, 2) move joystick 2,

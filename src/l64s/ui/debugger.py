@@ -585,8 +585,8 @@ class DebuggerPanel(Gtk.Box):
         screen_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_end=6)
         screen_box.append(self.screen)
         screen_box.append(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
-            "The screen as memory has it: text and bitmap modes, the border and sprites; no raster effects "
-            "or scrolling. Click it to play: the arrows or keypad move joystick 2, keypad 0 or Right Ctrl "
+            "Drawn a raster line at a time, with the VIC-II's registers as each line had them (raster "
+            "splits, multiplexed sprites); running, the last whole frame. Click it to play: the arrows or keypad move joystick 2, keypad 0 or Right Ctrl "
             "fires, and the other keys are the C64's.")))
         self.right_stack = Gtk.Stack()
         self.right_stack.add_titled(right, "memory", "Memory")
@@ -695,7 +695,8 @@ class DebuggerPanel(Gtk.Box):
         if s is None or not s.simulate:
             return
         mem = s.monitor.machine.memory
-        rgb = simscreen.render(mem.ram, mem.io, mem.chargen)
+        # running, the last whole frame (a steady picture); stopped, this one so far and now below it
+        rgb = simscreen.render(mem.ram, mem.io, mem.chargen, mem.screen_lines(whole=s.running))
         texture = Gdk.MemoryTexture.new(simscreen.WIDTH, simscreen.HEIGHT, Gdk.MemoryFormat.R8G8B8,
                                         GLib.Bytes.new(rgb), simscreen.WIDTH * 3)
         self.screen.set_paintable(texture)

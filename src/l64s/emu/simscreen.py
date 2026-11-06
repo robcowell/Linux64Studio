@@ -1,7 +1,16 @@
-"""The simulated C64's screen (emu.sim), drawn from its memory as the VIC-II would show it at the end
-of a frame: the text and bitmap modes, the border, and the sprites. It's a picture of memory, not an
-emulated VIC-II: there are no raster effects (a change made halfway down the screen shows on all of
-it), no smooth scrolling, and sprites are drawn in front of everything.
+"""The simulated C64's screen (emu.sim), drawn from its memory as the VIC-II shows it: the text and
+bitmap modes, the border, fine scrolling across, and the sprites, a raster line at a time.
+
+Each line is drawn with the VIC-II's registers as they were on that line (``frame_lines``: the
+registers at the frame's start, and the writes the simulator recorded during it, with the line each
+happened on). So a raster split works: a border or background colour changed halfway down, a mode
+or character set changed for the bottom of the screen, sprites moved down the screen to be shown
+again (multiplexed). What's still a picture of memory: the screen and colour memory are read as they
+are now, not as each line was drawn; a register written partway along a line counts from that line;
+vertical fine scrolling, the 38-column and 24-row modes and sprite priority aren't drawn (sprites
+are in front of everything).
+
+``collisions`` works out the sprite collision registers from the same lines.
 """
 from __future__ import annotations
 
@@ -10,14 +19,38 @@ from ..gfx.palette import PALETTE_HEX
 BORDER_X, BORDER_Y = 32, 32
 WIDTH, HEIGHT = 320 + 2 * BORDER_X, 200 + 2 * BORDER_Y
 RGB = [bytes(int(h[i:i + 2], 16) for i in (1, 3, 5)) for h in PALETTE_HEX]
+LINES = 312                     # PAL
+FIRST_LINE = 50 - BORDER_Y      # the raster line at the picture's top
+REGS = 0x2F                     # the VIC-II's registers, $D000-$D02E; one more byte: $DD00 (the bank)
+BANK = REGS
+
+
+def registers_now(io) -> bytes:
+    """The VIC-II's registers (and the bank, from $DD00) as ``io`` ($D000-$DFFF) has them."""
+    return bytes(io[:REGS]) + bytes([io[0xD00]])
+
+
+def frame_lines(start: bytes, log, now: bytes | None = None, upto: int | None = None) -> list[bytes]:
+    """The registers on each raster line of a frame: ``start``, the frame's at its first line, with
+    ``log``'s writes [(line, register, value)] applied from their lines on. With ``upto``, lines past
+    it (not reached yet) have ``now``, the registers as they are."""
+    regs = bytearray(start)
+    out = []
+    i = 0
+    for line in range(LINES):
+        while i < len(log) and log[i][0] <= line:
+            regs[log[i][1]] = log[i][2]
+            i += 1
+        out.append(now if upto is not None and line > upto else bytes(regs))
+    return out
 
 
 class _Vic:
     """What the VIC-II sees: its 16K bank of RAM, with the character ROM in banks 0 and 2."""
 
-    def __init__(self, ram, io, chargen):
-        self.ram, self.io, self.chargen = ram, io, chargen
-        self.bank = (3 - (io[0xD00] & 3)) * 0x4000
+    def __init__(self, ram, bank_bits: int, chargen):
+        self.ram, self.chargen = ram, chargen
+        self.bank = (3 - (bank_bits & 3)) * 0x4000
 
     def byte(self, offset: int) -> int:
         offset &= 0x3FFF
@@ -26,114 +59,147 @@ class _Vic:
         return self.ram[self.bank + offset]
 
 
-def render(ram, io, chargen) -> bytes:
+def _vics(ram, chargen):
+    cache: dict[int, _Vic] = {}
+
+    def vic(r: bytes) -> _Vic:
+        bits = r[BANK] & 3
+        if bits not in cache:
+            cache[bits] = _Vic(ram, bits, chargen)
+        return cache[bits]
+    return vic
+
+
+def render(ram, io, chargen, lines: list[bytes] | None = None) -> bytes:
     """The screen as WIDTH x HEIGHT RGB bytes. ``ram``: the 64K of RAM; ``io``: $D000-$DFFF (colour
-    RAM at $D800); ``chargen``: the character ROM (or None)."""
-    v = _Vic(ram, io, chargen)
-    reg = lambda r: io[r]                                   # noqa: E731
-    border = reg(0x20) & 15
-    pixels = [[border] * WIDTH for _ in range(HEIGHT)]
-    d011, d016, d018 = reg(0x11), reg(0x16), reg(0x18)
-    if d011 & 0x10:                                         # the screen is on
-        _draw_screen(v, pixels, d011, d016, d018)
-        _draw_sprites(v, pixels, d018)
+    RAM at $D800); ``chargen``: the character ROM (or None); ``lines``: the registers on each raster
+    line (frame_lines), or None for the registers as ``io`` has them, all the way down."""
+    if lines is None:
+        lines = [registers_now(io)] * LINES
+    vic = _vics(ram, chargen)
+    pixels = []
+    for py in range(HEIGHT):
+        raster = FIRST_LINE + py
+        r = lines[raster]
+        row = [r[0x20] & 15] * WIDTH
+        if r[0x11] & 0x10 and 50 <= raster < 250:
+            row[BORDER_X:BORDER_X + 320] = _display_line(vic(r), io, r, raster - 50)
+        pixels.append(row)
+    for line, sprites in _sprite_lines(lines, vic).items():
+        py = line - FIRST_LINE
+        if not 0 <= py < HEIGHT:
+            continue
+        target = pixels[py]
+        for _n, x, cols in reversed(sprites):              # sprite 0 in front
+            for p, c in enumerate(cols):
+                px = BORDER_X + x - 24 + p
+                if c is not None and 0 <= px < WIDTH:
+                    target[px] = c
     out = bytearray()
     for row in pixels:
         out += b"".join(RGB[c] for c in row)
     return bytes(out)
 
 
-def _draw_screen(v: _Vic, pixels, d011: int, d016: int, d018: int) -> None:
-    io = v.io
+def _cells(v: _Vic, io, r: bytes, y: int):
+    """Each of display line y's 40 cells: (the 8 pixels' byte, its colours (for 0/1 or the 4 pairs),
+    multicolour)."""
+    d011, d016, d018 = r[0x11], r[0x16], r[0x18]
+    row, line = divmod(y, 8)
     screen = (d018 >> 4) * 0x400
     bitmap, ecm, mcm = bool(d011 & 0x20), bool(d011 & 0x40), bool(d016 & 0x10)
-    bg = [io[0x21 + i] & 15 for i in range(4)]
-    chars = ((d018 >> 1) & 7) * 0x800
-    bits = (d018 & 8) * 0x400
-    for row in range(25):
-        for col in range(40):
-            i = row * 40 + col
-            code = v.byte(screen + i)
-            colour = io[0x800 + i] & 15
-            for line in range(8):
-                if bitmap:
-                    data = v.byte(bits + i * 8 + line)
-                    if mcm:
-                        four = (bg[0], code >> 4, code & 15, colour)
-                        cells = _multi(data, four)
-                    else:
-                        cells = _hires(data, code >> 4, code & 15)
-                elif ecm:
-                    data = v.byte(chars + (code & 0x3F) * 8 + line)
-                    cells = _hires(data, colour, bg[code >> 6])
-                else:
-                    data = v.byte(chars + code * 8 + line)
-                    if mcm and colour & 8:
-                        cells = _multi(data, (bg[0], bg[1], bg[2], colour & 7))
-                    else:
-                        cells = _hires(data, colour, bg[0])
-                y = BORDER_Y + row * 8 + line
-                x = BORDER_X + col * 8
-                pixels[y][x:x + 8] = cells
+    bg = [r[0x21 + i] & 15 for i in range(4)]
+    for col in range(40):
+        i = row * 40 + col
+        code = v.byte(screen + i)
+        colour = io[0x800 + i] & 15
+        if bitmap:
+            data = v.byte((d018 & 8) * 0x400 + i * 8 + line)
+            if mcm:
+                yield data, (bg[0], code >> 4, code & 15, colour), True
+            else:
+                yield data, (code & 15, code >> 4), False
+        elif ecm:
+            yield v.byte(((d018 >> 1) & 7) * 0x800 + (code & 0x3F) * 8 + line), (bg[code >> 6], colour), False
+        else:
+            data = v.byte(((d018 >> 1) & 7) * 0x800 + code * 8 + line)
+            if mcm and colour & 8:
+                yield data, (bg[0], bg[1], bg[2], colour & 7), True
+            else:
+                yield data, (bg[0], colour), False
 
 
-def _hires(data: int, fg: int, bg: int) -> list[int]:
-    return [fg if data & (0x80 >> b) else bg for b in range(8)]
-
-
-def _multi(data: int, four) -> list[int]:
-    out = []
-    for b in range(4):
-        c = four[(data >> (6 - 2 * b)) & 3]
-        out += (c, c)
+def _display_line(v: _Vic, io, r: bytes, y: int) -> list[int]:
+    """Display line y's 320 pixels, scrolled right by $D016's fine X scroll."""
+    out: list[int] = []
+    for data, colours, multi in _cells(v, io, r, y):
+        if multi:
+            for b in range(4):
+                c = colours[(data >> (6 - 2 * b)) & 3]
+                out += (c, c)
+        else:
+            out += [colours[1] if data & (0x80 >> b) else colours[0] for b in range(8)]
+    scroll = r[0x16] & 7
+    if scroll:
+        out = [r[0x21] & 15] * scroll + out[:320 - scroll]
     return out
 
 
-def _draw_sprites(v: _Vic, pixels, d018: int) -> None:
-    io = v.io
-    on, high, multi = io[0x15], io[0x10], io[0x1C]
-    wide, tall = io[0x1D], io[0x17]
-    mc = (io[0x25] & 15, io[0x26] & 15)
-    pointers = (d018 >> 4) * 0x400 + 0x3F8
-    for n in range(7, -1, -1):                              # sprite 0 in front
-        bit = 1 << n
-        if not on & bit:
-            continue
-        x = io[2 * n] | (0x100 if high & bit else 0)
-        y = io[2 * n + 1]
-        data = v.byte(pointers + n) * 64
-        colour = io[0x27 + n] & 15
-        sx, sy = (2 if wide & bit else 1), (2 if tall & bit else 1)
-        for line in range(21):
-            row = [v.byte(data + line * 3 + k) for k in range(3)]
-            word = row[0] << 16 | row[1] << 8 | row[2]
-            if multi & bit:
-                cols = []
-                for p in range(12):
-                    pair = (word >> (22 - 2 * p)) & 3
-                    c = None if pair == 0 else (mc[0], colour, mc[1])[pair - 1]
-                    cols += (c, c)
-            else:
-                cols = [colour if word & (1 << (23 - p)) else None for p in range(24)]
-            for dy in range(sy):
-                py = BORDER_Y + y - 50 + line * sy + dy
-                if not 0 <= py < HEIGHT:
+# ---------------------------------------------------------------------- sprites
+
+def _sprite_lines(lines: list[bytes], vic) -> dict[int, list[tuple[int, int, list]]]:
+    """Each raster line's sprites: [(sprite, x, its 24 or 48 pixels' colours (None: clear))]. A sprite
+    starts on the line its Y says (if it's on then), with the registers of each line it's drawn on,
+    so one moved further down the screen once it's drawn is drawn again there."""
+    out: dict[int, list] = {}
+    drawing: dict[int, list[int]] = {}                    # sprite -> [row, line in the row]
+    for line in range(LINES):
+        r = lines[line]
+        for n in range(8):
+            bit = 1 << n
+            if not r[0x15] & bit:
+                drawing.pop(n, None)
+                continue
+            state = drawing.get(n)
+            if state is None:
+                if r[2 * n + 1] != line & 0xFF:
                     continue
-                target = pixels[py]
-                for p, c in enumerate(cols):
-                    if c is None:
-                        continue
-                    for dx in range(sx):
-                        px = BORDER_X + x - 24 + p * sx + dx
-                        if 0 <= px < WIDTH:
-                            target[px] = c
+                state = drawing[n] = [0, 0]
+            v = vic(r)
+            pointer = v.byte((r[0x18] >> 4) * 0x400 + 0x3F8 + n) * 64
+            data = bytes(v.byte(pointer + state[0] * 3 + k) for k in range(3))
+            x = r[2 * n] | (0x100 if r[0x10] & bit else 0)
+            multi, wide = bool(r[0x1C] & bit), bool(r[0x1D] & bit)
+            cols = _sprite_colours(data, multi, wide, r[0x27 + n] & 15, r[0x25] & 15, r[0x26] & 15)
+            out.setdefault(line, []).append((n, x, cols))
+            state[1] += 1
+            if state[1] >= (2 if r[0x17] & bit else 1):
+                state[0], state[1] = state[0] + 1, 0
+                if state[0] == 21:
+                    del drawing[n]
+    return out
+
+
+def _sprite_colours(data: bytes, multi: bool, wide: bool, colour: int, mc0: int, mc1: int) -> list:
+    word = data[0] << 16 | data[1] << 8 | data[2]
+    if multi:
+        cols = []
+        for p in range(12):
+            pair = (word >> (22 - 2 * p)) & 3
+            c = None if pair == 0 else (mc0, colour, mc1)[pair - 1]
+            cols += (c, c)
+    else:
+        cols = [colour if word & (1 << (23 - p)) else None for p in range(24)]
+    if wide:
+        cols = [c for c in cols for _ in (0, 1)]
+    return cols
 
 
 # ---------------------------------------------------------------------- collisions
 # What the VIC-II's collision registers would have: $D01E, the sprites that touched another sprite,
 # and $D01F, those that touched the background's foreground (a set pixel of a hires character or
-# bitmap, a 10 or 11 pair of a multicolour one), over a frame as memory has it now. Each line is a
-# Python int, a bit a pixel, bit x being the sprite coordinate x.
+# bitmap, a 10 or 11 pair of a multicolour one). Each line is a Python int, a bit a pixel, bit x
+# being the sprite coordinate x.
 
 _REV = [int(f"{b:08b}"[::-1], 2) for b in range(256)]       # a byte's bits the other way round
 _patterns: dict = {}
@@ -144,83 +210,45 @@ def _sprite_row(data: bytes, multi: bool, wide: bool) -> int:
     key = (data, multi, wide)
     p = _patterns.get(key)
     if p is None:
-        word = data[0] << 16 | data[1] << 8 | data[2]
         p = 0
-        if multi:
-            for i in range(12):
-                if (word >> (22 - 2 * i)) & 3:
-                    p |= 3 << (2 * i)
-        else:
-            for i in range(24):
-                if word >> (23 - i) & 1:
-                    p |= 1 << i
-        if wide:
-            q = 0
-            for i in range(48 if multi else 24):
-                if p >> i & 1:
-                    q |= 3 << (2 * i)
-            p = q
+        for i, c in enumerate(_sprite_colours(data, multi, wide, 1, 1, 1)):
+            if c is not None:
+                p |= 1 << i
         _patterns[key] = p
     return p
 
 
-def _background_line(v: _Vic, io, y: int) -> int:
-    """The foreground pixels of display line y (0-199), shifted to sprite coordinates (x + 24)."""
-    d011, d016, d018 = io[0x11], io[0x16], io[0x18]
-    row, line = divmod(y, 8)
-    screen = (d018 >> 4) * 0x400
-    bitmap, ecm, mcm = bool(d011 & 0x20), bool(d011 & 0x40), bool(d016 & 0x10)
+def _background_line(v: _Vic, io, r: bytes, y: int) -> int:
+    """The foreground pixels of display line y (0-199), at their sprite coordinates (x + 24)."""
     out = bytearray(40)
-    for col in range(40):
-        i = row * 40 + col
-        code = v.byte(screen + i)
-        if bitmap:
-            b = v.byte((d018 & 8) * 0x400 + i * 8 + line)
-            multi = mcm
-        else:
-            ch = code & 0x3F if ecm else code
-            b = v.byte(((d018 >> 1) & 7) * 0x800 + ch * 8 + line)
-            multi = mcm and not ecm and io[0x800 + i] & 8
+    for col, (data, _colours, multi) in enumerate(_cells(v, io, r, y)):
         if multi:
-            b &= 0xAA                                   # a pair is foreground if its high bit's set
-            b |= b >> 1
-        out[col] = _REV[b]
-    return int.from_bytes(out, "little") << 24
+            data &= 0xAA                                # a pair is foreground if its high bit's set
+            data |= data >> 1
+        out[col] = _REV[data]
+    return int.from_bytes(out, "little") << (24 + (r[0x16] & 7))
 
 
-def collisions(ram, io, chargen) -> tuple[int, int]:
-    """($D01E, $D01F) bits for the sprites as memory has them now."""
-    on = io[0x15]
-    if not on:
-        return 0, 0
-    v = _Vic(ram, io, chargen)
-    pointers = (io[0x18] >> 4) * 0x400 + 0x3F8
-    rows: dict[int, list[tuple[int, int]]] = {}             # sprite y line -> [(sprite, pixels)]
-    for n in range(8):
-        bit = 1 << n
-        if not on & bit:
-            continue
-        x = io[2 * n] | (0x100 if io[0x10] & bit else 0)
-        y = io[2 * n + 1]
-        data = v.byte(pointers + n) * 64
-        tall = 2 if io[0x17] & bit else 1
-        for r in range(21):
-            row = bytes(v.byte(data + r * 3 + k) for k in range(3))
-            pixels = _sprite_row(row, bool(io[0x1C] & bit), bool(io[0x1D] & bit)) << x
-            if pixels:
-                for dy in range(tall):
-                    rows.setdefault((y + r * tall + dy) % 312, []).append((n, pixels))
+def collisions(ram, io, chargen, lines: list[bytes] | None = None) -> tuple[int, int]:
+    """($D01E, $D01F) bits for a frame: its lines' registers (frame_lines), or None for the
+    registers as ``io`` has them, all the way down."""
+    if lines is None:
+        if not io[0x15]:
+            return 0, 0
+        lines = [registers_now(io)] * LINES
+    vic = _vics(ram, chargen)
     ss = sb = 0
-    display = bool(io[0x11] & 0x10)
-    for line, sprites in rows.items():
-        if len(sprites) > 1:
-            for i, (a, pa) in enumerate(sprites):
-                for b, pb in sprites[i + 1:]:
+    for line, sprites in _sprite_lines(lines, vic).items():
+        r = lines[line]
+        masks = [(n, sum(1 << (x + i) for i, c in enumerate(cols) if c is not None)) for n, x, cols in sprites]
+        if len(masks) > 1:
+            for i, (a, pa) in enumerate(masks):
+                for b, pb in masks[i + 1:]:
                     if pa & pb:
                         ss |= 1 << a | 1 << b
-        if display and 50 <= line < 250:
-            bg = _background_line(v, io, line - 50)
-            for n, p in sprites:
+        if r[0x11] & 0x10 and 50 <= line < 250:
+            bg = _background_line(vic(r), io, r, line - 50)
+            for n, p in masks:
                 if p & bg:
                     sb |= 1 << n
     return ss, sb

@@ -610,3 +610,86 @@ def test_a_sprite_rows_pixels():
     assert _sprite_row(bytes([0x80, 0, 0]), False, True) == 3                   # twice as wide
     assert _sprite_row(bytes([0x40, 0, 0]), True, False) == 3                   # a multicolour pair: 2 pixels
     assert _sprite_row(bytes([0x00, 0, 0]), True, True) == 0
+
+
+SPLIT = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   sei
+        ldx #0          ; a clear screen
+        lda #32
+@clear  sta $0400,x
+        sta $0500,x
+        sta $0600,x
+        sta $06e8,x
+        inx
+        bne @clear
+        lda #$80        ; sprites 0 and 1: solid, at x 100
+        sta $07f8
+        sta $07f9
+        lda #100
+        sta $d000
+        sta $d002
+        lda #60         ; sprite 1 at y 60, where sprite 0 is first
+        sta $d003
+        lda #3
+        sta $d015
+frame   lda #20         ; line 20: sprite 0 at y 60, a black border
+@w1     cmp $d012
+        bne @w1
+        lda #60
+        sta $d001
+        lda #0
+        sta $d020
+        lda #100        ; line 100: sprite 0 again further down, at 150, and a red border
+@w2     cmp $d012
+        bne @w2
+        lda #150
+        sta $d001
+        lda #2
+        sta $d020
+        lda #200        ; line 200: the border black again
+@w3     cmp $d012
+        bne @w3
+        lda #0
+        sta $d020
+loop    jmp frame
+*=$2000
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+"""
+
+
+@needs_roms
+def test_a_raster_split_and_a_multiplexed_sprite_on_the_screen(tmp_path):
+    from l64s.emu.sim import Machine
+    (tmp_path / "s.asm").write_text(SPLIT)
+    from l64s.asm.cli import main as l64asm
+    assert l64asm([str(tmp_path / "s.asm"), "-o", str(tmp_path / "s.prg")]) == 0
+    m = Machine()
+    m.boot()
+    m.load((tmp_path / "s.prg").read_bytes())
+    m.type_keys(b"RUN\r")
+    m.run(max_cycles=FRAME * 10)
+    mem = m.memory
+    rgb = simscreen.render(mem.ram, mem.io, mem.chargen, mem.screen_lines(whole=True))
+    px = lambda x, line: rgb[((line - simscreen.FIRST_LINE) * simscreen.WIDTH + x) * 3:][:3]   # noqa: E731
+    assert px(2, 60) == simscreen.RGB[0] and px(2, 120) == simscreen.RGB[2] and px(2, 220) == simscreen.RGB[0]
+    sx = simscreen.BORDER_X + 100 - 24 + 4                         # inside the sprites, across
+    white = simscreen.RGB[mem.io[0x27] & 15]
+    assert px(sx, 65) == white and px(sx, 155) == white            # sprite 0 twice
+    assert px(sx, 110) != white
+    assert mem.collided_sprites == 3                               # sprite 1 met sprite 0's first showing
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_a_multiplexed_sprites_collision_as_in_vice(tmp_path):
+    (tmp_path / "s.asm").write_text(SPLIT)
+    (tmp_path / "s.transcript").write_text("run until loop\nwait 0.2\ncheck $d01e = $03\n")
+    for args in (["--simulate"], ["--vice-args=-sounddev dummy"]):
+        out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "s.asm"),
+                              str(tmp_path / "s.transcript"), *args], capture_output=True, text=True,
+                             timeout=120).stdout
+        assert " 1 check passed, 0 failed" in out, (args, out)

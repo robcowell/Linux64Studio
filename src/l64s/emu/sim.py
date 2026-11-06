@@ -116,6 +116,12 @@ class Memory:
         # sprite collisions ($D01E, $D01F), worked out once a frame and kept until they're read
         self.collided_sprites = self.collided_background = 0
         self.next_frame = FRAME
+        # the VIC-II's registers (and the bank) as this frame started, and the writes since, with the
+        # raster line of each [(line, register, value)]; and the last whole frame's (simscreen)
+        from .simscreen import registers_now
+        self.frame_start = registers_now(self.io)
+        self.frame_log: list[tuple[int, int, int]] = []
+        self.last_frame: tuple[bytes, list] | None = None
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
@@ -222,6 +228,10 @@ class Memory:
         return rows & 0xFF
 
     def _io_write(self, r: int, v: int) -> None:
+        if r < 0x2F:                                    # the VIC-II's: kept by line, for the Screen
+            self.frame_log.append((self.line(), r, v))
+        elif r == 0xD00:
+            self.frame_log.append((self.line(), 0x2F, v))
         if r == 0x019:
             self.vic_flags &= ~v & 0x0F                # writing 1 clears a flag
             return
@@ -291,8 +301,7 @@ class Memory:
         frame drawn (and its sprites' collisions)."""
         if now >= self.next_frame:
             self.next_frame += FRAME * ((now - self.next_frame) // FRAME + 1)
-            if self.io[0x15]:
-                self._collide()
+            self._end_frame()
         if self.next_raster is not None and now >= self.next_raster:
             self.vic_flags |= 1
             self.next_raster += FRAME * ((now - self.next_raster) // FRAME + 1)
@@ -305,11 +314,29 @@ class Memory:
                 period = self.ta_latch + 1
                 self.ta_next += period * ((now - self.ta_next) // period + 1)
 
-    def _collide(self) -> None:
+    def _end_frame(self) -> None:
+        """A frame's been drawn: keep its registers line by line, and work out its sprite collisions."""
+        from .simscreen import frame_lines, registers_now
+        self.last_frame = (self.frame_start, self.frame_log)
+        if self.frame_log and any(r == 0x15 and v for _l, r, v in self.frame_log) or self.frame_start[0x15]:
+            self._collide(frame_lines(self.frame_start, self.frame_log))
+        self.frame_start = registers_now(self.io)
+        self.frame_log = []
+
+    def screen_lines(self, whole: bool) -> list[bytes]:
+        """The registers on each raster line, for the Screen: the last whole frame's (``whole``: as the
+        program runs, a steady picture), or this frame's up to the raster line, with the registers as
+        they are now below it (stopped: what a change just made does)."""
+        from .simscreen import frame_lines, registers_now
+        if whole and self.last_frame is not None:
+            return frame_lines(*self.last_frame)
+        return frame_lines(self.frame_start, self.frame_log, registers_now(self.io), self.line())
+
+    def _collide(self, lines) -> None:
         """The frame's sprite collisions, added to those not yet read. The first since a read sets
         $D019's flag (bit 2 for sprites, bit 1 for the background), as the VIC-II does."""
         from .simscreen import collisions
-        ss, sb = collisions(self.ram, self.io, self.chargen)
+        ss, sb = collisions(self.ram, self.io, self.chargen, lines)
         if ss and not self.collided_sprites:
             self.vic_flags |= 4
         if sb and not self.collided_background:
@@ -846,7 +873,8 @@ def basic_sys(program: bytes) -> int | None:
 # snapshot loads into the simulator as its RAM and registers.
 
 _STATE = ("vic_flags", "next_raster", "ta_latch", "ta_value", "ta_t0", "ta_running", "ta_oneshot", "ta_next",
-          "cia_flags", "cia_mask", "joysticks", "collided_sprites", "collided_background", "next_frame")
+          "cia_flags", "cia_mask", "joysticks", "collided_sprites", "collided_background", "next_frame",
+          "frame_log")
 
 
 def _module(name: str, major: int, minor: int, body: bytes) -> bytes:
@@ -862,6 +890,7 @@ def save_snapshot(machine: Machine, path: Path) -> None:
     ram = bytes([mem.ram[1], mem.ram[0], 0, 0]) + bytes(mem.ram)       # the processor port, then RAM
     state = {k: getattr(mem, k) for k in _STATE}
     state["held"] = sorted(mem.held)
+    state["frame_start"] = list(mem.frame_start)
     state["skip_kernal"] = machine.skip_kernal
     sim = bytes(mem.io) + json.dumps(state).encode()
     head = MAGIC + bytes([2, 0]) + b"C64SC".ljust(16, b"\0") + VERSION_MAGIC + bytes(8)
@@ -893,8 +922,13 @@ def load_snapshot(machine: Machine, path: Path) -> int:
             if k in state:
                 setattr(mem, k, state[k])
         mem.held = {tuple(k) for k in state.get("held", [])}
+        mem.frame_log = [tuple(x) for x in mem.frame_log]
+        if "frame_start" in state:
+            mem.frame_start = bytes(state["frame_start"])
         machine.skip_kernal = state.get("skip_kernal", machine.skip_kernal)
     else:
+        from .simscreen import registers_now
         mem.schedule_raster()
+        mem.frame_start, mem.frame_log, mem.last_frame = registers_now(mem.io), [], None
     machine.stopped_at = machine.resume_at = None
     return c.pc

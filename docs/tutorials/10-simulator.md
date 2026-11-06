@@ -62,7 +62,8 @@ same ROM code as on a C64.
 1. Put a breakpoint on `inc EXTCOL` (click its line number). The program stops there after a
    second. **Cycles** shows how long the run took, every cycle counted: about a million, a second's
    worth on a PAL C64.
-2. Press **F11** to run `inc EXTCOL`. The Screen's border changes colour at once.
+2. Press **F11** to run `inc EXTCOL`. The Screen's border changes colour, from the line the raster
+   had reached down: the Screen is drawn a line at a time, as the VIC-II draws it.
 3. Remove the breakpoint and put one on `jsr CHROUT`. Click **Stop debugging**, then press
    **Ctrl+Shift+F5** again: it stops before the first character is printed.
 4. Press **F10** (Step Over) to run the whole `CHROUT` call. The first character is 147, `{clear}`,
@@ -84,7 +85,8 @@ instruction at the PC, and the interrupt waits until the program runs on.
 
 That makes it good for logic: tables, maths, game rules, what a routine leaves in memory, and the
 timing of a main loop or an interrupt. Code that needs the real chips needs VICE: sound you can hear,
-and the screen as the VIC-II really draws it, line by line. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
+and the screen exactly as the VIC-II draws it (the Screen is close: it's drawn a line at a time,
+with the registers each line had, but from memory as it is now). **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.
 
 It runs at a real C64's speed. Click the Screen and the keyboard is the C64's, with the arrow keys
