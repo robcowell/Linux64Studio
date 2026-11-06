@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -378,3 +379,155 @@ def test_cycles_agree_with_vice(tmp_path):
 def test_stopped_is_an_exception_with_a_reason():
     s = Stopped("brk")
     assert s.why == "brk" and s.checkpoint is None
+
+
+# ---------------------------------------------------------------------- joysticks, keys, snapshots
+
+def test_the_joysticks_and_the_keyboard_matrix():
+    from l64s.emu.sim import JOY_BITS, key_named
+    m = ram_only(bytes([0xEA]))
+    mem = m.memory
+    mem.poke(1, 0x35)
+    mem.poke(0xDC02, 0xFF)                                          # port A: outputs (the columns)
+    mem.poke(0xDC00, 0xFF)
+    assert (mem.peek(0xDC00), mem.peek(0xDC01)) == (0xFF, 0xFF)     # nothing pressed
+    mem.joysticks[2] = JOY_BITS["right"] | JOY_BITS["fire"]
+    mem.joysticks[1] = JOY_BITS["up"]
+    assert mem.peek(0xDC00) == 0xFF & ~0x18 and mem.peek(0xDC01) == 0xFE
+    mem.joysticks = [0, 0, 0]
+    mem.held.add(key_named("space"))                                # column 7, row 4
+    assert mem.peek(0xDC01) == 0xFF                                 # its column isn't selected
+    mem.poke(0xDC00, 0x7F)                                          # column 7 selected
+    assert mem.peek(0xDC01) == 0xEF
+    mem.poke(0xDC00, 0x00)                                          # all of them (is anything down?)
+    assert mem.peek(0xDC01) == 0xEF
+    with pytest.raises(MonitorError):
+        key_named("hyperspace")
+
+
+@needs_roms
+def test_the_kernal_reads_a_key_held_down():
+    from l64s.emu.sim import key_named
+    m = Machine()
+    m.boot()
+    for k in "hi":
+        m.memory.held.add(key_named(k))
+        m.run(max_cycles=FRAME * 3)
+        m.memory.held.clear()
+        m.run(max_cycles=FRAME * 3)
+    screen = bytes(m.memory.ram[0x0400:0x0400 + 40 * 8])
+    assert b"\x08\x09" in screen                                    # HI, typed after READY.
+
+
+JOYSTICK_GAME = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   lda #250        ; once a frame
+@wait   cmp $d012
+        bne @wait
+@leave  cmp $d012
+        beq @leave
+        lda $dc00       ; joystick 2
+        and #%00001000  ; right (0 when it's pushed)
+        bne start
+        inc xpos
+        jmp start
+xpos    byte 0
+"""
+
+
+def _transcript(tmp_path, script, *args):
+    (tmp_path / "t.asm").write_text(JOYSTICK_GAME)
+    (tmp_path / "t.transcript").write_text(script)
+    return subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "t.asm"),
+                           str(tmp_path / "t.transcript"), *args], capture_output=True, text=True, timeout=120,
+                          cwd=tmp_path).stdout
+
+
+@needs_roms
+def test_a_transcript_moves_the_joystick_and_holds_keys(tmp_path):
+    out = _transcript(tmp_path, """run until start
+wait 1
+check xpos = 0
+joystick 2 right
+wait 1
+check xpos >= #49
+check xpos <= #51
+joystick 2 none
+show xpos
+wait 1
+check xpos <= #51
+hold space a
+release a
+release
+""", "--simulate")
+    assert " 4 checks passed, 0 failed" in out, out
+    assert "keys held: a, space" in out and "keys held: space" in out and "no keys held" in out, out
+
+
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_vice_can_not_move_a_joystick(tmp_path):
+    out = _transcript(tmp_path, "run until start\njoystick 2 right\n", "--vice-args=-sounddev dummy")
+    assert "joystick needs the simulator" in out, out
+
+
+def test_a_snapshot_of_the_simulator_goes_on_as_it_was(tmp_path):
+    from l64s.emu.sim import load_snapshot, save_snapshot
+    from l64s.snapshot import is_simulator_snapshot, read_vsf
+    m = irq_machine(RASTER_IRQ)
+    m.run(max_cycles=FRAME * 2 + 1234)
+    m.memory.joysticks[2] = 8
+    save_snapshot(m, tmp_path / "s.vsf")
+    snap = read_vsf(tmp_path / "s.vsf")                             # as VICE's are read (the snapshot list)
+    assert snap.simulated and is_simulator_snapshot(tmp_path / "s.vsf")
+    assert snap.registers["PC"] == m.cpu.pc and snap.ram == bytes(m.memory.ram)
+    other = Machine(roms={})
+    assert load_snapshot(other, tmp_path / "s.vsf") == m.cpu.pc
+    assert other.memory.joysticks[2] == 8
+    m.run(max_cycles=FRAME * 3)
+    other.run(max_cycles=FRAME * 3)
+    assert (other.cycles, other.cpu.pc, bytes(other.memory.ram)) == (m.cycles, m.cpu.pc, bytes(m.memory.ram))
+
+
+@needs_roms
+def test_a_transcript_starts_from_a_snapshot(tmp_path):
+    from l64s.emu.sim import save_snapshot
+    m = Machine()
+    m.boot()
+    m.memory.ram[0xC000] = 0x42
+    (tmp_path / "snapshots").mkdir()
+    save_snapshot(m, tmp_path / "snapshots" / "ready.vsf")
+    out = _transcript(tmp_path, "restore ready\ncheck $c000 = $42\n", "--simulate")
+    assert "restored ready.vsf" in out and " 1 check passed, 0 failed" in out, out
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_a_vice_snapshot_loads_into_the_simulator(tmp_path):
+    from l64s.emu.sim import load_snapshot
+    from l64s.snapshot import read_vsf
+    (tmp_path / "t.asm").write_text(JOYSTICK_GAME)
+    (tmp_path / "t.transcript").write_text("run until start\nset $c000 $42\n")
+    # take one in VICE: a transcript can't, so run it with the debugger's monitor, as a snapshot is taken
+    from l64s.emu.binmon import BinaryMonitor
+    from l64s.emu import vice
+    port = vice.free_port()
+    proc = vice.launch(None, "", None, port, ["-sounddev", "dummy"])
+    try:
+        assert vice.wait_for_port(port, 15)
+        mon = BinaryMonitor()
+        mon.connect(port=port)
+        time.sleep(2)
+        mon.ping()
+        mon.write_memory(0xC000, b"\x42")
+        mon.dump(str(tmp_path / "v.vsf"))
+        regs = mon.get_registers()
+        mon.quit()
+    finally:
+        proc.terminate()
+    vsf = read_vsf(tmp_path / "v.vsf")
+    assert not vsf.simulated
+    m = Machine()
+    assert load_snapshot(m, tmp_path / "v.vsf") == regs["PC"]
+    assert m.memory.ram[0xC000] == 0x42 and m.cpu.sp == regs["SP"]
+    assert m.run(max_cycles=FRAME * 10).why == "halt"               # and it runs on (the KERNAL, at READY)

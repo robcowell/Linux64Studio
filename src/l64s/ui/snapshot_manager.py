@@ -129,8 +129,10 @@ class SnapshotManager(EditorPage):
         _m, syms, _d = self.get_build()
         where = syms.get(r["PC"])
         prg = Path(info.program).name if info.program else "unknown program"
-        self.detail.append(Gtk.Label(label=f"{prg}{f', at {where}' if where else ''} · {snap.machine}, "
-                                           f"VICE {snap.vice_version} · {vsf.stat().st_size // 1024}K", xalign=0,
+        self.detail.append(Gtk.Label(label=f"{prg}{f', at {where}' if where else ''} · "
+                                           + ("the simulator (Debug Without VICE)" if snap.simulated
+                                              else f"{snap.machine}, VICE {snap.vice_version}")
+                                           + f" · {vsf.stat().st_size // 1024}K", xalign=0,
                                      wrap=True, css_classes=["dim-label"]))
         cur = self.current_prg()
         if info.program_stamp and cur and program_stamp(cur) != info.program_stamp:

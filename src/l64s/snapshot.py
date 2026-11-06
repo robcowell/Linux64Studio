@@ -18,6 +18,14 @@ from pathlib import Path
 
 MAGIC = b"VICE Snapshot File\x1a"
 VERSION_MAGIC = b"VICE Version\x1a"
+SIM_MODULE = "L64SIM"              # the simulator's own module: its I/O and chips' state
+
+
+def is_simulator_snapshot(path) -> bool:
+    try:
+        return read_vsf(path).simulated
+    except (OSError, SnapshotError):
+        return False
 
 
 class SnapshotError(ValueError):
@@ -33,6 +41,12 @@ class Snapshot:
     clock: int
     ram: bytes                      # 64K
     modules: list[str]
+    module_data: dict[str, bytes] = field(default_factory=dict)     # each module's bytes, by name
+
+    @property
+    def simulated(self) -> bool:
+        """Taken on Linux64Studio's simulated C64 (emu.sim), not in VICE."""
+        return SIM_MODULE in self.module_data
 
 
 def read_vsf(path: str | Path) -> Snapshot:
@@ -68,7 +82,8 @@ def read_vsf(path: str | Path) -> Snapshot:
     major, _minor, mem = modules["C64MEM"]
     if major != 0 or len(mem) < 4 + 0x10000:
         raise SnapshotError(f"Unsupported memory data in {p.name} (C64MEM version {major})")
-    return Snapshot(p, machine, version, regs, clock, bytes(mem[4:4 + 0x10000]), names)
+    return Snapshot(p, machine, version, regs, clock, bytes(mem[4:4 + 0x10000]), names,
+                    {n: body for n, (_a, _b, body) in modules.items()})
 
 
 # ---------------------------------------------------------------------- notes kept beside each .vsf

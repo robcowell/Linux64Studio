@@ -1662,7 +1662,8 @@ class MainWindow(Adw.ApplicationWindow):
         memory = self._debug_memory()
         def worker(m):
             return Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                          lambda o: GLib.idle_add(outcome, o), overlays=memory)
+                          lambda o: GLib.idle_add(outcome, o), overlays=memory,
+                          folder=self.project.directory if self.project else None)
         if simulate:
             from ..emu.sim import SimRun
             run = SimRun(worker, lambda msg: GLib.idle_add(ended, run, msg))
@@ -2205,9 +2206,11 @@ class MainWindow(Adw.ApplicationWindow):
             self.debug_from_snapshot, self._show_memory_at))
 
     def debug_from_snapshot(self, vsf: Path):
-        """Start debugging the project, then load the snapshot as soon as VICE is ready."""
+        """Start debugging the project, then load the snapshot as soon as VICE (or, for a snapshot the
+        simulator took, the simulator) is ready."""
+        from ..snapshot import is_simulator_snapshot
         self._pending_snapshot = vsf
-        self.build(run=True, debug=True)
+        self.build(run=True, debug=True, simulate=is_simulator_snapshot(vsf))
 
     def _show_memory_at(self, addr: int):
         viewer = self.open_memory_viewer()

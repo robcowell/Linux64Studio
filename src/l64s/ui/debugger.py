@@ -227,6 +227,10 @@ class DebugSession(GObject.Object):
 
     def restore_snapshot(self, path) -> int:
         """Load a .vsf and stop there, so the debugger shows the machine as it was."""
+        from ..snapshot import is_simulator_snapshot
+        if not self.simulate and is_simulator_snapshot(path):
+            raise MonitorError("it was taken on the simulator: restore it while debugging without VICE "
+                               "(Ctrl+Shift+F5), or double-click it with no debug session running")
         m = self.monitor
         self._quiet = True
         try:
@@ -440,6 +444,11 @@ class DebuggerPanel(Gtk.Box):
             "simulator runs the real KERNAL when VICE's ROMs are installed; without them, this is on."))
         self.skip_kernal.connect("toggled", self._skip_kernal_toggled)
         bar.append(self.skip_kernal)
+        self.full_speed = Gtk.CheckButton(label="Full speed", visible=False, tooltip_text=(
+            "Run as fast as the simulator can (about twice a C64's speed), to get to a breakpoint sooner. "
+            "Off, it runs at a real PAL C64's speed, to play the program on the Screen."))
+        self.full_speed.connect("toggled", self._full_speed_toggled)
+        bar.append(self.full_speed)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True)
         self.append(body)
@@ -562,12 +571,23 @@ class DebuggerPanel(Gtk.Box):
         vbox.set_visible(False)
         # the simulator's screen, beside the memory (VICE has a window of its own)
         self.screen = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, vexpand=True,
-                                  alternative_text="The simulated C64's screen")
+                                  alternative_text="The simulated C64's screen", focusable=True)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda *_: self.screen.grab_focus())
+        self.screen.add_controller(click)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, kv, _code, _st: self._screen_key(kv, True))
+        keys.connect("key-released", lambda _c, kv, _code, _st: self._screen_key(kv, False))
+        self.screen.add_controller(keys)
+        focus = Gtk.EventControllerFocus()
+        focus.connect("leave", lambda *_: self._release_all())
+        self.screen.add_controller(focus)
         screen_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_end=6)
         screen_box.append(self.screen)
         screen_box.append(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
             "The screen as memory has it: text and bitmap modes, the border and sprites; no raster effects "
-            "or scrolling.")))
+            "or scrolling. Click it to play: the arrows or keypad move joystick 2, keypad 0 or Right Ctrl "
+            "fires, and the other keys are the C64's.")))
         self.right_stack = Gtk.Stack()
         self.right_stack.add_titled(right, "memory", "Memory")
         self.right_stack.add_titled(screen_box, "screen", "Screen")
@@ -598,9 +618,12 @@ class DebuggerPanel(Gtk.Box):
         self.count_cycles.set_visible(not sim)               # (the simulator counts every cycle anyway)
         self.right_switcher.set_visible(sim)
         self.skip_kernal.set_visible(sim)
+        self.full_speed.set_visible(sim)
         if sim:
             self._updating = True
             self.skip_kernal.set_active(session.monitor.machine.skip_kernal)
+            self.full_speed.set_active(False)
+            session.monitor.real_speed = True
             self._updating = False
             self._count_at_stop = 0
             self.right_stack.set_visible_child_name("screen")
@@ -620,6 +643,51 @@ class DebuggerPanel(Gtk.Box):
         s = self.session
         if s is not None and s.simulate and not self._updating:
             s.monitor.machine.skip_kernal = button.get_active()
+
+    def _full_speed_toggled(self, button):
+        s = self.session
+        if s is not None and s.simulate and not self._updating:
+            s.monitor.real_speed = not button.get_active()
+
+    def _screen_key(self, keyval: int, down: bool) -> bool:
+        """A key on the Screen: joystick 2, or the C64 key it stands for, held while it's down."""
+        from ..emu.sim import JOY_BITS, MonitorError, key_named
+        s = self.session
+        if s is None or not s.simulate:
+            return False
+        mem = s.monitor.machine.memory
+        name = Gdk.keyval_name(keyval) or ""
+        joy = {"Up": "up", "KP_8": "up", "KP_Up": "up", "Down": "down", "KP_2": "down", "KP_Down": "down",
+               "Left": "left", "KP_4": "left", "KP_Left": "left", "Right": "right", "KP_6": "right",
+               "KP_Right": "right", "KP_0": "fire", "KP_Insert": "fire", "Control_R": "fire"}.get(name)
+        if joy:
+            bit = JOY_BITS[joy]
+            mem.joysticks[2] = (mem.joysticks[2] | bit) if down else (mem.joysticks[2] & ~bit)
+            return True
+        c64 = {"Return": "return", "KP_Enter": "return", "BackSpace": "del", "Delete": "del", "Escape": "stop",
+               "Shift_L": "shift", "Shift_R": "rshift", "Control_L": "ctrl", "Alt_L": "commodore",
+               "Home": "home", "F1": "f1", "F3": "f3", "F5": "f5", "F7": "f7", "space": "space"}.get(name)
+        if c64 is None:
+            ch = chr(Gdk.keyval_to_unicode(keyval) or 0).lower()
+            c64 = ch if ch.strip() else None
+        if c64 is None:
+            return False
+        try:
+            key = key_named(c64)
+        except MonitorError:
+            return False
+        if down:
+            mem.held.add(key)
+        else:
+            mem.held.discard(key)
+        return True
+
+    def _release_all(self):
+        s = self.session
+        if s is not None and s.simulate:
+            mem = s.monitor.machine.memory
+            mem.held.clear()
+            mem.joysticks[1] = mem.joysticks[2] = 0
 
     def _show_screen(self):
         from ..emu import simscreen

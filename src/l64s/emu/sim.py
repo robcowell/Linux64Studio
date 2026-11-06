@@ -12,7 +12,9 @@ written, except for what makes a program's timing and interrupts work:
   interrupt ($D012 and $D011 for the line, $D019 its flag, $D01A to switch it on) happens on it;
 * CIA 1's timer A ($DC04/$DC05, started with $DC0E) counts down a cycle at a time, and interrupts
   through $DC0D, as the KERNAL's 60-a-second interrupt does;
-* the keyboard and joysticks ($DC00, $DC01) read as nothing pressed.
+* the keyboard and joysticks: CIA 1's ports ($DC00, $DC01) read the keys held down (``hold``), as
+  the keyboard matrix connects them to the columns selected, and the joysticks (``joystick``):
+  port 2's on $DC00, port 1's on $DC01.
 
 Interrupts happen as on a C64 while the program runs (an IRQ when one of those is on and the I flag
 is clear), but a single step never goes into one: a step is the instruction at the PC.
@@ -41,6 +43,34 @@ ROM_FILES = {"basic": ("basic-901226-01.bin", 0x2000), "kernal": ("kernal-901227
 KERNAL_TABLE = range(0xFF81, 0xFFF4)            # the KERNAL's jump table (what skip_kernal steps over)
 READY_LOOP = range(0xE5CD, 0xE5D7)              # the KERNAL waiting for a key, at READY.
 RTS, RTI, JSR, BRK = 0x60, 0x40, 0x20, 0x00
+
+# The keyboard matrix: each key's column (the $DC00 bit that selects it) and row (the $DC01 bit it
+# pulls low). Columns 0-7, a row each, from the C64's schematic.
+_MATRIX_ROWS = [
+    ["del", "return", "right", "f7", "f1", "f3", "f5", "down"],
+    ["3", "w", "a", "4", "z", "s", "e", "shift"],
+    ["5", "r", "d", "6", "c", "f", "t", "x"],
+    ["7", "y", "g", "8", "b", "h", "u", "v"],
+    ["9", "i", "j", "0", "m", "k", "o", "n"],
+    ["+", "p", "l", "-", ".", ":", "@", ","],
+    ["pound", "*", ";", "home", "rshift", "=", "uparrow", "/"],
+    ["1", "leftarrow", "ctrl", "2", "space", "commodore", "q", "stop"],
+]
+KEYS = {name: (col, row) for col, names in enumerate(_MATRIX_ROWS) for row, name in enumerate(names)}
+KEY_ALIASES = {"lshift": "shift", "cbm": "commodore", "c=": "commodore", "runstop": "stop", "run/stop": "stop",
+               "inst/del": "del", "delete": "del", "enter": "return", " ": "space", "£": "pound",
+               "crsr right": "right", "crsr down": "down", "clr/home": "home"}
+JOY_BITS = {"up": 1, "down": 2, "left": 4, "right": 8, "fire": 16}
+
+
+def key_named(name: str) -> tuple[int, int]:
+    """A key's (column, row) in the keyboard matrix, by its name: a letter, digit or symbol, or
+    space, return, del, f1, f3, f5, f7, right, down, home, shift, rshift, ctrl, commodore, stop..."""
+    n = name.strip().lower()
+    n = KEY_ALIASES.get(n, n)
+    if n not in KEYS:
+        raise MonitorError(f"There's no C64 key called {name!r}")
+    return KEYS[n]
 
 
 def find_roms() -> dict[str, bytes]:
@@ -78,6 +108,9 @@ class Memory:
         self.ta_running, self.ta_oneshot = False, False
         self.ta_next: int | None = None
         self.cia_flags, self.cia_mask = 0, 0
+        # what's pressed: the joysticks in ports 1 and 2 (JOY_BITS), and the keys held (column, row)
+        self.joysticks = [0, 0, 0]
+        self.held: set[tuple[int, int]] = set()
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
@@ -141,8 +174,10 @@ class Memory:
             return (self.io[r] & 0x7F) | ((self.line() & 0x100) >> 1)
         if r == 0x019:
             return 0x70 | self.vic_flags | (0x80 if self.vic_irq() else 0)
-        if r in (0xC00, 0xC01):
-            return 0xFF                                # nothing pressed
+        if r == 0xC00:
+            return self._port_a() & ~self.joysticks[2] & 0xFF
+        if r == 0xC01:
+            return self._keyboard_rows() & ~self.joysticks[1] & 0xFF
         if r == 0xC04:
             return self.ta_count() & 0xFF
         if r == 0xC05:
@@ -157,6 +192,21 @@ class Memory:
         if 0x800 <= r < 0xC00:
             return self.io[r] & 0x0F | 0xF0           # colour RAM is four bits
         return self.io[r]
+
+    def _port_a(self) -> int:
+        """CIA 1's port A as driven: the column bits it outputs, and 1s on its inputs."""
+        return (self.io[0xC00] | ~self.io[0xC02]) & 0xFF
+
+    def _keyboard_rows(self) -> int:
+        """Port B: a row's bit is 0 if a key held in it is in a column port A selects (drives 0)."""
+        if not self.held:
+            return 0xFF
+        cols = ~self._port_a() & ~self.joysticks[2] & 0xFF     # (a joystick on port 2 selects too)
+        rows = 0xFF
+        for col, row in self.held:
+            if cols >> col & 1:
+                rows &= ~(1 << row)
+        return rows & 0xFF
 
     def _io_write(self, r: int, v: int) -> None:
         if r == 0x019:
@@ -442,7 +492,7 @@ class Machine:
                 raise Stopped("checkpoint", stopper)
 
     def run(self, max_cycles: int | None = None, halt: threading.Event | None = None, until=None,
-            interrupts: bool = True) -> Stopped:
+            interrupts: bool = True, pace=None) -> Stopped:
         """Run until something stops the machine, and say what. ``until()``, tried after each
         instruction, stops it when true (why 'step'); ``halt`` being set stops it too ('halt'). Where a
         checkpoint stopped it last, its instruction runs without the checkpoints there being tried
@@ -458,6 +508,8 @@ class Machine:
                     return Stopped("step")
                 n += 1
                 if n & 0x3FF == 0:
+                    if pace is not None:
+                        pace(self.cycles)
                     if halt is not None and halt.is_set():
                         return Stopped("halt")
                     if end is not None and self.cycles >= end:
@@ -534,6 +586,7 @@ class SimMonitor:
         self._halt = threading.Event()
         self._thread: threading.Thread | None = None
         self.last_stop = ""                      # why the last run stopped (brk, jam, checkpoint, ...)
+        self.real_speed = False                  # run no faster than a PAL C64 (the debugger's), or flat out
 
     # -------------------------------------------------------------- connection
     def connect(self, *args, **kw) -> None:
@@ -574,8 +627,10 @@ class SimMonitor:
         self._halt.clear()
         self._event(EVT_RESUMED, struct.pack("<H", self.machine.cpu.pc))
 
+        pace = self._pacer()
+
         def go():
-            s = self.machine.run(halt=self._halt, until=until, interrupts=interrupts)
+            s = self.machine.run(halt=self._halt, until=until, interrupts=interrupts, pace=pace)
             self.last_stop = s.why
             if s.why != "halt":
                 self._thread = None
@@ -583,6 +638,25 @@ class SimMonitor:
         self.last_stop = ""
         self._thread = threading.Thread(target=go, name="l64s-sim", daemon=True)
         self._thread.start()
+
+    def _pacer(self):
+        """Keeps a run to a PAL C64's speed while ``real_speed`` is on (it can change as it runs): it sleeps
+        whenever the C64's time gets ahead of the clock's."""
+        import time
+        since: list = []
+
+        def pace(cycles: int) -> None:
+            if not self.real_speed:
+                since.clear()
+                return
+            now = time.monotonic()
+            if not since:
+                since[:] = [now, cycles]
+                return
+            ahead = (cycles - since[1]) / 985_248 - (now - since[0])
+            if ahead > 0.002:
+                self._halt.wait(ahead)
+        return pace
 
     # -------------------------------------------------------------- commands
     def request(self, cmd: int, body: bytes = b"", timeout: float = 5.0):
@@ -670,10 +744,17 @@ class SimMonitor:
         self._start(self.machine.step_out_until())
 
     def dump(self, path: str, save_roms: bool = False, save_disks: bool = False) -> None:
-        raise MonitorError("Snapshots need VICE: the simulator doesn't make them")
+        """Save the machine as a snapshot (see save_snapshot)."""
+        self._stop_running()
+        save_snapshot(self.machine, Path(path))
 
     def undump(self, path: str) -> int:
-        raise MonitorError("Snapshots need VICE: the simulator doesn't load them")
+        """Load a snapshot (see load_snapshot); the PC it was taken at."""
+        self._stop_running()
+        try:
+            return load_snapshot(self.machine, Path(path))
+        except (OSError, ValueError) as e:
+            raise MonitorError(str(e)) from None
 
     def autostart(self, path: str, run: bool = True) -> None:
         raise MonitorError("The simulator doesn't autostart")
@@ -726,3 +807,64 @@ def basic_sys(program: bytes) -> int | None:
     """The address in a BASIC loader's SYS (its first line), from the program's bytes at $0801."""
     m = re.search(rb"\x9e\s*\(?\s*(\d+)", program[4:program.find(b"\0", 4) if b"\0" in program[4:] else None])
     return int(m.group(1)) if m and int(m.group(1)) <= 0xFFFF else None
+
+
+# ---------------------------------------------------------------------- snapshots
+# A snapshot of the simulator is a .vsf with VICE's MAINCPU and C64MEM modules, so the snapshot
+# manager shows and compares it like VICE's, and a module of its own (snapshot.SIM_MODULE) with the
+# I/O area and the chips' state. VICE can't load one (it has none of its chips' modules); a VICE
+# snapshot loads into the simulator as its RAM and registers.
+
+_STATE = ("vic_flags", "next_raster", "ta_latch", "ta_value", "ta_t0", "ta_running", "ta_oneshot", "ta_next",
+          "cia_flags", "cia_mask", "joysticks")
+
+
+def _module(name: str, major: int, minor: int, body: bytes) -> bytes:
+    return name.encode("ascii").ljust(16, b"\0") + bytes([major, minor]) + struct.pack("<I", 22 + len(body)) + body
+
+
+def save_snapshot(machine: Machine, path: Path) -> None:
+    import json
+
+    from ..snapshot import MAGIC, SIM_MODULE, VERSION_MAGIC
+    c, mem = machine.cpu, machine.memory
+    cpu = struct.pack("<QBBBBHB", c.processorCycles, c.a, c.x, c.y, c.sp, c.pc, (c.p | 0x20) & 0xFF)
+    ram = bytes([mem.ram[1], mem.ram[0], 0, 0]) + bytes(mem.ram)       # the processor port, then RAM
+    state = {k: getattr(mem, k) for k in _STATE}
+    state["held"] = sorted(mem.held)
+    state["skip_kernal"] = machine.skip_kernal
+    sim = bytes(mem.io) + json.dumps(state).encode()
+    head = MAGIC + bytes([2, 0]) + b"C64SC".ljust(16, b"\0") + VERSION_MAGIC + bytes(8)
+    path.write_bytes(head + _module("MAINCPU", 1, 1, cpu) + _module("C64MEM", 0, 0, ram)
+                     + _module(SIM_MODULE, 1, 0, sim))
+
+
+def load_snapshot(machine: Machine, path: Path) -> int:
+    """Put a snapshot's machine in this one: all of it from the simulator's own, the RAM, registers and
+    processor port from VICE's (whose chips aren't simulated: the I/O area is left as it was). The
+    checkpoints stay. Returns the PC."""
+    import json
+
+    from ..snapshot import SIM_MODULE, read_vsf
+    snap = read_vsf(path)
+    mem, c = machine.memory, machine.cpu
+    mem.ram[:] = snap.ram
+    port = snap.module_data["C64MEM"][:2]
+    mem.ram[1], mem.ram[0] = port[0], port[1]
+    mem._bank()
+    r = snap.registers
+    c.a, c.x, c.y, c.sp, c.pc, c.p = r["A"], r["X"], r["Y"], r["SP"], r["PC"], r["FL"] | 0x20
+    c.processorCycles = snap.clock
+    if snap.simulated:
+        data = snap.module_data[SIM_MODULE]
+        mem.io[:] = data[:0x1000]
+        state = json.loads(data[0x1000:].decode())
+        for k in _STATE:
+            if k in state:
+                setattr(mem, k, state[k])
+        mem.held = {tuple(k) for k in state.get("held", [])}
+        machine.skip_kernal = state.get("skip_kernal", machine.skip_kernal)
+    else:
+        mem.schedule_raster()
+    machine.stopped_at = machine.resume_at = None
+    return c.pc

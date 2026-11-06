@@ -32,7 +32,7 @@ FLAGS = {"n": 7, "v": 6, "b": 4, "d": 3, "i": 2, "z": 1, "c": 0}
 OPS = {"=": lambda a, b: a == b, "==": lambda a, b: a == b, "<>": lambda a, b: a != b, "!=": lambda a, b: a != b,
        "<": lambda a, b: a < b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b, ">=": lambda a, b: a >= b}
 VERBS = {"run", "until", "call", "goto", "set", "fill", "check", "show", "watch", "step", "stepover",
-         "wait", "type", "interrupts", "clearregs", "resetstack", "skipkernal", "end", "break", "timeout",
+         "wait", "type", "joystick", "hold", "release", "restore", "interrupts", "clearregs", "resetstack", "skipkernal", "end", "break", "timeout",
          *REGISTERS}
 
 READY_LOOP = range(0xE5CD, 0xE5D7)        # the KERNAL waiting for a key, at READY.
@@ -90,9 +90,10 @@ class Runner:
     thread as it comes."""
 
     def __init__(self, monitor, commands: list[Command], program: bytes, symbols: dict[str, int], on_outcome,
-                 timeout: float = 10.0, overlays: list[tuple[int, bytes]] | None = None):
+                 timeout: float = 10.0, overlays: list[tuple[int, bytes]] | None = None, folder=None):
         self.monitor, self.commands, self.program = monitor, commands, program
         self.overlays = overlays or []          # memory to load too (overlays.load_all)
+        self.folder = folder                    # the project's (for snapshots a restore names)
         self.symbols, self.on_outcome = symbols, on_outcome
         self.timeout = timeout
         self.outcomes: list[Outcome] = []
@@ -391,6 +392,21 @@ class Runner:
                 m.write_memory(KEYCOUNT, bytes([len(chunk)]))
             self._keys_read(args)
             self._say(c, None, f"typed {len(keys)} key{'s' if len(keys) != 1 else ''}")
+        elif verb == "joystick":
+            self._joystick(args)
+            self._say(c, None, f"joystick {args}")
+        elif verb in ("hold", "release"):
+            held = self._keys(verb, args)
+            self._say(c, None, f"keys held: {', '.join(held)}" if held else "no keys held")
+        elif verb == "restore":
+            path = self._snapshot(args)
+            from .snapshot import is_simulator_snapshot
+            if not self.simulated and is_simulator_snapshot(path):
+                raise TranscriptError(f"{path.name} was taken on the simulator: run the transcript without VICE")
+            self._stop_vice()
+            pc = m.undump(str(path))
+            self._wrote_registers = False
+            self._say(c, None, f"restored {path.name}: PC = ${pc:04X}")
         elif verb in ("step", "stepover"):
             n = parse_number(args) if args else 1
             self._step(n, verb == "stepover")
@@ -431,6 +447,63 @@ class Runner:
             raise Stop("")
         elif verb == "break":
             raise Stop("break: the transcript stops here")
+
+    def _simulator(self, what: str):
+        if not self.simulated:
+            raise TranscriptError(f"{what} needs the simulator (Run Transcript Without VICE, or l64test "
+                                  "--simulate): VICE's monitor can't hold a key down or move a joystick")
+        self._stop_vice()
+        return self.monitor.machine.memory
+
+    def _joystick(self, args: str):
+        """joystick <port> <up|down|left|right|fire ...|none>: what's pressed from now on."""
+        from .emu.sim import JOY_BITS
+        words = args.lower().split()
+        if not words or words[0] not in ("1", "2"):
+            raise TranscriptError("joystick 1 or 2, then up, down, left, right, fire, or none")
+        bits = 0
+        for w in words[1:]:
+            if w == "none":
+                continue
+            if w not in JOY_BITS:
+                raise TranscriptError(f"{w}? A joystick's up, down, left, right or fire (or none)")
+            bits |= JOY_BITS[w]
+        self._simulator("joystick").joysticks[int(words[0])] = bits
+
+    def _keys(self, verb: str, args: str) -> list[str]:
+        """hold <keys>: held down from now on (a C64 key's name each: a, space, return, f1, shift...);
+        release <keys>, or release on its own for all of them."""
+        from .emu.sim import KEYS, MonitorError, key_named
+        mem = self._simulator(verb)
+        names = args.split()
+        try:
+            keys = [key_named(n) for n in names]
+        except MonitorError as e:
+            raise TranscriptError(str(e)) from None
+        if verb == "hold":
+            if not keys:
+                raise TranscriptError("hold which keys? (a, space, return, f1, shift...)")
+            mem.held |= set(keys)
+        elif keys:
+            mem.held -= set(keys)
+        else:
+            mem.held.clear()
+        by_key = {v: k for k, v in KEYS.items()}
+        return sorted(by_key[k] for k in mem.held)
+
+    def _snapshot(self, args: str):
+        """A snapshot named in a restore: a .vsf's path, or a name in the project's snapshots folder."""
+        from pathlib import Path
+        name = args.strip().strip('"')
+        if not name:
+            raise TranscriptError("restore <snapshot>: its file, or its name in the project's snapshots folder")
+        folder = Path(self.folder) if self.folder else Path.cwd()
+        tries = [Path(name).expanduser(), folder / name, folder / "snapshots" / name,
+                 folder / "snapshots" / f"{name}.vsf", folder / f"{name}.vsf"]
+        for p in tries:
+            if p.is_file():
+                return p
+        raise TranscriptError(f"There's no snapshot {name} (looked in {folder} and its snapshots folder)")
 
     def _keys_read(self, what: str):
         """Let the program run until it has read every key in the keyboard buffer."""
@@ -534,6 +607,8 @@ TEMPLATE = """; {name}: a transcript. Run it with Debugger > Run Transcript: VIC
 ;   check <address> = <bytes>    memory, or word <address>; & masks bits: check $d020 & $0f = 0
 ;   show <address> [count]   show memory (or a register) in the results
 ;   type "50{{return}}"       type keys for the program to read (INPUT, GET): then wait for its answer
+;   joystick 2 right fire    hold space    release      (on the simulator: Run Transcript Without VICE)
+;   restore <snapshot>       start from a snapshot in the project's snapshots folder
 ;   wait <seconds>  step [n]  until <label>  goto <label>  interrupts on|off  timeout <seconds>
 
 run until start
@@ -624,7 +699,8 @@ def main(argv: list[str] | None = None) -> int:
         mark = {True: "pass", False: "FAIL", None: "    "}
         def worker(m, commands=commands, t=t, mark=mark):
             return Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                          lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}"), overlays=memory)
+                          lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}"), overlays=memory,
+                          folder=project.directory)
         if args.simulate:
             from .emu.sim import SimRun
             run = SimRun(worker, done.append)

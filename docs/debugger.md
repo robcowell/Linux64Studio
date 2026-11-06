@@ -135,7 +135,7 @@ Code, the screen and the disassembly refresh after every change.
 ## Snapshots
 
 **Debugger → Snapshots** saves and restores the whole machine (memory, registers, chips,
-drives), like CBM prg Studio's State Manager. Snapshots are VICE snapshot files (`.vsf`), kept in
+drives), like CBM prg Studio's State Manager. Snapshots are VICE snapshot files (`.vsf`) (the simulator's too: [below](#debugging-without-vice)), kept in
 the project's `snapshots` folder with a small `.json` beside each for its name, note, PC and which
 build it came from.
 
@@ -182,8 +182,9 @@ what was written to it, except for what makes timing and interrupts work:
   time and sets `$DC0D`'s flag when it runs out, with an interrupt if `$DC0D` has it on. That's the
   KERNAL's own interrupt, 60 times a second, so its clock ticks and its cursor blinks. Reading
   `$DC0D` clears the flags (the debugger's reads don't).
-* The keyboard and joysticks (`$DC00`, `$DC01`) read as nothing pressed. Type keys into the
-  keyboard buffer with a transcript's `type`.
+* The **keyboard and joysticks**: CIA 1's ports (`$DC00`, `$DC01`) read the keys held down, through
+  the keyboard matrix (a key reads as down in the column `$DC00` selects), and joystick 2 on
+  `$DC00`, joystick 1 on `$DC01`. So the KERNAL's keyboard scan and a game's own both see them.
 
 Interrupts happen as on a C64 while the program runs, through `$FFFE`, so a raster interrupt
 handler, music played from one, or the KERNAL's clock all work, and a breakpoint in a handler stops
@@ -196,10 +197,23 @@ memory, not an emulated VIC-II: a change made halfway down the frame shows on al
 are drawn in front of everything. As in CBM prg Studio, the program stops at a `BRK`, and at an
 opcode the 6510 doesn't document (the simulator doesn't run those). **Skip** moves past either.
 
-**Skip KERNAL calls**, in the Debugger tab's bar, steps over JSRs into the KERNAL's jump table
+**Click the Screen to play the program**: the arrow keys or the keypad (8, 4, 6, 2) move joystick 2,
+keypad 0 or Right Ctrl fires, and the other keys are the C64's (Return, Backspace for DEL, Escape for
+RUN/STOP, Left Alt for the Commodore key, F1/F3/F5/F7). The program runs at a real PAL C64's speed;
+tick **Full speed**, in the Debugger tab's bar, to run it as fast as the simulator can (about twice
+that), to get to a breakpoint sooner.
+
+**Skip KERNAL calls**, in the bar too, steps over JSRs into the KERNAL's jump table
 (`$FF81`-`$FFF3`) as if they returned at once, as CBM prg Studio's option does. Without VICE's ROMs
 there's no KERNAL to run, so it's on, and a program that isn't at `$0801` (or has a SYS line) starts
-at once. Snapshots need VICE.
+at once.
+
+**Snapshots** work on the simulator too, in the same Snapshots list. A snapshot of the simulator is
+a `.vsf` with VICE's CPU and memory parts, so it's listed and compared like VICE's, and one of its own
+for the I/O area and the chips' state; restoring it puts the simulator back exactly as it was. It
+says *the simulator* in the list, and double-clicking one with no debug session running starts
+debugging without VICE. VICE can't load one (it has none of VICE's chips), and a VICE snapshot loads
+into the simulator as its RAM, registers and processor port, with the I/O area as it was.
 
 ## Profiler
 
@@ -325,6 +339,9 @@ check $d021 & $0f = 0
 | `show [<what> [count]]` (or `watch`) | Shows registers, or memory, in the results. |
 | `step [n]`, `stepover [n]` | Runs one instruction (or n), over a JSR with `stepover`. |
 | `wait <seconds>` | Lets the program run that long. |
+| `joystick <port> <directions>` | On the simulator: what's pressed on joystick 1 or 2 from now on, `up`, `down`, `left`, `right` and `fire` (as many as you like), or `none`. |
+| `hold <keys>`, `release [<keys>]` | On the simulator: C64 keys held down from now on, by name (`a`, `space`, `return`, `f1`, `shift`, `ctrl`, `commodore`, `stop`...); `release` on its own lets go of them all. |
+| `restore <snapshot>` | Puts the machine back as a snapshot has it: a `.vsf`, or its name in the project's `snapshots` folder (a simulator's on the simulator, VICE's on either). |
 | `type "<text>"` | Types keys for the program to read, with `INPUT` or `GET`: listing notation, so letters unshifted, capitals shifted, and `{return}`, `{clear}`, `{f1}` and other codes. Any length (the keyboard buffer takes 10 at a time); it goes on once the program has read them all, so follow it with `wait` before checking the answer. |
 | `interrupts on` / `off` | Clears or sets the I flag: off, a call's cycles are its own, with no interrupt counted in them. |
 | `timeout <seconds>` | How long a call or `until` may take before it fails (10 s at first). |

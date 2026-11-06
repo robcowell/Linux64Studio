@@ -87,6 +87,11 @@ timing of a main loop or an interrupt. Code that needs the real chips needs VICE
 sprite collisions, the screen as the VIC-II really draws it. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.
 
+It runs at a real C64's speed. Click the Screen and the keyboard is the C64's, with the arrow keys
+as joystick 2 (keypad 0 or Right Ctrl fires), so a game can be played there. **Full speed** in the
+Debugger tab's bar runs it as fast as it goes, to get to a breakpoint sooner. **Debugger → Snapshots**
+saves the simulated machine at any moment, to come back to it later.
+
 ## Tests without VICE
 
 Make a transcript (**File → New → Transcript (tests)…**, `tests.transcript`) with:
@@ -113,6 +118,9 @@ at all. That's how tests can run on a build server, or every time you commit.
 * Debug [the flash program](2-assembler.md) without VICE, and step through `flash`: its cycle
   counts are the same as VICE's, down to the last cycle.
 * Change `cmp #50` to `cmp #25` and see the border change twice a second.
+* On the simulator, a transcript can move the joystick and hold keys: `joystick 2 right fire`, then
+  `wait 1` and check where the player got to; `hold space`, `release`. That's a game's controls
+  tested with no one at the keyboard.
 
 That's the last tutorial. The Retro Game Dev books carry on from here: open a chapter's `.cbmprj`
 with **File → Open Project**.
