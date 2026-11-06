@@ -770,3 +770,167 @@ def test_the_screen_as_vice_shows_it(name, tmp_path):
                 differ.append((px, line, c, pixels[y * width + x] & 15))
     assert not differ, f"{len(differ)} pixels differ (x, line, ours, VICE's): {differ[:10]}"
     assert _digest(ours) == SCREENS[name]
+
+
+# ---------------------------------------------------------------------- the VIC-II taking the bus
+
+def _bus(d011=0x1B):
+    """A simulated C64's memory with the screen on (or as d011 says), a frame's start just gone."""
+    m = Machine(roms={})
+    mem = m.memory
+    mem.io[0x11] = d011
+    mem.resync_vic(40 * 63)
+    return mem
+
+
+def test_a_read_on_a_badline_waits_for_the_vic_ii_and_a_write_doesnt_at_first():
+    from l64s.emu.sim import WRITES
+    mem = _bus()
+    line = 51 * 63                                     # (51 & 7 == 3: a badline)
+    assert mem.stall(line + 11, 2, ()) == 43           # reads from cycle 12: wait until cycle 55
+    assert mem.stall(line + 8, 4, WRITES[0x8D]) == 0   # STA abs: its write at cycle 12 goes ahead
+    mem = _bus()
+    assert mem.stall(line + 9, 4, WRITES[0x8D]) == 43  # but a read in cycle 12 waits
+    mem = _bus()
+    assert mem.stall(line + 12, 6, WRITES[0xEE]) == 42  # INC abs from cycle 13: waits until 55
+    mem = _bus()
+    assert mem.stall(52 * 63 + 11, 4, ()) == 0         # not a badline
+    mem = _bus(0x0B)
+    assert mem.stall(line + 11, 4, ()) == 0            # the screen off: none
+
+
+def test_a_sprite_takes_two_cycles_and_three_before_them():
+    mem = _bus(0x0B)
+    mem.io[0x15], mem.io[0x01] = 1, 100                # sprite 0 at Y 100
+    t = 100 * 63 + 54                                  # cycle 55 of its line: BA goes low
+    assert mem.stall(t, 2, ()) == 5                    # reads wait out cycles 55-59
+    mem.io[0x15] = 0
+    mem = _bus(0x0B)
+    mem.io[0x15], mem.io[0x01], mem.io[0x17] = 1, 100, 1
+    total = sum(mem.stall(t + 63 * k, 2, ()) for k in range(45))
+    assert total == 42 * 5                             # twice as tall: 42 lines of DMA
+
+
+def test_inc_d019_acknowledges_the_vic_iis_interrupt():
+    m = ram_only(bytes([0xEE, 0x19, 0xD0]))            # inc $d019
+    m.memory.poke(1, 0x35)                             # (I/O in)
+    m.memory.vic_flags = 1
+    m.step()
+    assert m.memory.vic_flags == 0                     # its first write, of what it read, clears it
+
+
+# A program run to `mark` in VICE, then VICE's state is copied into the simulator, and both run on
+# to `done`, about 1.9 frames later (the screen on, eight sprites, a raster interrupt): the raster
+# position there must be the same, to the cycle.
+TIMING = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   sei
+        lda #$7f
+        sta $dc0d
+        lda $dc0d
+        lda #{d011}
+        sta $d011
+        ldx #15
+@pos    lda where,x
+        sta $d000,x
+        dex
+        bpl @pos
+        lda #%10100101  ; 0, 2, 5 and 7 twice as tall
+        sta $d017
+        lda #{sprites}
+        sta $d015
+        lda #<handler
+        sta $0314
+        lda #>handler
+        sta $0315
+        lda #100
+        sta $d012
+        lda #{irq}
+        sta $d01a
+frame   lda #250        ; (where no sprite has DMA on: the copy doesn't carry it)
+@w      cmp $d012
+        bne @w
+mark    nop
+        cli
+        ldy #3
+outer   ldx #0
+work    lda $1000
+        sta $1001
+        inc $1002
+        jsr sub
+        pha
+        pla
+        lda ($fb),y
+        sta $1100,x
+        dex
+        bne work
+        dey
+        bne outer
+done    nop
+        sei
+        jmp frame
+sub     rts
+where   byte 30,40, 60,41, 90,100, 120,101, 150,170, 180,200, 210,10, 240,195
+handler inc $d019
+        jmp $ea81
+"""
+TIMINGS = {"badlines": ("$1b", "0", "0"), "scrolled 0": ("$18", "0", "0"), "sprites": ("$0b", "$ff", "0"),
+           "all": ("$1b", "$ff", "1"), "scrolled 7": ("$1f", "$ff", "1")}
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+@pytest.mark.parametrize("name", sorted(TIMINGS))
+def test_the_cycles_the_vic_ii_takes_as_in_vice(name, tmp_path):
+    from l64s.asm.cli import main as l64asm
+    from l64s.emu import vice
+    from l64s.emu.binmon import EVT_STOPPED, BinaryMonitor
+    from l64s.emu.sim import CYCLES_PER_LINE, load_snapshot
+    d011, sprites, irq = TIMINGS[name]
+    (tmp_path / "t.asm").write_text(TIMING.format(d011=d011, sprites=sprites, irq=irq))
+    assert l64asm([str(tmp_path / "t.asm"), "-o", str(tmp_path / "t.prg"), "-l", str(tmp_path / "t.vs"), "-q"]) == 0
+    labels = {p[2].lstrip("."): int(p[1].split(":")[-1], 16) for p in
+              (line.split() for line in (tmp_path / "t.vs").read_text().splitlines()) if len(p) >= 3}
+    stopped = threading.Event()
+    mon = BinaryMonitor(lambda t, _b: stopped.set() if t == EVT_STOPPED else None)
+    port = vice.free_port()
+    proc = vice.launch(tmp_path / "t.prg", "", None, port, ["-sounddev", "dummy", "-warp"])
+    try:
+        assert vice.wait_for_port(port, 15)
+        mon.connect(port=port)
+        time.sleep(2)
+
+        def run_to(label):
+            cp = mon.add_checkpoint(labels[label])
+            stopped.clear()
+            mon.resume()
+            assert stopped.wait(20)
+            mon.delete_checkpoint(cp.id)
+            return mon.get_registers()
+        at_mark = run_to("mark")
+        mon.dump(str(tmp_path / "mark.vsf"))
+        vic = mon.read_memory(0xD000, 0xD02E)
+        at_done = run_to("done")
+        mon.quit()
+    finally:
+        proc.terminate()
+
+    def position(r):
+        return r["LIN"] * CYCLES_PER_LINE + r["CYC"]
+    m = Machine()
+    load_snapshot(m, tmp_path / "mark.vsf")
+    mem, c = m.memory, m.cpu
+    t = c.processorCycles - c.processorCycles % FRAME + position(at_mark)     # VICE's raster position
+    c.processorCycles = t
+    mem.io[0:0x2F] = vic
+    mem.io[0x11] &= 0x7F                               # (read, $D011 and $D012 are the raster line;
+    mem.io[0x12] = 100                                 # written, the interrupt's)
+    mem.vic_flags = vic[0x19] & 0x0F
+    mem.resync_vic(t)
+    mem.schedule_raster()
+    mem.next_frame = t - t % FRAME + FRAME
+    mem.next_line = t - t % CYCLES_PER_LINE + 14
+    m.run(max_cycles=FRAME * 3, until=lambda: c.pc == labels["done"])
+    took = (position(m.registers()) - position(at_mark)) % FRAME
+    assert took == (position(at_done) - position(at_mark)) % FRAME

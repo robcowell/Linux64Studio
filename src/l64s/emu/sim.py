@@ -16,7 +16,9 @@ written, except for what makes a program's timing and interrupts work:
   memory as the Screen view draws it;
 * the keyboard and joysticks: CIA 1's ports ($DC00, $DC01) read the keys held down (``hold``), as
   the keyboard matrix connects them to the columns selected, and the joysticks (``joystick``):
-  port 2's on $DC00, port 1's on $DC01.
+  port 2's on $DC00, port 1's on $DC01;
+* the cycles the VIC-II takes from the 6510 on badlines and for sprites (``Memory.stall``);
+* a read-modify-write's first write, of what it read, in the I/O area (so INC $D019 acknowledges).
 
 The disk drive is ``emu.simdrive``'s: the KERNAL's serial bus routines are taken over at their entry
 points (while the KERNAL is banked in) and answered by drive 8 (``attach_disk``).
@@ -130,9 +132,21 @@ class Memory:
         self.fetched: dict[int, tuple[bytes, bytes]] = {}
         self.rows = Rows()
         self.next_line = 14
+        # when the VIC-II has the bus (``stall``): the windows decided so far [(BA low from, to, the bus
+        # taken from, to)], in cycles; the next point where it decides more (a badline at cycle 12 of a
+        # line, the sprites' DMA at 55); each sprite's lines of DMA left; the screen switched on at line 48
+        self.windows: list[tuple[int, int, int, int]] = []
+        self.next_decision = 0
+        self.decisions = 0                     # (which of the line's two is next: 0 badline, 1 sprites)
+        self.dma_left = [0] * 8
+        self.den = False
+        self.quiet_until = 0
+        self.resync_vic(0)
         self.last_frame: tuple[bytes, list, dict] | None = None
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
+        self.rmw = False                       # the instruction running reads, modifies and writes memory
+        self.rmw_read: tuple[int, int] | None = None   # (address, value) it read in the I/O area
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
         self._bank()
 
@@ -155,11 +169,19 @@ class Memory:
     def __getitem__(self, a: int) -> int:
         if self.watch and a in self.watch and self.watch[a] & OP_LOAD:
             self.touched.append((a, OP_LOAD))
-        return self.peek(a, True)
+        v = self.peek(a, True)
+        if self.rmw and 0xD000 <= a < 0xE000:
+            self.rmw_read = (a, v)
+        return v
 
     def __setitem__(self, a: int, v: int) -> None:
         if self.watch and a in self.watch and self.watch[a] & OP_STORE:
             self.touched.append((a, OP_STORE))
+        if self.rmw_read is not None and self.rmw_read[0] == a and self.io_in:
+            # a read-modify-write writes what it read back first, then the result (py65 does only the
+            # second): so INC $D019 acknowledges the VIC-II's interrupt, as on a C64
+            self.poke(a, self.rmw_read[1], True)
+        self.rmw_read = None
         self.poke(a, v, True)
 
     def peek(self, a: int, cpu: bool = False) -> int:
@@ -374,6 +396,71 @@ class Memory:
         self.collided_sprites |= ss
         self.collided_background |= sb
 
+    # ------------------------------------------------------------------ the VIC-II taking the bus
+    # On a badline the VIC-II reads the row's screen and colour memory in cycles 15-54 (counting a line's
+    # cycles from 1, as Christian Bauer's "The MOS 6567/6569 video controller" does), and for each sprite
+    # with DMA on, its data in two cycles from cycle 58 (sprite 0) to cycle 10 of the next line (sprite
+    # 7). Three cycles before, it pulls BA low: the 6510 stops at its next read, and carries on when the
+    # VIC-II is done; writes go on until the bus is taken. Cycle k of line L is cycle L * 63 + k - 1.
+
+    def resync_vic(self, now: int) -> None:
+        """Start the VIC-II's bus decisions afresh from cycle ``now`` (at power-on, or after a jump in
+        time, a snapshot restored)."""
+        self.windows = []
+        self.dma_left = [0] * 8
+        line_start = now - now % CYCLES_PER_LINE
+        self.next_decision, self.decisions = line_start + 11, 0
+        if self.next_decision < now:
+            self.next_decision, self.decisions = line_start + 54, 1
+            if self.next_decision < now:
+                self.next_decision, self.decisions = line_start + CYCLES_PER_LINE + 11, 0
+        self.quiet_until = self.next_decision
+
+    def _decide(self) -> None:
+        """The VIC-II's next decision: is this line a badline (cycle 12), or which sprites read their data
+        after cycle 55. With the registers as they are now."""
+        at = self.next_decision
+        start = at - at % CYCLES_PER_LINE
+        line = (at // CYCLES_PER_LINE) % LINES
+        io = self.io
+        if self.decisions == 0:
+            if line == 48:
+                self.den = bool(io[0x11] & 0x10)
+            if self.den and 48 <= line <= 247 and (line & 7) == (io[0x11] & 7):
+                self.windows.append((start + 11, start + 54, start + 14, start + 54))
+            self.next_decision, self.decisions = start + 54, 1
+        else:
+            for n in range(8):
+                if not self.dma_left[n] and io[0x15] >> n & 1 and io[1 + 2 * n] == line & 0xFF:
+                    self.dma_left[n] = 42 if io[0x17] >> n & 1 else 21
+                if self.dma_left[n]:
+                    self.dma_left[n] -= 1
+                    s = start + 57 + 2 * n
+                    self.windows.append((s - 3, s + 2, s, s + 2))
+            self.next_decision, self.decisions = start + CYCLES_PER_LINE + 11, 0
+
+    def stall(self, t0: int, n: int, writes: tuple[int, ...]) -> int:
+        """The cycles an instruction (or an interrupt) of ``n`` cycles from ``t0`` waits for the VIC-II:
+        ``writes``, which of its cycles are writes (the rest read)."""
+        if t0 + n <= self.quiet_until:
+            return 0
+        self.windows = [w for w in self.windows if w[1] > t0]
+        cur = t0
+        for i in range(n):
+            write = i in writes
+            while True:
+                while cur >= self.next_decision:
+                    self._decide()
+                for w in self.windows:
+                    if (w[2] <= cur < w[3]) if write else (w[0] <= cur < w[1]):
+                        cur = w[3] if write else w[1]
+                        break
+                else:
+                    break
+            cur += 1
+        self.quiet_until = min([self.next_decision] + [w[0] for w in self.windows if w[1] > cur])
+        return cur - t0 - n
+
     def irq(self) -> bool:
         """Whether something's asking for an interrupt."""
         return self.vic_irq() or self.cia_irq()
@@ -391,6 +478,26 @@ class CPU(MPU):
 
 
 ILLEGAL = frozenset(op for op in range(256) if CPU.instruct[op].__name__ == "inst_not_implemented")
+
+
+def _writes(op: int, n: int) -> tuple[int, ...]:
+    """Which of an instruction's ``n`` cycles are writes: a store's last, a read-modify-write's last two
+    (it writes the old value back, then the new), a push's, JSR's two pushes, BRK's three."""
+    name, mode = CPU.disassemble[op]
+    if name in ("STA", "STX", "STY", "PHA", "PHP"):
+        return (n - 1,)
+    if name in ("ASL", "LSR", "ROL", "ROR", "INC", "DEC") and mode not in ("acc", "imp"):
+        return (n - 2, n - 1)
+    if name == "JSR":
+        return (3, 4)
+    if name == "BRK":
+        return (2, 3, 4)
+    return ()
+
+
+WRITES = [_writes(op, CPU.cycletime[op]) for op in range(256)]
+RMW = frozenset(op for op in range(256) if len(WRITES[op]) == 2 and CPU.disassemble[op][0] != "JSR")   # (only reads' cycles vary)
+IRQ_WRITES = (2, 3, 4)                  # an interrupt: two reads, three pushes, the vector's two reads
 
 
 @dataclass
@@ -562,7 +669,9 @@ class Machine:
         m = self.memory
         m.tick(c.processorCycles)
         if interrupts and not c.p & 0x04 and m.irq():
+            t0 = c.processorCycles
             c.irq()
+            c.processorCycles += m.stall(t0, 7, IRQ_WRITES)
             return
         pc = c.pc
         if check and pc in self.exec_at and pc != self.resume_at:
@@ -592,7 +701,12 @@ class Machine:
                 c.pc = (pc + 3) & 0xFFFF            # (as if the call returned at once)
                 c.processorCycles += 12            # its JSR and RTS
                 return
+        t0 = c.processorCycles
+        m.rmw = op in RMW
+        m.rmw_read = None
         c.step()
+        m.rmw = False
+        c.processorCycles += m.stall(t0, c.processorCycles - t0, WRITES[op])
         if pc == self.resume_at:
             self.resume_at = None
         if m.touched:
@@ -987,5 +1101,7 @@ def load_snapshot(machine: Machine, path: Path) -> int:
         from .simscreen import registers_now
         mem.schedule_raster()
         mem.frame_start, mem.frame_log, mem.last_frame = registers_now(mem.io), [], None
+    mem.resync_vic(c.processorCycles)
+    mem.next_line = c.processorCycles - c.processorCycles % CYCLES_PER_LINE + 14
     machine.stopped_at = machine.resume_at = None
     return c.pc

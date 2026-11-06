@@ -151,9 +151,9 @@ def fetch_row(ram, io, chargen, r: bytes, row: int) -> tuple[bytes, bytes]:
 
 # ---------------------------------------------------------------------- the graphics
 
-def _cells(v: _Vic, io, r: bytes, where: tuple[int, int] | None, fetched):
-    """A line's 40 cells: (the 8 pixels' byte, its colours (for 0/1 or the 4 pairs), multicolour).
-    ``where``: (row, line in the row), or None for the idle state's byte."""
+def _cells(v: _Vic, io, r: bytes, where: tuple[int, int] | None, fetched, columns=range(40)):
+    """A line's 40 cells (or those in ``columns``): (the 8 pixels' byte, its colours (for 0/1 or the 4
+    pairs), multicolour). ``where``: (row, line in the row), or None for the idle state's byte."""
     d011, d016, d018 = r[0x11], r[0x16], r[0x18]
     bitmap, ecm, mcm = bool(d011 & 0x20), bool(d011 & 0x40), bool(d016 & 0x10)
     bg = [r[0x21 + i] & 15 for i in range(4)]
@@ -165,7 +165,7 @@ def _cells(v: _Vic, io, r: bytes, where: tuple[int, int] | None, fetched):
         idle = None
         got = fetched.get(row) if fetched else None
         codes, colours = got if got is not None else fetch_row(v.ram, io, v.chargen, r, row)
-    for col in range(40):
+    for col in columns:
         code, colour = codes[col], colours[col]
         if bitmap:
             data = idle if idle is not None else v.byte((d018 & 8) * 0x400 + (row * 40 + col) * 8 + line)
@@ -217,10 +217,10 @@ def _graphics(v: _Vic, io, r: bytes, where, fetched) -> tuple[list[int], int]:
     return out, mask
 
 
-def _foreground(v: _Vic, io, r: bytes, where, fetched) -> int:
-    """Only the foreground of _graphics (for collisions, every frame)."""
+def _foreground(v: _Vic, io, r: bytes, where, fetched, columns=range(40)) -> int:
+    """Only the foreground of _graphics (for collisions, every frame), of the cells in ``columns``."""
     fg = bytearray(40)
-    for i, (data, _colours, multi) in enumerate(_cells(v, io, r, where, fetched)):
+    for i, (data, _colours, multi) in zip(columns, _cells(v, io, r, where, fetched, columns)):
         if multi:
             data &= 0xAA
             data |= data >> 1
@@ -351,7 +351,12 @@ def collisions(ram, io, chargen, lines: list[bytes] | None = None, fetched: dict
                     if pa & pb:
                         ss |= 1 << a | 1 << b
         if not border[line]:
-            bg = _foreground(vic(r), io, r, rows[line], fetched) << LEFT_X
+            # the cells under the sprites (and the one before, which the fine scroll may push under)
+            first = max(0, (min(x for _n, x, _c in drawn) - LEFT_X - 7) // 8)
+            last = min(39, (max(x + len(c) for _n, x, c in drawn) - LEFT_X) // 8)
+            if first > last:
+                continue
+            bg = _foreground(vic(r), io, r, rows[line], fetched, range(first, last + 1)) << LEFT_X
             for n, p in masks:
                 if p & bg:
                     sb |= 1 << n

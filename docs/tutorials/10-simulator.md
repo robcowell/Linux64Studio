@@ -88,8 +88,8 @@ opened with OPEN work as with a 1541 (as in [tutorial 8](8-disk.md)). What the p
 in the simulator: the project's disk image isn't changed.
 
 That makes it good for logic: tables, maths, game rules, what a routine leaves in memory, and the
-timing of a main loop or an interrupt. Code that needs the real chips needs VICE: sound you can hear,
-and the cycles the VIC-II steals. The Screen is close to a C64's: it's drawn a line at a time, with
+timing of a main loop or an interrupt, with the cycles the VIC-II takes for badlines and sprites
+counted as on a C64. Code that needs the real chips needs VICE: sound you can hear, for one. The Screen is close to a C64's: it's drawn a line at a time, with
 the registers and screen memory each line had, and it matches VICE's picture for text, bitmaps,
 scrolling, sprites and the border. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.

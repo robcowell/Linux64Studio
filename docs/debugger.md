@@ -197,8 +197,19 @@ handler, music played from one, or the KERNAL's clock all work, and a breakpoint
 there. A single step never goes into one: Step Into and Step Over run the instruction at the PC, and
 any interrupt waits until the program runs on. Stepping over a JSR runs the subroutine with
 interrupts, as running does. CIA 2, its NMI, and the CIAs' other timers and time-of-day clocks
-aren't there. The VIC-II never takes cycles from the CPU either, so the counts are those of a
-blanked screen.
+aren't there.
+
+**The VIC-II takes cycles from the CPU** as on a C64. On a badline (the first line of each character
+row, with the screen on) it reads the row's screen and colour memory, and the 6510 waits about 40
+cycles. Each sprite takes 2 cycles a line while it's shown, plus 3 before it when it's the first of a
+run. The 6510 stops at its next read once the VIC-II asks for the bus, and writes go ahead until it
+takes it, so how long an instruction waits depends on which of its cycles are reads. So the cycle
+counter, the profiler's figures and a raster loop's timing are a real C64's, screen and sprites
+included. `tests/test_sim.py` copies VICE's state into the simulator partway through a program and
+checks that both reach the same raster position, to the cycle, about two frames later: with
+badlines at different scrolls, eight sprites (some twice as tall), and raster interrupts arriving
+while the VIC-II has the bus. Blank the screen (`$d011` = `$0b`) to time a routine without the
+badlines, as the tutorials' transcripts do.
 
 **The disk drive.** When the project writes a disk image, it's in the simulator's drive 8, so a
 program can load from it, as tutorial 8's intro loads its game. The simulator takes over the
