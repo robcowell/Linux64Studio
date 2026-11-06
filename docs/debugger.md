@@ -343,12 +343,14 @@ used. It's started with `-wait 2000 -debuginfo game.dbg -symbols game.vs -prg ga
 
 These are worked around automatically, and were found with VICE 3.7.1:
 
-* After a register is written, VICE ignores the next step, and if a breakpoint is active at
-  the PC meanwhile, the step after that stops on it without running anything. The debugger
-  finds out at start-up whether this VICE does that (it writes A back to itself during the
-  KERNAL's reset and sees whether a step moves the PC). If it does, each register edit is
-  followed by the step VICE ignores, with any breakpoint at the PC switched off, so your next
-  step runs exactly one instruction.
+* After a register is written, VICE runs the next instruction but leaves the PC where it was, so
+  that instruction would run twice: set A, step over an `inc counter`, and `counter` went up by 2.
+  So after any register edit (or Skip), the debugger puts a `JMP` to the PC in the cassette buffer
+  (`$033C`, its three bytes put back afterwards), points the PC at it, and runs to the PC with your
+  breakpoints switched off. The JMP is what runs twice, harmlessly, and your next step runs the
+  instruction once. Transcripts do the same before a `call`, `goto`, `step` or run. Earlier
+  versions of Linux64Studio took an extra hidden step instead, believing VICE ignored it, which ran
+  the instruction twice.
 * Setting breakpoints at start-up makes VICE stop briefly. Those stops are never shown.
 * VICE logs a line each time the monitor lets it carry on. Its log isn't kept (it goes to
   `/dev/null`): when it was kept in a pipe nothing read, a long session filled the pipe after about

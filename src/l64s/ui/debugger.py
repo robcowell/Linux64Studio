@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 import gi
@@ -53,11 +52,6 @@ class DebugSession(GObject.Object):
         # While connecting and setting breakpoints, VICE stops briefly for each command. Those
         # stops are never shown, whatever order VICE's events arrive in.
         self.starting = True
-        # VICE 3.7.1 ignores the first step after a register write, and if a breakpoint is
-        # active at the PC meanwhile, the step after that stops on it without running anything.
-        # Whether this VICE does it is found out at start-up; if so, set_register() takes the
-        # ignored step itself, unseen, with any breakpoint at the PC switched off.
-        self.regset_swallows_step = False
         self._quiet = False
         self._quiet_stop = threading.Event()
         self.checkpoints: dict[int, int] = {}  # address -> checkpoint id
@@ -84,7 +78,6 @@ class DebugSession(GObject.Object):
                 return
             try:
                 self.monitor.connect(port=port)
-                self._calibrate()
                 for a in sorted(set(breakpoints) | self.source_breakpoints):
                     self.checkpoints[a] = self.monitor.add_checkpoint(a).id
                     if a in self.conditions:
@@ -115,36 +108,34 @@ class DebugSession(GObject.Object):
             GLib.idle_add(self.emit, "ended", f"Couldn't load the memory before debugging: {e}")
         self._overlay_checkpoint = None
 
-    def _calibrate(self):
-        """Find out whether a step after a register write is ignored, while the KERNAL is still
-        resetting (so an extra instruction there makes no difference)."""
-        m = self.monitor
-        before = m.get_registers()
-        m.set_register("A", before.get("A", 0))   # writes the value it already has
-        m.step(1)
-        time.sleep(0.05)
-        self.regset_swallows_step = m.get_registers().get("PC") == before.get("PC")
-
     def set_register(self, name: str, value: int) -> None:
+        """Write a register, so that the next step runs the instruction at the PC once (emu.regs:
+        VICE 3.7.1 would run it twice)."""
         m = self.monitor
-        if not self.regset_swallows_step:
+        pc = value if name == "PC" else m.get_registers().get("PC", 0)
+        if name != "PC":
             m.set_register(name, value)
-            return
-        pc = value if name == "PC" else m.get_registers().get("PC")
-        cid = self.checkpoints.get(pc)
-        if cid is not None:
+        self._land(pc)
+
+    def _land(self, pc: int) -> None:
+        from ..emu.regs import land
+        m = self.monitor
+        mine = list(self.checkpoints.values())       # (an interrupt on the way mustn't stop on one)
+        for cid in mine:
             m.enable_checkpoint(cid, False)
-        try:
-            m.set_register(name, value)
+
+        def run():
             self._quiet_stop.clear()
             self._quiet = True
             try:
-                m.step(1)                      # the step VICE ignores; nothing runs
-                self._quiet_stop.wait(1.0)
+                m.resume()
+                self._quiet_stop.wait(2.0)
             finally:
                 self._quiet = False
+        try:
+            land(m, pc, run)
         finally:
-            if cid is not None:
+            for cid in mine:
                 m.enable_checkpoint(cid, True)
 
     def snapshot_memory(self) -> bytes:
@@ -649,6 +640,7 @@ class DebuggerPanel(Gtk.Box):
             return
         size = disassemble_one(mem, 0, pc)[0]
         if s.cmd(s.set_register, "PC", (pc + size) & 0xFFFF) is None and s.monitor.connected:
+            self._recount_from_here(s)
             self._on_stopped(s, (pc + size) & 0xFFFF, snapshot=False)
             self.state_label.set_text(f"Stopped (skipped ${pc:04X}, not run)")
 
@@ -1004,8 +996,20 @@ class DebuggerPanel(Gtk.Box):
         except (OSError, MonitorError) as e:
             self.state_label.set_text(f"Couldn't set {name}: {e}")
             return False
+        self._recount_from_here(s)
         self._on_stopped(s, value if name == "PC" else self._regs.get("PC", 0), snapshot=False)
         return True
+
+    def _recount_from_here(self, s):
+        """After a register's set (emu.regs.land runs a JMP to do it): count the next run's cycles from
+        here, not from the stop before."""
+        regs = s.cmd(s.monitor.get_registers) or {}
+        self._raster_at_stop = (regs.get("LIN", 0), regs.get("CYC", 0))
+        self._pc_at_stop = regs.get("PC")
+        if self._counter is not None:
+            now = s.cmd(self._counter.read)
+            if now is not None:
+                self._count_at_stop = now
 
     def _register_entered(self, entry, name: str):
         try:

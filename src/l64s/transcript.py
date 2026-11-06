@@ -95,7 +95,7 @@ class Runner:
         self.outcomes: list[Outcome] = []
         self.cycles: int | None = None              # the last call's
         self.call_offset = 0                        # the timers' own cycles, found by timing an RTS
-        self.swallows_step = False                  # VICE 3.7.1: a step after a register write is lost
+        self._wrote_registers = False               # since VICE last ran (see _settle)
         self._stopped = threading.Event()
         self._stop = threading.Event()
         self._running = False
@@ -160,6 +160,7 @@ class Runner:
         self._stopped.clear()
         self.monitor.resume()
         self._running = True
+        self._wrote_registers = False
 
     def _regs(self) -> dict[str, int]:
         self._stop_vice()
@@ -168,10 +169,35 @@ class Runner:
     def _set_register(self, name: str, value: int):
         self._stop_vice()
         self.monitor.set_register(name, value)
-        if self.swallows_step:                  # take the step VICE would ignore now, unseen
-            self._stopped.clear()
-            self.monitor.step(1)
-            self._stopped.wait(1)
+        self._wrote_registers = True            # (the next instruction would run twice: see _settle)
+
+    def _land(self, pc: int):
+        """Make the PC pc, with its instruction to run once (emu.regs)."""
+        from .emu.regs import land
+
+        def run():
+            self._resume()
+            if not self._stopped.wait(self.timeout):
+                self._stop_vice()
+                raise TranscriptError(f"Couldn't get the PC to ${pc:04X}")
+            self._running = False
+        self._stop_vice()
+        land(self.monitor, pc, run)
+        self._wrote_registers = False
+
+    def _settle(self):
+        """Before the program goes on: registers written since it stopped would make VICE run the
+        instruction at the PC twice, so land on it first."""
+        if self._wrote_registers:
+            self._land(self._regs()["PC"])
+
+    def _step(self, count: int, over: bool):
+        m = self.monitor
+        self._settle()
+        self._stop_vice()
+        self._stopped.clear()
+        m.step(count, over=over)
+        self._stopped.wait(self.timeout)
 
     def _ready(self):
         """Wait for BASIC's READY (VICE has just started)."""
@@ -199,17 +225,8 @@ class Runner:
             self.monitor.write_memory(address, data, side_effects=0xD000 <= address <= 0xDFFF)
 
     def _calibrate(self):
-        """Find out whether this VICE ignores a step after a register write (as the debugger does),
-        and how many cycles the timers add to a call: time an RTS (6 cycles) in the KERNAL."""
+        """How many cycles the timers add to a call: time an RTS (6 cycles) in the KERNAL."""
         m = self.monitor
-        before = m.get_registers()
-        m.set_register("A", before["A"])
-        self._stopped.clear()
-        m.step(1)
-        self._stopped.wait(1)
-        self.swallows_step = m.get_registers()["PC"] == before["PC"]
-        if not self.swallows_step:                    # it ran an instruction of the READY loop: back
-            self._set_register("PC", before["PC"])
         kernal = m.read_memory(0xE000, 0xFFFF)
         rts = 0xE000 + kernal.index(0x60)
         self.cycles = None
@@ -224,6 +241,7 @@ class Runner:
         """Run until the PC reaches the address (with this stack pointer, if given). ``failure``: the
         message if it isn't reached in time."""
         m = self.monitor
+        self._settle()
         cid = m.add_checkpoint(address).id
         try:
             deadline = time.monotonic() + self.timeout
@@ -253,7 +271,7 @@ class Runner:
         pc, sp = regs["PC"], regs["SP"]
         m.write_memory(0x0100 + ((sp - 1) & 0xFF), bytes([(TRAP - 1) & 0xFF, ((TRAP - 1) >> 8) & 0xFF]))
         self._set_register("SP", (sp - 2) & 0xFF)
-        self._set_register("PC", address)
+        self._land(address)
         # the counter last, once the registers are set (VICE's step after a register write takes time)
         counter = CycleCounter(m)
         start = counter.start()
@@ -312,6 +330,7 @@ class Runner:
                 r = self._until(self._address(m2.group(1)), what=m2.group(1))
                 self._say(c, None, f"stopped at ${r['PC']:04X}")
             else:
+                self._settle()
                 self._resume()
                 self._say(c, None, "running")
         elif verb == "until":
@@ -319,23 +338,21 @@ class Runner:
             self._say(c, None, f"stopped at ${r['PC']:04X}")
         elif verb == "goto":
             address = self._address(args)
-            self._set_register("PC", address)
+            self._land(address)
             self._say(c, None, f"PC = ${address:04X}")
         elif verb == "wait":
             try:
                 seconds = float(args.removesuffix("s"))
             except ValueError:
                 raise TranscriptError("wait <seconds>, such as wait 0.5") from None
+            self._settle()
             self._resume()
             time.sleep(seconds)
             r = self._regs()
             self._say(c, None, f"ran {seconds:g} s; stopped at ${r['PC']:04X}")
         elif verb in ("step", "stepover"):
             n = parse_number(args) if args else 1
-            self._stop_vice()
-            self._stopped.clear()
-            m.step(n, over=verb == "stepover")
-            self._stopped.wait(self.timeout)
+            self._step(n, verb == "stepover")
             r = m.get_registers()
             self._say(c, None, f"PC = ${r['PC']:04X}")
         elif verb == "interrupts":

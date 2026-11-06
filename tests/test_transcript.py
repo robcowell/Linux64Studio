@@ -107,3 +107,26 @@ def test_a_transcript_for_a_c_program(tmp_path):
                           str(tmp_path / "t.transcript"), "--vice-args=-sounddev dummy"],
                          capture_output=True, text=True, timeout=180)
     assert out.returncode == 0 and "3 checks passed, 0 failed" in out.stdout, out.stdout
+
+
+BUMP = """*=$0801
+        byte $0b,$08,$0a,$00,$9e,$32,$30,$36,$31,$00,$00,$00
+*=$080d
+bump    inc $c000
+        inc $d020
+        rts
+"""
+
+
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_a_routines_first_instruction_runs_once(tmp_path):
+    # VICE 3.7.1 runs the first instruction after a register write twice unless the runner lands
+    # on it (emu.regs): bump's inc would add 2
+    (tmp_path / "t.asm").write_text(BUMP)
+    (tmp_path / "t.transcript").write_text("set $c000 0\nset $d020 0\na $55\ncall bump\ncheck $c000 = 1\n"
+                                           "check $d020 & $0f = 1\ngoto bump\nx 7\nstep\ncheck $c000 = 2\n"
+                                           "check pc = bump+3\n")
+    out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "t.asm"),
+                          str(tmp_path / "t.transcript"), "--vice-args=-sounddev dummy"],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0 and "4 checks passed, 0 failed" in out.stdout, out.stdout
