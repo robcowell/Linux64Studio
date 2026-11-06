@@ -3,8 +3,9 @@
 A Commodore 64 development environment for Linux (GTK4/libadwaita), modelled on CBM prg Studio.
 It was built so the *Retro Game Dev C64 Edition* books by Derek Morris can be followed on Linux.
 
-New to it? Start with the [tutorials](docs/tutorials/README.md): ten short ones, from a first BASIC
-program to sprites, testing, C, screens, music, disks, the profiler and debugging without VICE.
+New to it? Start with the [tutorials](docs/tutorials/README.md): fifteen short ones, from a first BASIC
+program to sprites, testing, C, screens, music, disks, the profiler, debugging without VICE, raster
+interrupts, scrolling, the joystick, sound effects and Kick Assembler.
 **Help → Tutorials** shows them in the IDE, beside your work.
 
 ## Features
@@ -236,10 +237,10 @@ See [docs/music.md](docs/music.md).
   ([cycles](docs/debugger.md#cycles)).
 * **Debug without VICE** (Ctrl+Shift+F5): the program on a simulated C64, as in CBM prg Studio's own
   debugger: a 6510 (py65) with exact cycles (the VIC-II's badlines and sprites taking theirs, as on a C64), the real ROMs, the raster line and interrupts (the
-  VIC-II's raster interrupt and CIA 1's timer), sprite collisions, a 1541 in drive 8 with the
+  VIC-II's raster interrupt; both CIAs' timers, time-of-day clocks, IRQ and NMI; RESTORE), sprite collisions, a 1541 in drive 8 with the
   project's disk image (LOAD, SAVE, files and DOS commands), and a Screen drawn line by line as the
   VIC-II draws it (scrolling, borders, sprite priority; checked against VICE's picture), but not the rest of
-  the VIC-II, SID or CIAs. Play it on the Screen with the keyboard and a joystick on the arrow keys, and save
+  the VIC-II or the SID. Play it on the Screen with the keyboard and a joystick on the arrow keys, and save
   and restore it in Snapshots. Transcripts run on it too (`l64test --simulate`), with no emulator or
   display, and can move the joystick and hold keys ([debugging without VICE](docs/debugger.md#debugging-without-vice)).
 * **Debug in RetroDebugger / C64 Debugger** opens the program there with its debug dump

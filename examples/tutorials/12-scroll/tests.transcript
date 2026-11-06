@@ -1,0 +1,9 @@
+; Scroller: does the row move left, a character every 8 frames? (Row 12 is $05E0-$0607.)
+run until shift                   ; the row's first move
+until frame                       ; done, and the next frame started
+check $0607 = "h"                 ; the message's first letter, on the right
+check $d016 & $0f = $07           ; 38 columns, scrolled 7 pixels
+until shift                       ; 8 frames later
+until frame
+check $0606 = "he"                ; it moved one place left, and the next came in
+check $d9e0 & $0f = 7             ; yellow

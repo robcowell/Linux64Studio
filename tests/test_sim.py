@@ -254,16 +254,23 @@ def test_the_screen_as_the_vic_ii_would_show_it():
 
 
 @needs_roms
-@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "8-disk", "9-profiler", "10-simulator"])
+@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "8-disk", "9-profiler",
+                                  "10-simulator", "11-raster", "12-scroll", "13-joystick", "13-joystick play",
+                                  "14-sound", "15-kickass"])
 def test_the_tutorials_transcripts_pass_on_the_simulator(name, tmp_path):
-    """Without VICE: what the tutorials say each program does, on the simulated C64."""
+    """Without VICE: what the tutorials say each program does, on the simulated C64 (and tutorial 13's
+    play.transcript, which only the simulator can run: it pushes the joystick)."""
+    from l64s.project.build import default_kickass_jar
     from l64s.sid.goattracker import find_tool
+    name, _, which = name.partition(" ")
     if name == "7-music" and find_tool("gt2reloc") is None:
         pytest.skip("GoatTracker's gt2reloc isn't installed (it packs the song)")
+    if name == "15-kickass" and not (default_kickass_jar() and shutil.which("java")):
+        pytest.skip("Kick Assembler (or Java) isn't installed")
     project = next((ROOT / "examples" / "tutorials" / name).glob("*.l64proj"))
     shutil.copytree(project.parent, tmp_path / "p")
     out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "p" / project.name),
-                          str(tmp_path / "p" / "tests.transcript"), "--simulate"],
+                          str(tmp_path / "p" / f"{which or 'tests'}.transcript"), "--simulate"],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0 and " 0 failed" in out.stdout, out.stdout
 
@@ -879,16 +886,16 @@ TIMINGS = {"badlines": ("$1b", "0", "0"), "scrolled 0": ("$18", "0", "0"), "spri
            "all": ("$1b", "$ff", "1"), "scrolled 7": ("$1f", "$ff", "1")}
 
 
-@needs_roms
-@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
-@pytest.mark.parametrize("name", sorted(TIMINGS))
-def test_the_cycles_the_vic_ii_takes_as_in_vice(name, tmp_path):
+def _from_vice(tmp_path, source: str, memory: tuple[int, int] | None = None):
+    """Run ``source`` in VICE to its ``mark``, copy VICE's state into the simulator (the RAM, the 6510,
+    the raster position, the VIC-II's registers and interrupt flags; the program sets up the CIAs
+    afresh after ``mark``), and run both on to ``done``. Returns the cycles each took to get there
+    (as a raster position: mod a frame), and each one's ``memory`` (first, last) then."""
     from l64s.asm.cli import main as l64asm
     from l64s.emu import vice
     from l64s.emu.binmon import EVT_STOPPED, BinaryMonitor
     from l64s.emu.sim import CYCLES_PER_LINE, load_snapshot
-    d011, sprites, irq = TIMINGS[name]
-    (tmp_path / "t.asm").write_text(TIMING.format(d011=d011, sprites=sprites, irq=irq))
+    (tmp_path / "t.asm").write_text(source)
     assert l64asm([str(tmp_path / "t.asm"), "-o", str(tmp_path / "t.prg"), "-l", str(tmp_path / "t.vs"), "-q"]) == 0
     labels = {p[2].lstrip("."): int(p[1].split(":")[-1], 16) for p in
               (line.split() for line in (tmp_path / "t.vs").read_text().splitlines()) if len(p) >= 3}
@@ -912,6 +919,7 @@ def test_the_cycles_the_vic_ii_takes_as_in_vice(name, tmp_path):
         mon.dump(str(tmp_path / "mark.vsf"))
         vic = mon.read_memory(0xD000, 0xD02E)
         at_done = run_to("done")
+        vice_memory = mon.read_memory(*memory) if memory else b""
         mon.quit()
     finally:
         proc.terminate()
@@ -925,12 +933,246 @@ def test_the_cycles_the_vic_ii_takes_as_in_vice(name, tmp_path):
     c.processorCycles = t
     mem.io[0:0x2F] = vic
     mem.io[0x11] &= 0x7F                               # (read, $D011 and $D012 are the raster line;
-    mem.io[0x12] = 100                                 # written, the interrupt's)
+    mem.io[0x12] = labels.get("compare", 100)          # written, the interrupt's)
     mem.vic_flags = vic[0x19] & 0x0F
     mem.resync_vic(t)
     mem.schedule_raster()
     mem.next_frame = t - t % FRAME + FRAME
     mem.next_line = t - t % CYCLES_PER_LINE + 14
+    mem.due = 0
     m.run(max_cycles=FRAME * 3, until=lambda: c.pc == labels["done"])
-    took = (position(m.registers()) - position(at_mark)) % FRAME
-    assert took == (position(at_done) - position(at_mark)) % FRAME
+    sim_memory = bytes(mem.ram[memory[0]:memory[1] + 1]) if memory else b""
+    return ((position(at_done) - position(at_mark)) % FRAME, (position(m.registers()) - position(at_mark)) % FRAME,
+            vice_memory, sim_memory)
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+@pytest.mark.parametrize("name", sorted(TIMINGS))
+def test_the_cycles_the_vic_ii_takes_as_in_vice(name, tmp_path):
+    d011, sprites, irq = TIMINGS[name]
+    vice_took, sim_took, _v, _s = _from_vice(tmp_path, TIMING.format(d011=d011, sprites=sprites, irq=irq))
+    assert sim_took == vice_took
+
+
+# ---------------------------------------------------------------------- the CIAs
+
+def _cia():
+    from l64s.emu.simcia import Cia
+    return Cia()
+
+
+def test_a_timer_starts_three_cycles_on_and_reads_its_latch_where_it_would_read_0():
+    c = _cia()
+    c.write(4, 10, 0)
+    c.write(5, 0, 0)
+    c.write(14, 0x19, 100)                              # one-shot, loaded, started at cycle 100
+    counts = [c.read(4, 100 + d, clear=False) for d in range(16)]
+    assert counts[:4] == [10, 10, 10, 10] and counts[4:13] == [9, 8, 7, 6, 5, 4, 3, 2, 1]
+    assert counts[13:] == [10, 10, 10]                  # ran out at 113 (one-shot: stopped)
+    assert not c.cra & 1
+    c = _cia()
+    c.write(4, 10, 0)
+    c.write(5, 0, 0)
+    c.write(14, 0x19, 100)
+    assert c.read(13, 112, clear=False) == 0 and c.read(13, 113, clear=False) == 1   # its flag, as it runs out
+
+
+def test_a_continuous_timer_runs_out_every_latch_plus_1_cycles():
+    c = _cia()
+    c.write(4, 4, 0)
+    c.write(5, 0, 0)
+    c.write(14, 0x11, 0)                               # continuous: 4 ... 1, then 4 twice
+    assert [c.read(4, t, clear=False) for t in range(3, 15)] == [4, 3, 2, 1, 4, 4, 3, 2, 1, 4, 4, 3]
+
+
+def test_timer_b_counts_timer_a_running_out():
+    c = _cia()
+    for r, v in ((4, 9), (5, 0), (6, 2), (7, 0)):
+        c.write(r, v, 0)
+    c.write(14, 0x11, 0)
+    c.write(15, 0x51, 0)                               # B: counts A running out, from 2
+    c.update(3 + 9 + 10 * 2 + 1)                       # A's third time
+    assert c.flags & 2 and c.read(6, 3 + 9 + 10 * 2 + 1, clear=False) == 2   # B ran out, and reloaded
+
+
+def test_reading_the_flags_clears_them_and_the_mask_says_which_interrupt():
+    c = _cia()
+    c.write(4, 5, 0)
+    c.write(5, 0, 0)
+    c.write(14, 0x19, 0)
+    assert not c.line(100)                             # flag set, but not let through
+    c.write(13, 0x81, 100)
+    assert c.line(102) and c.read(13, 102) == 0x81
+    assert c.read(13, 103) == 0 and not c.line(104)
+
+
+def test_the_time_of_day_clock():
+    from l64s.emu.simcia import CLOCK
+    c = _cia()
+    c.write(14, 0x80, 0)                               # 50 Hz
+    for r, v in ((11, 0x91), (10, 0x59), (9, 0x59), (8, 0x09)):  # 11:59:59.9 PM
+        c.write(r, v, 0)
+    c.write(15, 0x80, 0)                               # the alarm: 12:00:00.1 AM
+    for r, v in ((11, 0x12), (10, 0), (9, 0), (8, 1)):
+        c.write(r, v, 0)
+    c.write(15, 0, 0)
+    t = CLOCK // 10 + 1000
+    assert [c.read(r, t, clear=False) for r in (11, 10, 9, 8)] == [0x12, 0, 0, 0]   # midnight
+    t = 2 * CLOCK // 10 + 1000
+    assert c.read(11, t) == 0x12 and c.flags & 4      # the alarm; reading the hours latches...
+    later = 5 * CLOCK // 10 + 1000
+    assert c.read(8, later) == 1                       # ...until the tenths are read
+    assert c.read(8, later, clear=False) == 4
+    c.write(11, 0x01, later)                           # writing the hours stops it
+    assert c.read(8, 2 * CLOCK, clear=False) == 4
+    c.write(8, 0, 2 * CLOCK)                           # until the tenths are written
+    assert c.read(8, 2 * CLOCK + CLOCK // 10 + 1000, clear=False) == 1
+
+
+def test_cia_2s_interrupt_is_an_nmi_taken_once_until_acknowledged():
+    m = ram_only(bytes([0xEA] * 16 + [0x4C, 0x00, 0x10]))     # nops, jmp $1000
+    mem = m.memory
+    mem.poke(1, 0x35)
+    mem.ram[0xFFFA:0xFFFC] = bytes([0x00, 0x20])       # the NMI's handler at $2000: a loop
+    mem.ram[0x2000:0x2003] = bytes([0x4C, 0x00, 0x20])
+    for r, v in ((0xDD04, 20), (0xDD05, 0), (0xDD0D, 0x81), (0xDD0E, 0x11)):
+        mem.poke(r, v)
+    m.run(max_cycles=60, interrupts=True)
+    assert 0x2000 <= m.cpu.pc < 0x2003
+    sp = m.cpu.sp
+    m.run(max_cycles=200, interrupts=True)            # its line stays low: no more NMIs
+    assert m.cpu.sp == sp
+
+
+@needs_roms
+def test_run_stop_and_restore_stop_a_basic_program():
+    from l64s.emu.sim import key_named
+    m = Machine()
+    assert m.boot()
+    for chunk in (b"10 GOTO 10", b"\rRUN\r"):
+        m.type_keys(chunk)
+        m.run(max_cycles=FRAME * 5)
+    m.run(max_cycles=FRAME * 10)
+    assert not 0xE5CD <= m.cpu.pc <= 0xE5D6            # running
+    m.memory.held |= {key_named("stop"), key_named("restore")}
+    m.run(max_cycles=FRAME * 10)
+    m.memory.held.clear()
+    assert m.run(max_cycles=FRAME * 50, until=lambda: 0xE5CD <= m.cpu.pc <= 0xE5D6).why == "step"
+
+
+# CIA 2's timers, flags and NMIs against VICE's: after `mark` the program starts timer A (every 1000
+# cycles) and timer B (counting A), samples them and the flags as fast as it can, then has NMIs from
+# timer A (the handler keeping timer A as it starts) with the screen on. The samples must be VICE's.
+CIA_SAMPLES = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   sei
+        lda #$7f
+        sta $dc0d
+        lda $dc0d
+        lda #$0b        ; the screen off at first
+        sta $d011
+        lda #<nmi
+        sta $0318
+        lda #>nmi
+        sta $0319
+frame   lda #250
+@w      cmp $d012
+        bne @w
+mark    nop
+        lda #$7f        ; CIA 2: no interrupts, the flags cleared
+        sta $dd0d
+        lda $dd0d
+        lda #0
+        sta $dd0e
+        sta $dd0f
+        sta count
+        lda #<1000      ; timer A: 1000 cycles; B: counts A running out, from 3
+        sta $dd04
+        lda #>1000
+        sta $dd05
+        lda #3
+        sta $dd06
+        lda #0
+        sta $dd07
+        lda #$11        ; A started (loaded)
+        sta $dd0e
+        lda #$51        ; B started, counting A
+        sta $dd0f
+        ldx #0
+@s      lda $dd04       ; timer A, B and the flags, as fast as it goes
+        sta $4000,x
+        lda $dd05
+        sta $4100,x
+        lda $dd06
+        sta $4200,x
+        lda $dd0d
+        sta $4300,x
+        inx
+        bne @s
+        lda #$1b        ; the screen on, and NMIs from timer A
+        sta $d011
+        lda #$81
+        sta $dd0d
+        ldx #0
+@t      lda $dd06
+        sta $4400,x
+        inx
+        bne @t
+        lda #$7f
+        sta $dd0d
+done    nop
+        jmp frame
+nmi     pha
+        txa
+        pha
+        ldx count
+        lda $dd04       ; timer A as the handler starts
+        sta $4500,x
+        lda $dd0d       ; (acknowledged)
+        sta $4600,x
+        inc count
+        pla
+        tax
+        pla
+        rti
+count   byte 0
+"""
+
+
+def _cia_timing_program() -> str:
+    """For each delay d (0, 2-24), a one-shot timer of 10 started, d cycles waited, then CIA 2's flags,
+    timer A's low and high byte read: into $4000+d, $4100+d, $4200+d."""
+    lines = ["*=$0801", "        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00", "*=$080D",
+             "start   sei", "        lda #$7f", "        sta $dc0d", "        lda $dc0d", "        lda #$0b", "        sta $d011",
+             "        lda #$7f", "        sta $dd0d", "frame   lda #250", "@w      cmp $d012", "        bne @w", "mark    nop"]
+    for reg, base in (("$dd0d", 0x4000), ("$dd04", 0x4100), ("$dd05", 0x4200)):
+        for d in [0] + list(range(2, 25)):
+            lines += ["        lda $dd0d", "        lda #0", "        sta $dd0e", "        lda #10", "        sta $dd04",
+                      "        lda #0", "        sta $dd05", "        lda #$19", "        sta $dd0e"]
+            lines += ["        bit $ea"] * (d % 2) + ["        nop"] * ((d - 3 * (d % 2)) // 2)
+            lines += [f"        lda {reg}", f"        sta ${base + d:04x}"]
+    lines += ["done    nop", "        jmp frame"]
+    return "\n".join(lines) + "\n"
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+@pytest.mark.parametrize("program", ["samples", "timing"])
+def test_the_cias_as_in_vice(program, tmp_path):
+    source = CIA_SAMPLES if program == "samples" else _cia_timing_program()
+    vice_took, sim_took, vice_memory, sim_memory = _from_vice(tmp_path, source, (0x4000, 0x47FF))
+    differ = [(hex(0x4000 + i), v, s) for i, (v, s) in enumerate(zip(vice_memory, sim_memory)) if v != s]
+    assert not differ, f"{len(differ)} bytes differ (address, VICE's, the simulator's): {differ[:10]}"
+    assert sim_took == vice_took
+
+
+def test_the_vic_iis_missing_bits_read_as_1_and_its_registers_repeat():
+    m = ram_only(bytes([0xEA]))
+    mem = m.memory
+    mem.poke(1, 0x35)
+    for r, v in ((0xD01A, 0x01), (0xD016, 0x08), (0xD018, 0x14), (0xD020, 0x02)):
+        mem.poke(r, v)
+    assert [mem.peek(r) for r in (0xD01A, 0xD016, 0xD018, 0xD020)] == [0xF1, 0xC8, 0x15, 0xF2]   # as VICE's
+    assert mem.peek(0xD030) == 0xFF and mem.peek(0xD060) == 0xF2   # nothing at $D02F-$D03F; $D040 is $D000

@@ -670,7 +670,8 @@ class DebuggerPanel(Gtk.Box):
             return True
         c64 = {"Return": "return", "KP_Enter": "return", "BackSpace": "del", "Delete": "del", "Escape": "stop",
                "Shift_L": "shift", "Shift_R": "rshift", "Control_L": "ctrl", "Alt_L": "commodore",
-               "Home": "home", "F1": "f1", "F3": "f3", "F5": "f5", "F7": "f7", "space": "space"}.get(name)
+               "Home": "home", "F1": "f1", "F3": "f3", "F5": "f5", "F7": "f7", "space": "space",
+               "Prior": "restore", "Page_Up": "restore"}.get(name)
         if c64 is None:
             ch = chr(Gdk.keyval_to_unicode(keyval) or 0).lower()
             c64 = ch if ch.strip() else None

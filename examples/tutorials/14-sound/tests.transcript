@@ -1,0 +1,11 @@
+; Bang: does a key play the sound?
+run until loop
+check $0400 = "press a key for a bang"
+call bang                         ; the sound's registers
+check $d400 = $b4 $08             ; C-3
+check $d405 = $09 $09             ; its envelope
+check $d418 & $0f = $0f           ; the volume
+check $d404 = $81                 ; noise, and the gate on: playing
+type "x"                          ; a key
+wait 0.2
+check $d020 & $0f = 1             ; the border flashed: it was heard

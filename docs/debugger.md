@@ -170,18 +170,27 @@ loaded, and RUN is typed (a program not at `$0801` starts at its first byte, or 
 crossings and branches included, so the cycle counter counts every run exactly, with no **Count
 all** needed. `tests/test_sim.py` checks the counts against VICE's.
 
-What isn't simulated: most of the VIC-II, SID and CIAs. `$D000`-`$DFFF` is memory that reads back
-what was written to it, except for what makes timing and interrupts work:
+What isn't simulated: the SID, and the parts of the VIC-II and CIAs below don't mention. `$D000`-`$DFFF`
+is memory that reads back what was written to it, except for:
 
 * The raster line (`$D012`, and `$D011`'s top bit) counts as on a PAL C64, 63 cycles a line, so code
   that waits for a line gets there.
 * The VIC-II's **raster interrupt**: when the raster reaches the line in `$D012` (and `$D011`'s top
   bit), `$D019`'s flag is set, and with it switched on in `$D01A`, there's an interrupt. Writing 1
   to `$D019` clears the flag.
-* CIA 1's **timer A** (`$DC04`/`$DC05`, started and stopped with `$DC0E`) counts down a cycle at a
-  time and sets `$DC0D`'s flag when it runs out, with an interrupt if `$DC0D` has it on. That's the
-  KERNAL's own interrupt, 60 times a second, so its clock ticks and its cursor blinks. Reading
-  `$DC0D` clears the flags (the debugger's reads don't).
+* The two **CIAs' timers, time-of-day clocks and interrupts**, CIA 1's at `$DC00` and CIA 2's at
+  `$DD00`. Timer A and timer B count down a cycle at a time (timer B can count timer A running out
+  instead) and set their flags in `$xD0D` when they run out, starting again from their latch or
+  stopping (one-shot). The time-of-day clock (`$xD08`-`$xD0B`) counts tenths of a second from the
+  mains' 50 Hz, with its alarm, and reading its hours holds it still until the tenths are read.
+  CIA 1's interrupt is the 6510's IRQ. CIA 1's timer A is the KERNAL's own interrupt, 60 times a
+  second, so its clock ticks and its cursor blinks. CIA 2's interrupt is the NMI, through `$FFFA`.
+  Reading `$xD0D` clears the flags (the debugger's reads don't). `tests/test_sim.py` checks the
+  timers, their flags and the NMI against VICE's, to the cycle, down to the 6526's delays: a
+  timer starts counting 3 cycles after it's started, and reads its latch where it would read 0.
+  Not there: the serial port, the timers' outputs on port B, and counting the CNT pin.
+* The **RESTORE key** is the NMI too: held with RUN/STOP, the KERNAL stops the program, as on a
+  C64.
 * **Sprite collisions**: `$D01E` (the sprites that touched another sprite) and `$D01F` (those that
   touched the background: a set pixel of a hires character or bitmap, a `10` or `11` pair of a
   multicolour one) are worked out once a frame, from memory as the Screen view draws it. They keep
@@ -196,8 +205,10 @@ Interrupts happen as on a C64 while the program runs, through `$FFFE`, so a rast
 handler, music played from one, or the KERNAL's clock all work, and a breakpoint in a handler stops
 there. A single step never goes into one: Step Into and Step Over run the instruction at the PC, and
 any interrupt waits until the program runs on. Stepping over a JSR runs the subroutine with
-interrupts, as running does. CIA 2, its NMI, and the CIAs' other timers and time-of-day clocks
-aren't there.
+interrupts, as running does. The 6510 takes an interrupt when the instruction it's running ends, if
+the interrupt came before its last cycle (a branch taken to the same page looks a cycle earlier).
+It reads and writes I/O registers on the cycle the instruction does, so a timer or the raster line
+read by `lda` is read on its fourth cycle, as on a C64.
 
 **The VIC-II takes cycles from the CPU** as on a C64. On a badline (the first line of each character
 row, with the screen on) it reads the row's screen and colour memory, and the 6510 waits about 40
@@ -268,9 +279,10 @@ simulator doesn't run those). **Skip** moves past either.
 
 **Click the Screen to play the program**: the arrow keys or the keypad (8, 4, 6, 2) move joystick 2,
 keypad 0 or Right Ctrl fires, and the other keys are the C64's (Return, Backspace for DEL, Escape for
-RUN/STOP, Left Alt for the Commodore key, F1/F3/F5/F7). The program runs at a real PAL C64's speed;
-tick **Full speed**, in the Debugger tab's bar, to run it as fast as the simulator can (about twice
-that), to get to a breakpoint sooner.
+RUN/STOP, Page Up for RESTORE, Left Alt for the Commodore key, F1/F3/F5/F7). The program runs at a real PAL C64's speed;
+tick **Full speed**, in the Debugger tab's bar, to run it as fast as the simulator can (on a
+recent PC, a fifth to a half faster than a C64, depending on the program), to get to a breakpoint
+sooner.
 
 **Skip KERNAL calls**, in the bar too, steps over JSRs into the KERNAL's jump table
 (`$FF81`-`$FFF3`) as if they returned at once, as CBM prg Studio's option does. Without VICE's ROMs
@@ -409,7 +421,7 @@ check $d021 & $0f = 0
 | `step [n]`, `stepover [n]` | Runs one instruction (or n), over a JSR with `stepover`. |
 | `wait <seconds>` | Lets the program run that long. |
 | `joystick <port> <directions>` | On the simulator: what's pressed on joystick 1 or 2 from now on, `up`, `down`, `left`, `right` and `fire` (as many as you like), or `none`. |
-| `hold <keys>`, `release [<keys>]` | On the simulator: C64 keys held down from now on, by name (`a`, `space`, `return`, `f1`, `shift`, `ctrl`, `commodore`, `stop`...); `release` on its own lets go of them all. |
+| `hold <keys>`, `release [<keys>]` | On the simulator: C64 keys held down from now on, by name (`a`, `space`, `return`, `f1`, `shift`, `ctrl`, `commodore`, `stop`, `restore`...); `release` on its own lets go of them all. |
 | `restore <snapshot>` | Puts the machine back as a snapshot has it: a `.vsf`, or its name in the project's `snapshots` folder (a simulator's on the simulator, VICE's on either). |
 | `type "<text>"` | Types keys for the program to read, with `INPUT` or `GET`: listing notation, so letters unshifted, capitals shifted, and `{return}`, `{clear}`, `{f1}` and other codes. Any length (the keyboard buffer takes 10 at a time); it goes on once the program has read them all, so follow it with `wait` before checking the answer. |
 | `interrupts on` / `off` | Clears or sets the I flag: off, a call's cycles are its own, with no interrupt counted in them. |
@@ -436,9 +448,9 @@ A few things to know:
 * **Debugger → Run Transcript Without VICE**, or `l64test --simulate`, runs them on the
   [simulated C64](#debugging-without-vice) instead: no emulator to start, nothing on screen, so it
   suits CI with no display. Calls' cycles are exact, with no timers used, and `wait` is the C64's
-  own time. Interrupts happen there too (the raster interrupt and CIA 1's timer), and the project's
-  disk image is in its drive 8 as well. A transcript that tests the rest of the VIC-II, the SID or the
-  CIAs needs VICE. The tutorials' transcripts pass on both.
+  own time. Interrupts happen there too (the raster interrupt, the CIAs' IRQ and NMI), and the
+  project's disk image is in its drive 8 as well. A transcript that tests the SID, or the parts of the
+  VIC-II the simulator doesn't have, needs VICE. The tutorials' transcripts pass on both.
 
 ## Kick Assembler projects
 

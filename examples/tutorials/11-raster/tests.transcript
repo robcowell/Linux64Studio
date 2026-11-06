@@ -1,0 +1,9 @@
+; Split: do both handlers run, once a frame each?
+run until gMLoop
+check $d01a & $0f = $01           ; raster interrupts on (the bits it hasn't got read as 1)
+wait 1
+check frames >= #45               ; a second: 50 frames
+until irqMiddle                   ; the handler for line 150
+check $d012 = #150
+until irqTop                      ; and the one for line 50
+check $d012 = #50

@@ -78,9 +78,9 @@ same ROM code as on a C64.
 
 The 6510 is simulated exactly, cycle for cycle, with the C64's memory and its ROMs. The raster line
 counts as on a real C64 (63 cycles a line, 312 lines a frame), so waiting for line 250 works. The
-VIC-II, SID and CIAs mostly aren't simulated: their registers are just memory. But the VIC-II's
-raster interrupt and CIA 1's timer are, so interrupts happen as on a C64: the KERNAL's own, 60 times
-a second, and any a program sets up. A step never goes into one, though: **F11** runs the
+SID isn't simulated (its registers are just memory), but the VIC-II's raster interrupt and both
+CIAs are: their timers, clocks and interrupts, CIA 2's as the NMI. So interrupts happen as on a C64:
+the KERNAL's own, 60 times a second, and any a program sets up. A step never goes into one, though: **F11** runs the
 instruction at the PC, and the interrupt waits until the program runs on.
 
 When the project writes a disk image, it's in the simulator's drive 8, so LOAD, SAVE and files
@@ -129,5 +129,4 @@ at all. That's how tests can run on a build server, or every time you commit.
   `wait 1` and check where the player got to; `hold space`, `release`. That's a game's controls
   tested with no one at the keyboard.
 
-That's the last tutorial. The Retro Game Dev books carry on from here: open a chapter's `.cbmprj`
-with **File → Open Project**.
+Next: [raster interrupts](11-raster.md).

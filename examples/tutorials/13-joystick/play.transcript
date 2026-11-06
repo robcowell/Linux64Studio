@@ -1,0 +1,11 @@
+; Mover, played on the simulated C64 (Run Transcript Without VICE): joystick 2 pushed right for half a
+; second, then up, as a player would.
+run until frame
+joystick 2 right
+wait 0.5
+check word xpos >= #190           ; about 25 frames: a pixel each
+joystick 2 up fire
+wait 0.2
+joystick 2 none
+check ypos < #139
+check $d027 & $0f <> 7            ; a new colour

@@ -8,6 +8,8 @@ examples/**/*.prg
 examples/**/*.lst
 examples/**/*.vs
 examples/**/*.d64
+examples/**/*.dbg
+examples/**/*.sym
 .flatpak-builder/
 flatpak-build/
 flatpak-repo/

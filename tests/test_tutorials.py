@@ -20,9 +20,16 @@ def _have_goattracker():
     return find_tool("gt2reloc") is not None
 
 
+def _have_kickass():
+    from l64s.project.build import default_kickass_jar
+    return bool(default_kickass_jar()) and shutil.which("java") is not None
+
+
 def _skip_without_tools(project):
     if project.parent.name == "5-c" and not HAVE_CC65:
         pytest.skip("cc65 isn't installed")
+    if project.parent.name == "15-kickass" and not _have_kickass():
+        pytest.skip("Kick Assembler (or Java) isn't installed")
     if project.parent.name == "7-music" and not _have_goattracker():
         pytest.skip("GoatTracker's gt2reloc isn't installed")
 
@@ -44,8 +51,8 @@ def test_reading_markdown():
 
 def test_the_tutorials_hang_together():
     files = mdview.tutorials()
-    assert files[0].name == "README.md" and len(files) == 11
-    assert [f.name.split("-")[0] for f in files[1:]] == [str(n) for n in range(1, 11)]   # in order
+    assert files[0].name == "README.md" and len(files) == 16
+    assert [f.name.split("-")[0] for f in files[1:]] == [str(n) for n in range(1, 16)]   # in order
     for f in files:
         text = f.read_text()
         for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", text):        # every picture is there

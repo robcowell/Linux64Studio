@@ -1,0 +1,6 @@
+; Bars: the colour bars and the message
+run until loop
+check $0400 = $a0 $a0 $a0         ; solid blocks along the top
+check $d800 & $0f = 2             ; the first bar red
+check $d827 & $0f = 9             ; the last brown (column 39: 39 / 5 = 7, + 2)
+check $0480 = "made with kick assembler"   ; row 3, from column 8

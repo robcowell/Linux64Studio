@@ -1,0 +1,24 @@
+; Mover: does each way on the joystick move the ball, and fire change its colour?
+; (The bits are 0 when pressed: $FE is up, $FD down, $FB left, $F7 right, $EF fire.)
+run until frame
+a $f7                             ; right
+call move
+check word xpos = #173
+a $fb                             ; left, twice (A again: move changes it)
+call move
+a $fb
+call move
+check word xpos = #171
+a $fe                             ; up
+call move
+check ypos = #138
+a $f5                             ; down and right together
+call move
+check ypos = #139
+check word xpos = #172
+a $ef                             ; fire
+call move
+check colour = #8
+a $ff                             ; nothing
+call move
+check word xpos = #172

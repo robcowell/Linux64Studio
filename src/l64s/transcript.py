@@ -680,7 +680,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("transcripts", nargs="+", help=".transcript files")
     ap.add_argument("--vice-args", default="", help="extra options for x64sc (e.g. -sounddev dummy)")
     ap.add_argument("--simulate", action="store_true",
-                    help="run them on the simulated C64 (a 6510 with the ROMs, no VIC-II, SID or CIAs), not VICE")
+                    help="run them on the simulated C64 (a 6510 with the ROMs, the CIAs and much of the VIC-II, "
+                         "no SID), not VICE")
     args = ap.parse_args(argv)
     st = Settings.load()
     project = load_project(Path(args.project))

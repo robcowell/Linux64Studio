@@ -1,6 +1,6 @@
 # Tutorials
 
-Ten short tutorials to get started, each ten or fifteen minutes long. Each has a finished project in
+Fifteen short tutorials to get started, each ten or fifteen minutes long. Each has a finished project in
 `examples/tutorials/` to compare with yours. In Linux64Studio, **Help → Tutorials** shows them
 beside your work, with a button that opens a copy of the example project.
 
@@ -21,10 +21,17 @@ beside your work, with a button that opens a copy of the example project.
    fast.
 10. [Debugging without VICE](10-simulator.md): the simulated C64, for debugging and for tests that
     run without a screen.
+11. [Raster interrupts](11-raster.md): a screen split into two colours by interrupts from the VIC-II.
+12. [A scrolling message](12-scroll.md): text gliding across the screen a pixel at a time.
+13. [Moving with the joystick](13-joystick.md): a ball moved with joystick 2, and its controls
+    tested by a transcript that pushes the joystick.
+14. [A sound effect](14-sound.md): a bang designed in the SID Designer, played on a key.
+15. [Kick Assembler](15-kickass.md): colour bars written with Kick Assembler, the assembler of the
+    books' second volume, and debugged line by line.
 
 You'll need VICE for running and debugging: `sudo apt install vice`. The C tutorial also needs
-cc65: `sudo apt install cc65`, and the music tutorial GoatTracker GTK Edition's tools
-([music](../music.md)).
+cc65: `sudo apt install cc65`, the music tutorial GoatTracker GTK Edition's tools
+([music](../music.md)), and the Kick Assembler one Java and Kick Assembler (it says how).
 
 Once you're done, the Retro Game Dev books carry on from here. Their projects open as they are:
 open a chapter's `.cbmprj` with **File → Open Project**.

@@ -5,20 +5,21 @@ included). Around it is the C64's memory: 64K of RAM, with the BASIC, KERNAL and
 (VICE's copies, when installed) banked in and out by the processor port at $00/$01, as on the real
 machine. So KERNAL calls run for real; without the ROMs, ``skip_kernal`` steps over them instead.
 
-What isn't there: most of the VIC-II, SID and CIAs. $D000-$DFFF is memory that reads back what was
-written, except for what makes a program's timing and interrupts work:
+What isn't there: the SID, and most of the VIC-II beyond what's below. $D000-$DFFF is memory that reads
+back what was written, except for:
 
 * the raster line ($D012, and $D011's top bit) counts as on a PAL C64, and the VIC-II's raster
   interrupt ($D012 and $D011 for the line, $D019 its flag, $D01A to switch it on) happens on it;
-* CIA 1's timer A ($DC04/$DC05, started with $DC0E) counts down a cycle at a time, and interrupts
-  through $DC0D, as the KERNAL's 60-a-second interrupt does;
+* the CIAs (emu.simcia): their timers, time-of-day clocks and interrupts; CIA 1's is the IRQ (the
+  KERNAL's 60-a-second interrupt is its timer A), CIA 2's the NMI, as is the RESTORE key;
 * the sprites' collisions ($D01E, $D01F, and $D019's flags for them), worked out once a frame from
   memory as the Screen view draws it;
 * the keyboard and joysticks: CIA 1's ports ($DC00, $DC01) read the keys held down (``hold``), as
   the keyboard matrix connects them to the columns selected, and the joysticks (``joystick``):
   port 2's on $DC00, port 1's on $DC01;
 * the cycles the VIC-II takes from the 6510 on badlines and for sprites (``Memory.stall``);
-* a read-modify-write's first write, of what it read, in the I/O area (so INC $D019 acknowledges).
+* a read-modify-write's first write, of what it read, in the I/O area (so INC $D019 acknowledges);
+* the cycle an instruction reads or writes an I/O register on (``Memory.at_read``, ``at_write``).
 
 The disk drive is ``emu.simdrive``'s: the KERNAL's serial bus routines are taken over at their entry
 points (while the KERNAL is banked in) and answered by drive 8 (``attach_disk``).
@@ -64,6 +65,8 @@ _MATRIX_ROWS = [
     ["1", "leftarrow", "ctrl", "2", "space", "commodore", "q", "stop"],
 ]
 KEYS = {name: (col, row) for col, names in enumerate(_MATRIX_ROWS) for row, name in enumerate(names)}
+RESTORE = (8, 0)                                # not in the matrix: it's wired to the NMI
+KEYS["restore"] = RESTORE
 KEY_ALIASES = {"lshift": "shift", "cbm": "commodore", "c=": "commodore", "runstop": "stop", "run/stop": "stop",
                "inst/del": "del", "delete": "del", "enter": "return", " ": "space", "£": "pound",
                "crsr right": "right", "crsr down": "down", "clr/home": "home"}
@@ -108,13 +111,17 @@ class Memory:
         # the VIC-II's interrupt flags ($D019's low bits: 1 is the raster), and when the raster next
         # reaches the compare line (None: a line past the frame's end, never)
         self.vic_flags = 0
+        self.vic_irq_at = 0                    # when the VIC-II's interrupt was asserted
         self.next_raster: int | None = 0
-        # CIA 1's timer A: its latch, whether it's running (and one-shot), its count at cycle t0, when
-        # it next runs out; and the CIA's interrupt flags and mask ($DC0D)
-        self.ta_latch, self.ta_value, self.ta_t0 = 0xFFFF, 0xFFFF, 0
-        self.ta_running, self.ta_oneshot = False, False
-        self.ta_next: int | None = None
-        self.cia_flags, self.cia_mask = 0, 0
+        # the CIAs (emu.simcia): CIA 1's interrupt is the IRQ, CIA 2's the NMI; and the RESTORE key,
+        # held down (an NMI when it's pressed)
+        from .simcia import Cia
+        self.cia1, self.cia2 = Cia(), Cia()
+        # the cycle of the access the 6510 is making (its instruction's read or write: at_read,
+        # at_write), when it's not the instruction's first (``now``)
+        self.at_read: int | None = None
+        self.at_write: int | None = None
+        self.due = 0                           # the cycle before which tick has nothing to do
         # what's pressed: the joysticks in ports 1 and 2 (JOY_BITS), and the keys held (column, row)
         self.joysticks = [0, 0, 0]
         self.held: set[tuple[int, int]] = set()
@@ -208,8 +215,26 @@ class Memory:
         if a < 2:
             self._bank()
 
+    @property
+    def restore_key(self) -> bool:
+        """RESTORE is held down (its NMI is taken as it's pressed)."""
+        return bool(self.held) and RESTORE in self.held
+
+    def now(self, write: bool = False) -> int:
+        """The cycle of the access being made: the 6510's read (or write), or the instruction's start."""
+        t = self.at_write if write else self.at_read
+        return self.clock() if t is None else t
+
     def _io_read(self, a: int, cpu: bool) -> int:
         r = a & 0xFFF
+        if 0xC00 <= r < 0xE00:
+            return self._cia_read(r, cpu)
+        if r < 0x400:                                   # the VIC-II's 47 registers, every 64 bytes
+            r &= 0x3F
+            if r >= 0x2F:
+                return 0xFF
+            if r in VIC_UNUSED:                         # (bits it hasn't got read as 1)
+                return self.io[r] | VIC_UNUSED[r]
         if r == 0x012:
             return self.line() & 0xFF
         if r == 0x011:
@@ -224,24 +249,22 @@ class Memory:
                 else:
                     self.collided_background = 0
             return v
-        if r == 0xC00:
-            return self._port_a() & ~self.joysticks[2] & 0xFF
-        if r == 0xC01:
-            return self._keyboard_rows() & ~self.joysticks[1] & 0xFF
-        if r == 0xC04:
-            return self.ta_count() & 0xFF
-        if r == 0xC05:
-            return self.ta_count() >> 8
-        if r == 0xC0D:
-            v = self.cia_flags | (0x80 if self.cia_irq() else 0)
-            if cpu:
-                self.cia_flags = 0                     # reading clears them
-            return v
-        if r == 0xD0D:
-            return 0
         if 0x800 <= r < 0xC00:
             return self.io[r] & 0x0F | 0xF0           # colour RAM is four bits
         return self.io[r]
+
+    def _cia_read(self, r: int, cpu: bool) -> int:
+        """A CIA's register (repeated every 16 bytes): the ports are the keyboard, joysticks and CIA 2's
+        port A as written; the rest the CIA's (emu.simcia)."""
+        reg = r & 0x0F
+        if r < 0xD00:
+            if reg == 0:
+                return self._port_a() & ~self.joysticks[2] & 0xFF
+            if reg == 1:
+                return self._keyboard_rows() & ~self.joysticks[1] & 0xFF
+        if reg < 4:
+            return self.io[(r & 0xF00) | reg]
+        return (self.cia1 if r < 0xD00 else self.cia2).read(reg, self.now(), cpu)
 
     def _port_a(self) -> int:
         """CIA 1's port A as driven: the column bits it outputs, and 1s on its inputs."""
@@ -259,34 +282,33 @@ class Memory:
         return rows & 0xFF
 
     def _io_write(self, r: int, v: int) -> None:
+        self.due = 0                                    # (tick works out what's next again)
+        if r < 0x400:
+            r &= 0x3F
+            if r >= 0x2F:
+                return
+        if 0xC00 <= r < 0xE00:
+            reg = r & 0x0F
+            r = (r & 0xF00) | reg
+            if r == 0xD00:
+                self.frame_log.append((self.line(True), 0x2F, v))
+            if reg >= 4:
+                (self.cia1 if r < 0xD00 else self.cia2).write(reg, v, self.now(True))
+            self.io[r] = v
+            return
         if r < 0x2F:                                    # the VIC-II's: kept by line, for the Screen
-            self.frame_log.append((self.line(), r, v))
-        elif r == 0xD00:
-            self.frame_log.append((self.line(), 0x2F, v))
+            self.frame_log.append((self.line(True), r, v))
         if r == 0x019:
             self.vic_flags &= ~v & 0x0F                # writing 1 clears a flag
             return
-        if r == 0xC04:
-            self.ta_latch = (self.ta_latch & 0xFF00) | v
-        elif r == 0xC05:
-            self.ta_latch = (self.ta_latch & 0x00FF) | v << 8
-            if not self.ta_running:                     # stopped: the count is loaded too
-                self.ta_value = self.ta_latch
-        elif r == 0xC0D:
-            if v & 0x80:
-                self.cia_mask |= v & 0x1F
-            else:
-                self.cia_mask &= ~v & 0x1F
-        elif r == 0xC0E:
-            self._ta_control(v)
-            v &= 0xEF                                   # (the force-load bit isn't kept)
         self.io[r] = v
         if r in (0x011, 0x012):
             self.schedule_raster()
 
     # ------------------------------------------------------------------ the raster line
-    def line(self) -> int:
-        return (self.clock() // CYCLES_PER_LINE) % LINES
+    def line(self, write: bool = False) -> int:
+        """The raster line, as the access being made sees it."""
+        return (self.now(write) // CYCLES_PER_LINE) % LINES
 
     def compare_line(self) -> int:
         return self.io[0x12] | (self.io[0x11] & 0x80) << 1
@@ -297,55 +319,32 @@ class Memory:
         if target >= LINES:
             self.next_raster = None
             return
-        now = self.clock()
+        now = self.now(True)
         t = now - now % FRAME + target * CYCLES_PER_LINE
         self.next_raster = t if t > now else t + FRAME
 
     def vic_irq(self) -> bool:
         return bool(self.vic_flags & self.io[0x1A] & 0x0F)
 
-    # ------------------------------------------------------------------ CIA 1's timer A
-    def ta_count(self) -> int:
-        """Timer A's count now."""
-        if not self.ta_running:
-            return self.ta_value
-        gone = self.clock() - self.ta_t0
-        if gone <= self.ta_value:
-            return self.ta_value - gone
-        period = self.ta_latch + 1
-        return self.ta_latch - (gone - self.ta_value - 1) % period
-
-    def _ta_control(self, v: int) -> None:
-        count = self.ta_count()
-        if v & 0x10:                                    # force load
-            count = self.ta_latch
-        self.ta_oneshot = bool(v & 0x08)
-        self.ta_running = bool(v & 0x01)
-        self.ta_value, self.ta_t0 = count, self.clock()
-        self.ta_next = self.ta_t0 + count + 1 if self.ta_running else None
-
-    def cia_irq(self) -> bool:
-        return bool(self.cia_flags & self.cia_mask)
-
     def tick(self, now: int) -> None:
-        """What's happened by cycle ``now``: the raster reaching the compare line, timer A running out, a
-        frame drawn (and its sprites' collisions)."""
+        """What's happened by cycle ``now``: the raster reaching the compare line, the CIAs' timers running
+        out and clocks ticking, a frame drawn (and its sprites' collisions)."""
+        if now < self.due:
+            return
         if now >= self.next_line:
             self._lines_to(now)
         if now >= self.next_frame:
             self.next_frame += FRAME * ((now - self.next_frame) // FRAME + 1)
             self._end_frame()
         if self.next_raster is not None and now >= self.next_raster:
+            if not self.vic_flags & self.io[0x1A] & 0x0F:
+                self.vic_irq_at = self.next_raster
             self.vic_flags |= 1
             self.next_raster += FRAME * ((now - self.next_raster) // FRAME + 1)
-        if self.ta_next is not None and now >= self.ta_next:
-            self.cia_flags |= 1
-            if self.ta_oneshot:
-                self.ta_running, self.ta_value, self.ta_next = False, self.ta_latch, None
-                self.io[0xC0E] &= 0xFE
-            else:
-                period = self.ta_latch + 1
-                self.ta_next += period * ((now - self.ta_next) // period + 1)
+        self.cia1.update(now)
+        self.cia2.update(now)
+        due = min(self.next_line, self.next_frame, self.cia1.due, self.cia2.due)
+        self.due = due if self.next_raster is None else min(due, self.next_raster)
 
     def _lines_to(self, now: int) -> None:
         """The VIC-II's reads of the lines it's reached by ``now``: on a badline, the row's screen and
@@ -444,7 +443,15 @@ class Memory:
         ``writes``, which of its cycles are writes (the rest read)."""
         if t0 + n <= self.quiet_until:
             return 0
+        return self.timeline(t0, n, writes)[-1] + 1 - t0 - n
+
+    def timeline(self, t0: int, n: int, writes: tuple[int, ...], again: bool = False) -> list[int]:
+        """When each of an instruction's ``n`` cycles happens, waiting for the VIC-II (``stall``).
+        ``again``: worked out once already (so quiet_until has moved past it)."""
+        if t0 + n <= self.quiet_until and not again:
+            return list(range(t0, t0 + n))
         self.windows = [w for w in self.windows if w[1] > t0]
+        times = []
         cur = t0
         for i in range(n):
             write = i in writes
@@ -457,13 +464,18 @@ class Memory:
                         break
                 else:
                     break
+            times.append(cur)
             cur += 1
         self.quiet_until = min([self.next_decision] + [w[0] for w in self.windows if w[1] > cur])
-        return cur - t0 - n
+        return times
 
     def irq(self) -> bool:
-        """Whether something's asking for an interrupt."""
-        return self.vic_irq() or self.cia_irq()
+        """Whether something's asking for an interrupt (the IRQ)."""
+        return self.vic_irq() or self.cia1.line(self.clock())
+
+    def nmi(self) -> bool:
+        """Whether the NMI line is asserted: by CIA 2, or the RESTORE key."""
+        return self.restore_key or self.cia2.line(self.clock())
 
     def read(self, start: int, end: int) -> bytes:
         return bytes(self.peek(a) for a in range(start, end + 1))
@@ -496,7 +508,24 @@ def _writes(op: int, n: int) -> tuple[int, ...]:
 
 
 WRITES = [_writes(op, CPU.cycletime[op]) for op in range(256)]
-RMW = frozenset(op for op in range(256) if len(WRITES[op]) == 2 and CPU.disassemble[op][0] != "JSR")   # (only reads' cycles vary)
+# the VIC-II's registers' bits that aren't there, which read as 1
+VIC_UNUSED = {0x16: 0xC0, 0x18: 0x01, 0x1A: 0xF0, **{r: 0xF0 for r in range(0x20, 0x2F)}}
+BRANCHES = frozenset((0x10, 0x30, 0x50, 0x70, 0x90, 0xB0, 0xD0, 0xF0))
+RMW = frozenset(op for op in range(256) if len(WRITES[op]) == 2 and CPU.disassemble[op][0] != "JSR")
+
+
+def _access(op: int) -> tuple[int, int] | None:
+    """Which cycles of an instruction (of its usual length) read and write its operand in memory: a
+    load's or store's last, a read-modify-write's read three from the end and its write at the end.
+    None for one with no operand in memory."""
+    name, mode = CPU.disassemble[op]
+    if mode in ("imp", "acc", "imm", "rel") or name in ("JMP", "JSR", "BRK", "RTS", "RTI"):
+        return None
+    n = CPU.cycletime[op]
+    return (n - 3, n - 1) if op in RMW else (n - 1, n - 1)
+
+
+ACCESS = [_access(op) for op in range(256)]   # (only reads' cycles vary)
 IRQ_WRITES = (2, 3, 4)                  # an interrupt: two reads, three pushes, the vector's two reads
 
 
@@ -569,6 +598,8 @@ class Machine:
         self.cpu.pc = self.cpu.WordAt(0xFFFC) if self.memory.kernal_in else 0x0000
         self.cpu.sp = 0xFD
         self.cpu.p = 0x24
+        self.nmi_taken = False                 # the NMI line's low, and it's been taken
+        self.poll_early = 0                    # the last instruction was a branch taken in its page
         self.checkpoints: dict[int, _Checkpoint] = {}
         self._next_id = 1
         self._index()
@@ -667,12 +698,26 @@ class Machine:
         through $FFFE, in 7 cycles."""
         c = self.cpu
         m = self.memory
-        m.tick(c.processorCycles)
-        if interrupts and not c.p & 0x04 and m.irq():
-            t0 = c.processorCycles
-            c.irq()
-            c.processorCycles += m.stall(t0, 7, IRQ_WRITES)
-            return
+        t0 = c.processorCycles
+        if t0 >= m.due:
+            m.tick(t0)
+        if interrupts:
+            # (the 6510 looks for an interrupt before its instruction's last cycle; a branch taken to
+            # the same page looks a cycle earlier still, so one coming in its last cycle waits)
+            poll = t0 - self.poll_early
+            cia2 = m.cia2
+            nmi = m.restore_key or bool(cia2.flags & cia2.mask and cia2.line(poll))
+            if nmi and not self.nmi_taken:              # (the NMI is taken as its line goes low)
+                self.nmi_taken = True
+                c.nmi()
+                c.processorCycles += m.stall(t0, 7, IRQ_WRITES)
+                return
+            self.nmi_taken = nmi
+            if not c.p & 0x04 and (m.vic_flags & m.io[0x1A] & 0x0F and poll >= m.vic_irq_at
+                                   or m.cia1.flags & m.cia1.mask and m.cia1.line(poll)):
+                c.irq()
+                c.processorCycles += m.stall(t0, 7, IRQ_WRITES)
+                return
         pc = c.pc
         if check and pc in self.exec_at and pc != self.resume_at:
             cp = self._hit(self.exec_at[pc])
@@ -701,12 +746,28 @@ class Machine:
                 c.pc = (pc + 3) & 0xFFFF            # (as if the call returned at once)
                 c.processorCycles += 12            # its JSR and RTS
                 return
-        t0 = c.processorCycles
         m.rmw = op in RMW
         m.rmw_read = None
+        access = ACCESS[op]
+        times = None
+        if access is not None:                          # when its read and write happen
+            n0 = CPU.cycletime[op]
+            if t0 + n0 <= m.quiet_until:
+                m.at_read, m.at_write = t0 + access[0], t0 + access[1]
+            else:
+                times = m.timeline(t0, n0, WRITES[op])
+                m.at_read, m.at_write = times[access[0]], times[access[1]]
         c.step()
         m.rmw = False
-        c.processorCycles += m.stall(t0, c.processorCycles - t0, WRITES[op])
+        m.at_read = m.at_write = None
+        n = c.processorCycles - t0
+        self.poll_early = 1 if op in BRANCHES and n == 3 else 0
+        if times is not None:                           # (worked out already, waits included)
+            if n != len(times):                         # (a page crossed, a branch taken)
+                times = m.timeline(t0, n, WRITES[op], again=True)
+            c.processorCycles = times[-1] + 1
+        elif c.processorCycles > m.quiet_until:
+            c.processorCycles += m.stall(t0, n, WRITES[op])
         if pc == self.resume_at:
             self.resume_at = None
         if m.touched:
@@ -1043,8 +1104,7 @@ def basic_sys(program: bytes) -> int | None:
 # I/O area and the chips' state. VICE can't load one (it has none of its chips' modules); a VICE
 # snapshot loads into the simulator as its RAM and registers.
 
-_STATE = ("vic_flags", "next_raster", "ta_latch", "ta_value", "ta_t0", "ta_running", "ta_oneshot", "ta_next",
-          "cia_flags", "cia_mask", "joysticks", "collided_sprites", "collided_background", "next_frame",
+_STATE = ("vic_flags", "next_raster", "joysticks", "collided_sprites", "collided_background", "next_frame",
           "frame_log")
 
 
@@ -1063,6 +1123,7 @@ def save_snapshot(machine: Machine, path: Path) -> None:
     state["held"] = sorted(mem.held)
     state["frame_start"] = list(mem.frame_start)
     state["skip_kernal"] = machine.skip_kernal
+    state["cia1"], state["cia2"] = mem.cia1.state(), mem.cia2.state()
     sim = bytes(mem.io) + json.dumps(state).encode()
     head = MAGIC + bytes([2, 0]) + b"C64SC".ljust(16, b"\0") + VERSION_MAGIC + bytes(8)
     path.write_bytes(head + _module("MAINCPU", 1, 1, cpu) + _module("C64MEM", 0, 0, ram)
@@ -1097,11 +1158,25 @@ def load_snapshot(machine: Machine, path: Path) -> int:
         if "frame_start" in state:
             mem.frame_start = bytes(state["frame_start"])
         machine.skip_kernal = state.get("skip_kernal", machine.skip_kernal)
+        if "cia1" in state:
+            mem.cia1.restore(state["cia1"])
+            mem.cia2.restore(state["cia2"])
+        else:                                           # (0.3.0's: CIA 1's timer A only)
+            a = mem.cia1.a
+            a.latch, a.value, a.t0 = state["ta_latch"], state["ta_value"], state["ta_t0"]
+            a.running, a.oneshot, a.next = state["ta_running"], state["ta_oneshot"], state["ta_next"]
+            mem.cia1.flags, mem.cia1.mask = state["cia_flags"], state["cia_mask"]
+            mem.cia1.cra = mem.io[0xC0E]
+            mem.cia1.resync(c.processorCycles)
+            mem.cia2.resync(c.processorCycles)
     else:
         from .simscreen import registers_now
         mem.schedule_raster()
+        mem.cia1.resync(c.processorCycles)
+        mem.cia2.resync(c.processorCycles)
         mem.frame_start, mem.frame_log, mem.last_frame = registers_now(mem.io), [], None
     mem.resync_vic(c.processorCycles)
     mem.next_line = c.processorCycles - c.processorCycles % CYCLES_PER_LINE + 14
+    mem.due = 0
     machine.stopped_at = machine.resume_at = None
     return c.pc
