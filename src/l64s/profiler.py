@@ -119,6 +119,18 @@ class Resolver:
         low = {w.lower() for w in wanted}
         return next((a for a, n in self.labels if n.lower() in low), None)
 
+    def symbol_table(self) -> dict[str, int]:
+        """name -> address for every label and C function (C's also without the underscore), for
+        what's typed in (transcripts, the debugger)."""
+        out = {n: a for a, n in self.labels}
+        for a, _b, n in self.functions:
+            out.setdefault(n, a)
+        if self.c:
+            for n, a in list(out.items()):
+                if n.startswith("_") and not n.startswith("__"):
+                    out.setdefault(n[1:], a)
+        return out
+
     def in_program(self, pc: int) -> bool:
         """Is pc in the program's code (not the ROMs', nor the autostart's)?"""
         return (self._containing(self.functions, self._fstarts, pc) is not None
@@ -182,12 +194,36 @@ class Resolver:
         return Routine(self._name(name), a, where, module)
 
 
+def build_symbols(res) -> dict[int, str]:
+    """address -> label for a build that wasn't made by the built-in assembler: from Kick
+    Assembler's debug dump, or else its VICE labels file (cc65's, say)."""
+    if res.asm_result:
+        return {}
+    if res.kick_debug is not None:
+        from .kickdbg import symbols
+        return symbols(res.kick_debug)
+    out: dict[int, str] = {}
+    if res.labels and res.labels.exists():
+        for line in res.labels.read_text(errors="replace").splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[0] == "al":
+                try:
+                    addr = int(parts[1].split(":")[-1], 16)
+                except ValueError:
+                    continue
+                name = parts[2].lstrip(".")
+                if name.startswith("__") and name.endswith("__"):
+                    continue      # ld65's own symbols (segment sizes, offsets): small numbers, not places
+                out.setdefault(addr, name)
+    return out
+
+
 def resolver_for(res, symbols: dict[int, str] | None = None) -> Resolver:
     """The Resolver for a build (project.build.BuildResult): its labels, lines and, for C, its
     functions and modules. ``symbols``: address -> label from the build's labels file or Kick
     Assembler's debug dump (the debugger's), for builds the built-in assembler didn't make."""
     from .emu.clines import LineTable
-    symbols = dict(symbols or {})
+    symbols = dict(build_symbols(res) if symbols is None else symbols)
     r = res.asm_result
     if r is not None:                         # the built-in assembler: its address labels
         for key in r.label_locs:

@@ -477,10 +477,13 @@ class SourceEditor(EditorPage):
         menu = Gio.Menu()
         menu.append("Go to Definition", "win.goto-definition")
         menu.append("Add TODO…", "win.add-todo")
-        if not self.is_basic and not (self.path and self.path.suffix.lower() == ".cfg"):
+        is_transcript = bool(self.path) and self.path.suffix.lower() == ".transcript"
+        if is_transcript:
+            menu.append("Run Transcript", "win.run-transcript")
+        elif not self.is_basic and not (self.path and self.path.suffix.lower() == ".cfg"):
             menu.append("Time This Routine", "win.time-routine-here")
         menu.append_submenu("Convert Number", sub)
-        is_cfg = bool(self.path) and self.path.suffix.lower() == ".cfg"
+        is_cfg = bool(self.path) and self.path.suffix.lower() in (".cfg", ".transcript")   # (not code)
         if not self.is_c and not self.ca65 and not is_cfg:      # the analyser reads CBM prg Studio, Kick and BASIC
             menu.append("Analyse…", "win.analyse-here")      # the selection, or the whole file
         if not self.is_basic and not self.is_c and not self.ca65 and not is_cfg:

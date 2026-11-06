@@ -375,6 +375,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("profile", lambda *_: self.profile_project())
         add("time-routine-here", lambda *_: self.time_routine_here())
+        add("run-transcript", lambda *_: self.run_transcript())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
@@ -1073,10 +1074,12 @@ class MainWindow(Adw.ApplicationWindow):
                                        "pbas": "New pBASIC file (BASIC without line numbers)", "spt": "New sprite set",
                                        "cst": "New character set", "sdd": "New screen design",
                                        "d64": "New disk image (.d64, .d71 or .d81)", "c": "New C file",
-                                       "h": "New C header file", "cfg": "New linker config (ld65)"}[kind])
+                                       "h": "New C header file", "cfg": "New linker config (ld65)",
+                                       "transcript": "New transcript (tests run in VICE)"}[kind])
         default = {"asm": "gameNew.asm", "bas": "main.bas", "pbas": "main.pbas", "spt": "sprites.spt", "cst": "characters.cst",
                    "sdd": "screens.sdd", "d64": "disk.d64", "c": "new.c", "h": "new.h",
-                   "cfg": Path(self.project.executable or self.project.name + ".prg").stem + ".cfg"}[kind]
+                   "cfg": Path(self.project.executable or self.project.name + ".prg").stem + ".cfg",
+                   "transcript": "tests.transcript"}[kind]
         entry = Gtk.Entry(text=default, activates_default=True)
         dlg.set_extra_child(entry)
         add_build = None
@@ -1130,6 +1133,9 @@ class MainWindow(Adw.ApplicationWindow):
                     from ..project.fileops import relative
                     self.project.linker_config = relative(self.project, path)
                     self.project.save()
+            elif kind == "transcript":
+                from ..transcript import TEMPLATE
+                path.write_text(TEMPLATE.format(name=path.name))
             elif kind in ("c", "h"):
                 if kind == "h":
                     guard = re.sub(r"\W", "_", path.name).upper()
@@ -1328,7 +1334,7 @@ class MainWindow(Adw.ApplicationWindow):
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
 
     def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False,
-              timing=None):
+              timing=None, transcript=None):
         ed = self.current_editor()
         if not self.project:
             if isinstance(ed, SourceEditor) and ed.path:
@@ -1346,7 +1352,7 @@ class MainWindow(Adw.ApplicationWindow):
             only = ed.path
         if self.settings.save_before_build:
             self.save_all()
-        if self.debug and (debug or profile or timing):
+        if self.debug and (debug or profile or timing or transcript):
             self.debug.stop()
             self.debug = None
         self.bottom_stack.set_visible_child_name("output")
@@ -1364,10 +1370,11 @@ class MainWindow(Adw.ApplicationWindow):
                 from ..asm.errors import Diagnostic
                 res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
                                   traceback.format_exc())
-            GLib.idle_add(self._build_done, res, run, debug, profile, timing)
+            GLib.idle_add(self._build_done, res, run, debug, profile, timing, transcript)
         threading.Thread(target=work, daemon=True).start()
 
-    def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None):
+    def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None,
+                    transcript=None):
         self.last_build = res
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
@@ -1384,6 +1391,9 @@ class MainWindow(Adw.ApplicationWindow):
             return
         if timing is not None:
             self._start_timing(res, timing)
+            return
+        if transcript is not None:
+            self._start_transcript(res, *transcript)
             return
         if not run:
             self.toast(f"Built {res.prg.name}")
@@ -1534,6 +1544,96 @@ class MainWindow(Adw.ApplicationWindow):
         """Debugger > Profile in VICE: build the project, then run it in VICE and measure it."""
         self.open_profiler()
         self.build(run=True, profile=True)
+
+    # ------------------------------------------------------------------ transcripts
+    def run_transcript(self):
+        """Debugger > Run Transcript: the transcript being edited (or the last one looked at) run in
+        VICE against the project's program, after a build. Its results go to Build Output."""
+        from ..transcript import TranscriptError, parse
+        ed = self.current_editor()
+        if not (isinstance(ed, SourceEditor) and ed.path and ed.path.suffix.lower() == ".transcript"):
+            ed = next((e for e in self.editors() if isinstance(e, SourceEditor) and e.path
+                       and e.path.suffix.lower() == ".transcript"), None)
+        if ed is None:
+            self.toast("Open a transcript (.transcript) first: File > New > Transcript makes one")
+            return
+        try:
+            commands = parse(ed.get_text())
+        except TranscriptError as e:
+            self.toast(str(e))
+            m = re.match(r"Line (\d+)", str(e))
+            if m:
+                ed.goto_line(int(m.group(1)))
+                ed.mark_error(int(m.group(1)))
+            return
+        if not commands:
+            self.toast(f"{ed.path.name} has no commands")
+            return
+        self.build(run=True, transcript=(ed, commands))
+
+    def _start_transcript(self, res: BuildResult, ed, commands):
+        from ..asm.errors import Diagnostic, SourceLoc
+        from ..profiler import ViceRun, resolver_for
+        from ..transcript import Runner, summary
+        path = str(ed.path)
+        rows: list = []
+        log: list[str] = [f"Running {ed.path.name} against {res.prg.name} in VICE…"]
+        mark = {True: "pass", False: "FAIL", None: "    "}
+
+        def show():
+            diags = [Diagnostic(d, m, SourceLoc(path, line)) for d, m, line in rows]
+            self._show_outcomes(diags)
+            self._set_log("\n".join(log))
+
+        def outcome(o):
+            rows.append(({True: "pass", False: "error", None: "info"}[o.ok], f"{o.text}: {o.message}", o.line))
+            log.append(f"{ed.path.name}:{o.line}: {mark[o.ok]} {o.text}: {o.message}")
+            show()
+            return False
+
+        def ended(run, message):
+            r = run.worker
+            text = summary(r, message)
+            log.append(text)
+            if message:
+                rows.append(("error", message, r.outcomes[-1].line if r.outcomes else 1))
+            show()
+            run.quit()
+            self.toast(f"{ed.path.name}: {text}")
+            for d_sev, _m, line in rows:
+                if d_sev == "error":
+                    ed.mark_error(line)
+            return False
+
+        resolver = resolver_for(res, self._build_symbols(res))
+        ed.clear_errors()
+        self.bottom_stack.set_visible_child_name("output")
+        run = ViceRun(None, lambda m: Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
+                                             lambda o: GLib.idle_add(outcome, o)),
+                      lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator, self._vice_args())
+        try:
+            run.start()
+        except FileNotFoundError as e:
+            self.toast(str(e))
+            return
+        show()
+
+    def _show_outcomes(self, diags: list):
+        """A transcript's results in Build Output's list: passes, failures and what each command did."""
+        while (row := self.diag_list.get_row_at_index(0)) is not None:
+            self.diag_list.remove(row)
+        for d in diags:
+            box = Gtk.Box(spacing=8, margin_start=6, margin_end=6, margin_top=3, margin_bottom=3)
+            icon = {"pass": "emblem-ok-symbolic", "error": "dialog-error-symbolic"}.get(d.severity, "go-next-symbolic")
+            box.append(Gtk.Image(icon_name=icon))
+            box.append(Gtk.Label(label=f"line {d.loc.line}", xalign=0, css_classes=["monospace", "dim-label"]))
+            msg = Gtk.Label(label=d.message, xalign=0, wrap=True, hexpand=True)
+            if d.severity == "info":
+                msg.add_css_class("dim-label")
+            box.append(msg)
+            row = Gtk.ListBoxRow(child=box)
+            row.diag = d
+            self.diag_list.append(row)
 
     def time_routine(self, name: str):
         """Time every call of a routine (a label, C function or $address) in VICE, after a build."""
@@ -2036,27 +2136,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     @staticmethod
     def _build_symbols(res: BuildResult) -> dict[int, str]:
-        """address -> label for a build that wasn't made by the built-in assembler: from Kick
-        Assembler's debug dump, or else its VICE labels file."""
-        if res.asm_result:
-            return {}
-        if res.kick_debug is not None:
-            from ..kickdbg import symbols
-            return symbols(res.kick_debug)
-        out: dict[int, str] = {}
-        if res.labels and res.labels.exists():
-            for line in res.labels.read_text(errors="replace").splitlines():
-                parts = line.split()
-                if len(parts) >= 3 and parts[0] == "al":
-                    try:
-                        addr = int(parts[1].split(":")[-1], 16)
-                    except ValueError:
-                        continue
-                    name = parts[2].lstrip(".")
-                    if name.startswith("__") and name.endswith("__"):
-                        continue      # ld65's own symbols (segment sizes, offsets): small numbers, not places
-                    out.setdefault(addr, name)
-        return out
+        """address -> label for a build the built-in assembler didn't make (profiler.build_symbols)."""
+        from ..profiler import build_symbols
+        return build_symbols(res)
 
     # ------------------------------------------------------------------ Project Information panel
     def _show_project_info(self, action, value):
@@ -2806,7 +2888,7 @@ class MainWindow(Adw.ApplicationWindow):
         for label, kind in (("Source File…", "asm"), ("BASIC File…", "bas"), ("pBASIC File…", "pbas"),
                             ("C File…", "c"), ("C Header File…", "h"), ("Linker Config…", "cfg"),
                             ("Sprite Set…", "spt"), ("Character Set…", "cst"), ("Screen Design…", "sdd"),
-                            ("Disk Image…", "d64")):
+                            ("Disk Image…", "d64"), ("Transcript…", "transcript")):
             new.append_item(self._file_op_item(label, f"new-{kind}", folder))
         sec = Gio.Menu()
         sec.append_submenu("New", new)

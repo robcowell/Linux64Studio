@@ -16,8 +16,9 @@ class ValueError_(ValueError):
 def parse_number(text: str, symbols: dict[str, int] | None = None) -> int:
     """A number or label: $FF or FF (hex), %1010 (binary), #12 or 12. (decimal), or a label name.
 
-    Bare digits are hex, as in VICE's monitor, since that's what the debugger shows. A label
-    may be followed by +n/-n.
+    Bare digits are hex, as in VICE's monitor, since that's what the debugger shows, unless
+    they're a label's name (add16, beef): a label wins, and $ always means hex. A label may be
+    followed by +n/-n.
     """
     t = text.strip()
     if not t:
@@ -37,6 +38,10 @@ def parse_number(text: str, symbols: dict[str, int] | None = None) -> int:
         return int(t[:-1])
     if t.lower().startswith("0x"):
         return _int(t[2:], 16, text)
+    if symbols and re.fullmatch(r"[0-9A-Fa-f]+", t) and not t.isdigit():
+        found = _symbol(t, symbols)               # a label spelt in hex digits (add16, beef)
+        if found is not None:
+            return found
     if re.fullmatch(r"[0-9A-Fa-f]+", t):
         return int(t, 16)
     if symbols:
@@ -47,6 +52,13 @@ def parse_number(text: str, symbols: dict[str, int] | None = None) -> int:
         if t.lower() in low:
             return low[t.lower()]
     raise ValueError_(f"'{text}' isn't a number or a known label")
+
+
+def _symbol(name: str, symbols: dict[str, int]) -> int | None:
+    if name in symbols:
+        return symbols[name]
+    low = name.lower()
+    return next((v for k, v in symbols.items() if k.lower() == low), None)
 
 
 def _int(digits: str, base: int, original: str) -> int:

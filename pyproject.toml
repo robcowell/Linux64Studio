@@ -12,6 +12,7 @@ l64disk = "l64s.disk.cli:main"
 l64cart = "l64s.cart.cli:main"
 l64sid = "l64s.sid.cli:main"
 l64bin = "l64s.bincli:main"
+l64test = "l64s.transcript:main"
 linux64studio = "l64s.ui.app:main"
 
 [build-system]

@@ -41,7 +41,7 @@ def joystick_args(port1: str, port2: str, other_args: list[str] | None = None) -
     return out
 
 
-def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_port: int | None = None,
+def launch(prg: Path | None, emulator: str = "", labels: Path | None = None, monitor_port: int | None = None,
            extra_args: list[str] | None = None) -> subprocess.Popen:
     exe = find_emulator(emulator)
     if not exe:
@@ -52,6 +52,9 @@ def launch(prg: Path, emulator: str = "", labels: Path | None = None, monitor_po
     if labels and labels.exists():
         args += ["-moncommands", str(labels)]
     args += list(extra_args or [])
+    if prg is None:                            # just the machine, at READY
+        return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
     # A disk image may name the program to start: game.d64:intro (VICE autostarts it)
     image = Path(re.sub(r"(?i)(\.d(64|71|81)):[^/]*$", r"\1", str(prg)))
     # A 1571 or 1581 disk needs drive 8 to be that kind of drive.

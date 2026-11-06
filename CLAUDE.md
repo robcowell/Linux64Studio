@@ -25,7 +25,7 @@ uv venv --system-site-packages .venv && uv pip install --python .venv -e .   # P
 .venv/bin/python -m pytest tests/test_sid_designer.py -k basic   # one file / one test
 L64S_VICE_TESTS=1 .venv/bin/python -m pytest                  # also the opt-in tests that launch VICE
 .venv/bin/linux64studio [project.cbmprj]                      # the IDE
-.venv/bin/l64asm chapter17.cbmprj                             # CLIs: l64asm l64bas l64disk l64cart l64sid l64bin
+.venv/bin/l64asm chapter17.cbmprj                             # CLIs: l64asm l64bas l64disk l64cart l64sid l64bin l64test
 tools/install-kickassembler.sh   # Kick Assembler 5.25 into ~/.local/share/linux64studio (the default jar)
 ```
 

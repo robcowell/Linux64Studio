@@ -60,6 +60,7 @@ def new_menu() -> Gio.Menu:
                   ("p_BASIC File (no line numbers)…", "win.new-file::pbas")],
                  [("C _File…", "win.new-file::c"), ("C _Header File…", "win.new-file::h"),
                   ("_Linker Config…", "win.new-file::cfg")],
+                 [("_Transcript (tests)…", "win.new-file::transcript")],
                  [("Sp_rite Set…", "win.new-file::spt"), ("_Character Set…", "win.new-file::cst"),
                   ("Screen _Design…", "win.new-file::sdd"), ("Dis_k Image…", "win.new-file::d64")])
 
@@ -88,7 +89,7 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                       ("Step Into One Instruction", "win.debug-into-instruction")],
                      [("Toggle _Breakpoint", "win.toggle-breakpoint")],
                      [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")],
-                     [("_Profile in VICE", "win.profile")])
+                     [("_Profile in VICE", "win.profile"), ("Run _Transcript", "win.run-transcript")])
     basic = _menu([("_List BASIC Program (.prg)…", "win.list-prg"), ("_Renumber…", "win.renumber"),
                    ("Re_format…", "win.reformat-basic"), ("_Statistics", "win.basic-statistics"),
                    ("_Keyword Help", "win.keyword-help")],

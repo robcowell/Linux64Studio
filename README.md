@@ -216,6 +216,10 @@ See [docs/music.md](docs/music.md).
   goes, by routine, source line and file, and where in the frame (by raster line) each routine
   runs. Each line's share shows beside it in the editor, with the busiest lines tinted
   ([profiler](docs/debugger.md#profiler)).
+* **Transcripts**: scripts that set registers and memory, call the program's routines in VICE and
+  check what they did, cycles included, as CBM prg Studio's debugger transcripts do but on the
+  whole emulated C64. Failures show in Build Output; `l64test` runs them from the command line
+  ([transcripts](docs/debugger.md#transcripts)).
 * **Routine timing**: every call of one routine measured to the cycle in VICE: the fewest, the
   most and the average, how often it's called, and the raster lines it runs on (right-click in the
   editor: Time This Routine) ([timing](docs/debugger.md#routine-timing)).
@@ -265,6 +269,7 @@ The same as CBM prg Studio's, where it has one.
 .venv/bin/l64bas game.bas                            # tokenize BASIC -> game.prg
 .venv/bin/l64bas --list game.prg                     # list a program as BASIC source
 .venv/bin/l64bas --renumber game.bas --start 100 --step 10
+.venv/bin/l64test chapter17.cbmprj tests.transcript   # run transcripts in VICE; exit status = failed checks
 ```
 
 ## Retro Game Dev, Volume 2

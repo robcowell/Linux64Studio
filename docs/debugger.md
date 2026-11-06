@@ -184,6 +184,67 @@ own first instruction (`while (!ready) {}` in C) has every call measured. The pr
 to its real speed, so you can play it meanwhile. A call taking a whole frame or more would be
 counted short by whole frames, as the raster position goes round.
 
+## Transcripts
+
+A transcript is a script of commands that sets up the machine, runs the program's routines and
+checks what they did: a repeatable test. CBM prg Studio's debugger has them for its own 6510
+simulator. Linux64Studio runs them in VICE, so a routine that touches the VIC-II, SID or CIAs can be
+tested too. Its commands work here as they're written there.
+
+**File → New → Transcript (tests)…** makes a `.transcript` file with the commands listed at its top.
+**Debugger → Run Transcript** (or right-click in it → **Run Transcript**) builds the project and
+starts VICE with no program. Once BASIC is READY, the program is put into memory as LOAD would put
+it, without being run. Then each line runs in turn. The results stream into **Build Output**: a
+tick for a check that passed, an error for one that failed (also marked in the transcript's
+margin), and what every other command did. Click a row to go to its line.
+
+```
+; does add16 add, and how fast?
+set num1 $34 $12
+set num2 $01 $00
+call add16
+check word result = $1235
+check cycles = #32
+
+; Glowcave: run to the main loop, then look at the state
+run until wait_frame
+check $d021 & $0f = 0
+```
+
+| Command | What it does |
+|---|---|
+| `call <routine>` | Calls the routine as JSR would and runs it until it returns. It counts the cycles from its first instruction to its RTS, included, for `check cycles`. The PC goes back to where it was afterwards. |
+| `run` / `run until <address>` | Starts the program as typing RUN would (from READY, for a program at `$0801`); with `until`, stops when the PC gets there. |
+| `until <address>` | Lets the program carry on until the PC gets there. |
+| `goto <address>` | Sets the PC. |
+| `a`, `x`, `y`, `sp`, `p`, `pc` `<value>` | Sets a register (`a $20`, `x = #10`). |
+| `set <address> <bytes>` | Puts bytes in memory: hex, `#` decimal, `"text"` as screen codes, `'text'` as PETSCII, `<label`/`>label`. |
+| `fill <address> <count> <byte>` | Fills memory. |
+| `check <what> <op> <value>` | What: a register, a flag (`c`, `z`, `n`, `v`, `i`, `d`), `cycles` (the last call's), `word <address>` (16 bits), or memory (one byte, or several with `=`/`<>`). Ops: `= <> < > <= >=`. `& <mask>` checks some bits: `check $d020 & $0f = 2`. |
+| `show [<what> [count]]` (or `watch`) | Shows registers, or memory, in the results. |
+| `step [n]`, `stepover [n]` | Runs one instruction (or n), over a JSR with `stepover`. |
+| `wait <seconds>` | Lets the program run that long. |
+| `interrupts on` / `off` | Clears or sets the I flag: off, a call's cycles are its own, with no interrupt counted in them. |
+| `timeout <seconds>` | How long a call or `until` may take before it fails (10 s at first). |
+| `clearregs`, `resetstack`, `end`, `break` | As in CBM prg Studio. `break` stops the transcript there. `skipkernal` isn't needed, since VICE has the real KERNAL. |
+
+Numbers are hex unless written otherwise, as in the debugger: `$20` and `20` are both 32, and `#20`
+is 20. A label's name always means the label, even one spelled in hex digits such as `add16`. A label
+may be followed by `+n`/`-n`, and C names work with or without cc65's underscore. Comments start
+with `;` or `//`.
+
+A few things to know:
+
+* A call's cycles come from CIA 2's timers, set to count every cycle for the length of the call. Its
+  control registers are put back afterwards, but its timer latches are left at `$FFFF`.
+* Interrupts are on unless turned off, so a KERNAL interrupt during a call is counted in its cycles.
+  Use `interrupts off` for a routine's own time.
+* The VIC-II's colour registers read their unused top 4 bits as 1: `$D020` set to 2 reads `$F2`. A
+  failed check on one says so; check it with `& $0f`.
+* `l64test project transcript...` runs transcripts from the command line, printing a line a command.
+  Its exit status is the number of failed checks, so it suits a test script or CI.
+  `--vice-args="-sounddev dummy"` keeps it quiet.
+
 ## Kick Assembler projects
 
 Kick Assembler projects (Vol 2, or your own) get the same source-level debugging: breakpoints in
