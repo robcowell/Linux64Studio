@@ -122,7 +122,15 @@ doing is what's measured. The **Profiler** tab fills as it goes:
   it, but measured. The shaded band is the screen's 25 text rows; hover over a line for its routines.
   A raster interrupt shows up as a band at its line.
 
-Click a routine or line to go to it in the source. **Reset** starts the counts again from now,
+Click a routine or line to go to it in the source.
+
+**In the editor**, each line's share of the time shows in a column beside its line number. The
+busiest lines are tinted orange, deeper for more: 10% of the time or more, 3%, 1% and 0.3%. Hover
+over a figure for its exact share and samples. The figures fill in as the profile runs, stay after
+it stops, and move with their lines as you edit. The next profile replaces them. Untick **In the
+editor** to hide them, and they go when the Profiler tab is closed.
+
+**Reset** starts the counts again from now,
 for measuring one part of a game (get to the level, then Reset). **Stop** stops measuring; the
 program carries on in VICE. The copy button copies the profile as text.
 

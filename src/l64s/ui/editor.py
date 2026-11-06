@@ -161,6 +161,8 @@ class SourceEditor(EditorPage):
         self.view.add_controller(numbering)
         from .folding import Folding
         self.folding = Folding(self.view, self.buffer)
+        from .profile_gutter import ProfileFigures
+        self.profile_figures = ProfileFigures(self.view, self.buffer)
         fold_keys = Gtk.EventControllerKey()
         fold_keys.connect("key-pressed", self._fold_key)
         self.view.add_controller(fold_keys)
@@ -309,6 +311,10 @@ class SourceEditor(EditorPage):
             self.buffer.create_source_mark(None, "error", it)
 
     # ---------------------------------------------------------------- debugger
+    def set_profile(self, lines: dict[int, tuple[float, int]] | None):
+        """The profiler's figures for this file: {line: (share of the time, samples)}, or None."""
+        self.profile_figures.set(lines)
+
     def set_pc_line(self, line: int | None):
         self.buffer.remove_tag(self.pc_tag, self.buffer.get_start_iter(), self.buffer.get_end_iter())
         if HAVE_SOURCEVIEW:

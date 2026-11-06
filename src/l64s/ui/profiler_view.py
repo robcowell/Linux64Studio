@@ -116,9 +116,10 @@ class ProfilerView(EditorPage):
     kind = "profiler"
 
     def __init__(self, start: Callable[[], None], open_line: Callable[[str, int], None],
-                 line_text: Callable[[str, int], str]):
+                 line_text: Callable[[str, int], str], show_figures: Callable[[dict | None], None] | None = None):
         super().__init__(None)
         self._start, self.open_line, self.line_text = start, open_line, line_text
+        self.show_figures = show_figures or (lambda _shares: None)
         self.run: ProfileRun | None = None
         self.profile: Profile | None = None
         self.resolver: Resolver | None = None
@@ -142,9 +143,13 @@ class ProfilerView(EditorPage):
         self.copy = Gtk.Button(icon_name="edit-copy-symbolic", sensitive=False,
                                tooltip_text="Copy the profile as text")
         self.copy.connect("clicked", lambda *_: self._copy())
+        self.in_editor = Gtk.CheckButton(label="In the editor", active=True,
+                                         tooltip_text="Show each line's share of the time beside it in the editor, "
+                                                      "and tint the busiest lines")
+        self.in_editor.connect("toggled", lambda *_: self._push_figures())
         self.status = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
                                 css_classes=["dim-label"])
-        for w in (self.go, self.stop_button, self.reset, self.copy, self.status):
+        for w in (self.go, self.stop_button, self.reset, self.copy, self.in_editor, self.status):
             bar.append(w)
         self.append(bar)
 
@@ -164,7 +169,7 @@ class ProfilerView(EditorPage):
         self.legend = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, width_request=220)
         frame.append(Gtk.ScrolledWindow(child=self.legend, hscrollbar_policy=Gtk.PolicyType.NEVER, hexpand=False))
         self.views.add_titled_with_icon(frame, "frame", "Frame", "video-display-symbolic")
-        self.views.connect("notify::visible-child-name", lambda *_: self.profile and self._refresh())
+        self.views.connect("notify::visible-child-name", lambda *_: self.profile and self._refresh(figures=False))
         switcher = Adw.ViewSwitcher(stack=self.views, policy=Adw.ViewSwitcherPolicy.WIDE,
                                     halign=Gtk.Align.CENTER, margin_bottom=6)
         self.append(switcher)
@@ -218,6 +223,7 @@ class ProfilerView(EditorPage):
         """The tab's closing: stop measuring (VICE carries on)."""
         self._closed = True
         self.stop()
+        self.show_figures(None)
 
     def clear(self):
         if self.profile:
@@ -281,7 +287,14 @@ class ProfilerView(EditorPage):
             text = "Stopped: " + text + (f". {self.message}" if self.message else "")
         return text
 
-    def _refresh(self):
+    def _push_figures(self):
+        p = self.profile
+        on = self.in_editor.get_active() and p is not None and p.samples > 0
+        self.show_figures(p.line_shares() if on else None)
+
+    def _refresh(self, figures: bool = True):
+        if figures:
+            self._push_figures()
         self._update_buttons()
         self.status.set_text(self._status_text())
         p = self.profile

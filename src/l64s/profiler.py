@@ -248,6 +248,13 @@ class Profile:
         return [Row(f"{Path(f).name}:{ln}", w / self.total, n[(f, ln)], f, ln, first[(f, ln)])
                 for (f, ln), w in cyc.most_common()]
 
+    def line_shares(self) -> dict[str, dict[int, tuple[float, int]]]:
+        """For the editor: {file (resolved): {line: (share of the time, samples)}}."""
+        out: dict[str, dict[int, tuple[float, int]]] = {}
+        for r in self.lines():
+            out.setdefault(str(Path(r.file).resolve()), {})[r.line] = (r.share, r.samples)
+        return out
+
     def raster_lines(self) -> list[list[tuple[Routine, float]]]:
         """For each raster line: the routines running on it, with their share of the line's samples."""
         out = []

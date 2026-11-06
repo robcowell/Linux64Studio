@@ -236,3 +236,22 @@ def test_profiling_glowcave_in_vice(tmp_path):
            for ln in range(312)]
     assert max(irq[0:8]) > 0.3 and max(irq[64:72]) > 0.3 and max(irq[150:250]) < 0.3
     assert 0.8 < speed < 1.2, speed
+
+
+def test_line_shares_for_the_editor(tmp_path):
+    f = tmp_path / "a.asm"
+    f.write_text("")
+    mem = _memory({0x1000: b"\xea", 0x1001: b"\xea"})
+    r = P.Resolver({0x1000: "start"}, {0x1000: (str(f), 3), 0x1001: (str(f), 4)})
+    p = P.Profile(r, mem)
+    for pc in (0x1000, 0x1000, 0x1000, 0x1001):
+        p.add(pc, 0)
+    assert p.line_shares() == {str(f.resolve()): {3: (0.75, 3), 4: (0.25, 1)}}
+
+
+def test_the_editors_figures_and_tints():
+    pytest.importorskip("gi")
+    from l64s.ui.profile_gutter import figure, heat_level
+    assert figure(0.6624) == "66%" and figure(0.0144) == "1.4%" and figure(0.0004) == ""
+    assert heat_level(0.66) == 0 and heat_level(0.05) == 1 and heat_level(0.015) == 2
+    assert heat_level(0.004) == 3 and heat_level(0.001) is None

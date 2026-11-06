@@ -735,6 +735,8 @@ class MainWindow(Adw.ApplicationWindow):
         ed.connect("modified-changed", lambda e: page.set_title(("● " if e.modified else "") + e.title))
         if isinstance(ed, SourceEditor):       # Project Information follows what's typed
             ed.buffer.connect("changed", lambda *_: self.projinfo.refresh_soon(1500))
+            if self._profile_lines and ed.path:   # the last profile's figures, beside the lines
+                ed.set_profile(self._profile_lines.get(str(Path(ed.path).resolve())))
         if ed.path:
             self.pages[str(ed.path.resolve())] = page
         self.tab_view.set_selected_page(page)
@@ -1506,7 +1508,18 @@ class MainWindow(Adw.ApplicationWindow):
         if tool:
             self.tab_view.set_selected_page(self.tab_view.get_page(tool))
             return tool
-        return self._add_page(ProfilerView(self.profile_project, self._open_source_line, self._line_text))
+        return self._add_page(ProfilerView(self.profile_project, self._open_source_line, self._line_text,
+                                           self._show_profile_figures))
+
+    _profile_lines: dict | None = None
+
+    def _show_profile_figures(self, shares: dict | None):
+        """The profiler's figures beside the lines of every open source file ({file: {line: (share,
+        samples)}}), or none."""
+        self._profile_lines = shares
+        for ed in self.editors():
+            if isinstance(ed, SourceEditor) and ed.path:
+                ed.set_profile(shares.get(str(Path(ed.path).resolve())) if shares else None)
 
     def profile_project(self):
         """Debugger > Profile in VICE: build the project, then run it in VICE and measure it."""

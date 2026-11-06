@@ -212,7 +212,8 @@ See [docs/music.md](docs/music.md).
   and compare two to see what changed ([snapshots](docs/debugger.md#snapshots)).
 * A **profiler**: run the game in VICE at its real speed, play it, and see where the CPU's time
   goes, by routine, source line and file, and where in the frame (by raster line) each routine
-  runs ([profiler](docs/debugger.md#profiler)).
+  runs. Each line's share shows beside it in the editor, with the busiest lines tinted
+  ([profiler](docs/debugger.md#profiler)).
 * Builds can also write a Kick Assembler-style `.dbg` debug dump for C64 Debugger, RetroDebugger
   or VS64.
 
