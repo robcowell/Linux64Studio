@@ -1,0 +1,6 @@
+; Guess the number: does it start, and ask for a guess?
+run
+wait 2
+check $0400 = "guess the number"
+check $0428 = "i'm thinking of a number from 1 to 100."
+check $0450 = "your guess? "

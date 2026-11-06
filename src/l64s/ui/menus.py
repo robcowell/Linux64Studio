@@ -122,7 +122,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                         ("_Dark", "app.appearance::dark")])
     window = _menu([("Project _Information", "win.project-info"), ("_Appearance", appearance)],
                    [("_Close Tab", "win.close-tab"), ("Close _All Tabs", "win.tab-close-all")])
-    help_ = _menu([("_BASIC Keywords", "win.keyword-help"), ("_Keyboard Shortcuts", "app.shortcuts")],
+    help_ = _menu([("_Tutorials", "win.tutorials"), ("_BASIC Keywords", "win.keyword-help"),
+                   ("_Keyboard Shortcuts", "app.shortcuts")],
                   [("_About Linux64Studio", "app.about")])
 
     bar = Gio.Menu()

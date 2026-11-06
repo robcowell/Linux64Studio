@@ -1,0 +1,16 @@
+; flash: does it change the border's colour, and how long does it take?
+; (Debugger > Run Transcript, or: l64test flash.l64proj tests.transcript)
+
+set $d020 0
+call flash
+check $d020 & $0f = 1      ; the next colour (the top 4 bits of a colour register read as 1)
+check y = 0                ; both loops ran out
+check x = 0
+
+; Its time exactly: with interrupts off, and the screen blanked so the VIC-II
+; takes no cycles from the CPU, flash is 82,189 cycles: about 4 frames.
+interrupts off
+set $d011 $0b
+wait 0.1                   ; the blanking takes effect from the next frame
+call flash
+check cycles = #82189

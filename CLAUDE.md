@@ -86,3 +86,5 @@ only package that imports GTK. Put logic in a model module with tests, and keep 
   `render_texture`) into the scratchpad.
 - Each feature has a user doc in `docs/` (dialect, basic, disk, cartridge, music, debugger,
   memory, binary, c) plus a README bullet; update them with the feature.
+- `docs/tutorials/` are step-by-step guides, each with a project in `examples/tutorials/` and a
+  transcript there that `tests/test_tutorials.py` runs in VICE: keep them true when the IDE changes.

@@ -209,6 +209,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.empty = Adw.StatusPage(icon_name="applications-games-symbolic", title="Linux64Studio",
                                     description="Open a project (a CBM prg Studio .cbmprj works) or create a new one.\n"
                                                 "Ctrl+F5 builds and runs the project in VICE.", vexpand=True)
+        start_buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER)
+        for label, action, style in (("New Project…", "win.new-project", ["pill", "suggested-action"]),
+                                     ("Open Project…", "win.open-project", ["pill"]),
+                                     ("Tutorials", "win.tutorials", ["pill"])):
+            start_buttons.append(Gtk.Button(label=label, action_name=action, css_classes=style))
+        self.empty.set_child(start_buttons)
         self.stack = Gtk.Stack()
         self.stack.add_named(self.empty, "empty")
         self.stack.add_named(self.tab_view, "tabs")
@@ -377,6 +383,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("time-routine-here", lambda *_: self.time_routine_here())
         add("run-transcript", lambda *_: self.run_transcript())
         add("debug-skip", lambda *_: self.debugger.do("skip"))
+        add("tutorials", lambda *_: self.open_tutorials())
         add("external-debugger", lambda *_: self.build(run=True, external=True))
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
@@ -732,7 +739,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "profiler": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "keywords": "help-browser-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "profiler": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "keywords": "help-browser-symbolic", "tutorials": "help-contents-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -1975,6 +1982,45 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project:
             tool.set_scope("file")
         return tool
+
+    def open_tutorials(self):
+        """Help > Tutorials: docs/tutorials in a tab of their own."""
+        from ..mdview import tutorials
+        from .tutorials_view import TutorialsView
+        page = next((e for e in self.editors() if isinstance(e, TutorialsView)), None)
+        if page is not None:
+            self.tab_view.set_selected_page(self.tab_view.get_page(page))
+            return page
+        if not tutorials():
+            self.toast("The tutorials aren't here (they're in the docs/tutorials folder of Linux64Studio's source)")
+            return None
+        return self._add_page(TutorialsView(self.open_tutorial_example, self.open_file))
+
+    def open_tutorial_example(self, name: str):
+        """A copy of a tutorial's example project in ~/c64/tutorials (made the first time, then reused:
+        it's yours to change), opened."""
+        import shutil
+        from ..mdview import EXAMPLES
+        src = EXAMPLES / name
+        dest = Path.home() / "c64" / "tutorials" / name
+        if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dest, ignore=shutil.ignore_patterns(
+                "build", "*.prg", "*.lst", "*.vs", "*.dbg", "*.lbl", "*.map", "*.o"))
+            note = f"Copied the example to {dest}"
+        else:
+            note = f"Opened your copy in {dest}"
+        proj = next(dest.glob("*.l64proj"), None)
+        if proj is None:
+            self.toast(f"There's no project in {dest}")
+            return
+        page = next((e for e in self.editors() if e.kind == "tutorials"), None)
+        showing = page.current if page is not None else None
+        self.open_project(proj)                  # (which closes every tab: the tutorial comes back)
+        page = self.open_tutorials()
+        if page is not None and showing is not None:
+            page.show_tutorial(showing)
+        self.toast(note)
 
     def keyword_help(self):
         """F1: the BASIC keyword reference, at the keyword under the cursor in a BASIC file."""

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<sprites>
+  <sprite>
+    <description>ball</description>
+    <links />
+    <include>True</include>
+    <multi>False</multi>
+    <spbkgnd>0</spbkgnd>
+    <spcolour>7</spcolour>
+    <mcolour1>1</mcolour1>
+    <mcolour2>2</mcolour2>
+    <expandx>False</expandx>
+    <expandy>False</expandy>
+    <sdata>
+      <data>32256</data>
+      <data>262080</data>
+      <data>1048560</data>
+      <data>2072568</data>
+      <data>4065276</data>
+      <data>3934204</data>
+      <data>8130558</data>
+      <data>8265726</data>
+      <data>16777215</data>
+      <data>16777215</data>
+      <data>16777215</data>
+      <data>16777215</data>
+      <data>16777215</data>
+      <data>8388606</data>
+      <data>8388606</data>
+      <data>4194300</data>
+      <data>4194300</data>
+      <data>2097144</data>
+      <data>1048560</data>
+      <data>262080</data>
+      <data>32256</data>
+    </sdata>
+  </sprite>
+</sprites>

@@ -1,0 +1,9 @@
+; Score: does it add up 1 to 10, and show it?
+run until main
+check word score = 0
+until add_points           ; the first call
+until add_points           ; the second: score is 1 by now
+check word score = 1
+until kbhit                ; the loop's done: waiting for a key
+check word score = #55
+check $0400 = "score: 55"

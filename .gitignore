@@ -4,3 +4,6 @@ __pycache__/
 build/
 tests/book/
 *.egg-info/
+examples/**/*.prg
+examples/**/*.lst
+examples/**/*.vs
