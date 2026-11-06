@@ -2,6 +2,8 @@
 
   l64asm gameMain.asm                    # one file -> gameMain.prg
   l64asm chapter17.cbmprj                # a CBM prg Studio project, using its build list
+  l64asm ch17.code-workspace             # a Kick Assembler (VS Code) project, built with Kick Assembler
+  l64asm game.l64proj                    # any Linux64Studio project (Kick Assembler and C ones too)
   l64asm a.asm b.asm -o game.prg -l game.vs --list game.lst
 """
 from __future__ import annotations
@@ -16,7 +18,8 @@ from .output import write_outputs
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="l64asm", description="6502 assembler compatible with CBM prg Studio syntax")
-    ap.add_argument("inputs", nargs="+", help=".asm files in build order, or a .cbmprj/.l64proj project")
+    ap.add_argument("inputs", nargs="+", help=".asm files in build order, or a project (.cbmprj, .l64proj, "
+                                              ".code-workspace)")
     ap.add_argument("-o", "--output", help="output .prg (default: project executable or first file's name)")
     ap.add_argument("-l", "--labels", help="write a VICE label file")
     ap.add_argument("--list", dest="listing", help="write a listing file")
@@ -39,12 +42,12 @@ def main(argv: list[str] | None = None) -> int:
     inputs = [Path(p) for p in a.inputs]
     default_out: Path
     debug_dump = False                # the project's own setting
-    if len(inputs) == 1 and inputs[0].suffix.lower() in (".cbmprj", ".l64proj"):
-        from ..project.model import load_project
+    if len(inputs) == 1 and inputs[0].suffix.lower() in (".cbmprj", ".l64proj", ".code-workspace"):
+        from ..project.model import TOOLCHAIN_CBM, load_project
         proj = load_project(inputs[0])
-        from ..project.model import TOOLCHAIN_KICKASS
-        if proj.toolchain == TOOLCHAIN_KICKASS:
-            # the whole project build: build events, Kick Assembler, the disk image
+        if proj.toolchain != TOOLCHAIN_CBM:
+            # Kick Assembler and C (cc65): the whole project build, as the IDE does it (build events,
+            # the assembler or compiler, music, the disk image)
             from ..project.build import build_project
             from ..settings import Settings
             settings = Settings.load()
@@ -54,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(res.log, file=sys.stderr if not res.ok else sys.stdout)
             for d in res.diagnostics:
                 print(d, file=sys.stderr)
+            if res.ok and not a.quiet and res.prg:
+                print(f"{res.prg}: built")
             return 0 if res.ok else 1
         files = proj.build_paths()
         opts.padding_byte = proj.padding_byte

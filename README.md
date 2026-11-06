@@ -291,6 +291,7 @@ The same as CBM prg Studio's, where it has one.
 
 ```sh
 .venv/bin/l64asm chapter17.cbmprj                    # build a CBM prg Studio project
+.venv/bin/l64asm ch17.code-workspace               # or a Kick Assembler or C project, as the IDE does
 .venv/bin/l64asm gameMain.asm -o game.prg -l game.vs --list game.lst
 .venv/bin/l64asm chapter17.cbmprj --d64 game.d64 --disk-name "my game,mg"
 .venv/bin/l64disk list game.d64                      # also: create, add, extract, delete (.d64/.d71/.d81)
