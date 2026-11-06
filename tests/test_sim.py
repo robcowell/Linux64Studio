@@ -257,6 +257,9 @@ def test_the_screen_as_the_vic_ii_would_show_it():
 @pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "9-profiler", "10-simulator"])
 def test_the_tutorials_transcripts_pass_on_the_simulator(name, tmp_path):
     """Without VICE: what the tutorials say each program does, on the simulated C64."""
+    from l64s.sid.goattracker import find_tool
+    if name == "7-music" and find_tool("gt2reloc") is None:
+        pytest.skip("GoatTracker's gt2reloc isn't installed (it packs the song)")
     project = next((ROOT / "examples" / "tutorials" / name).glob("*.l64proj"))
     shutil.copytree(project.parent, tmp_path / "p")
     out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "p" / project.name),
