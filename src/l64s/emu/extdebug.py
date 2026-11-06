@@ -9,25 +9,26 @@ program with a BASIC SYS line, -wait to give it time to start first.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
+from .. import host
+
 NAMES = ("retrodebugger", "RetroDebugger", "C64Debugger", "c64debugger")
 # where tools/install-retrodebugger.sh puts it
-INSTALL_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "linux64studio" / "RetroDebugger"
+INSTALL_DIR = host.data_home() / "linux64studio" / "RetroDebugger"
 
 
 def find(preferred: str = "") -> str | None:
     """The debugger's executable: the one in Preferences, else one on the PATH, else the one
     tools/install-retrodebugger.sh installed."""
     if preferred:
-        p = shutil.which(preferred) or (preferred if Path(preferred).is_file() else None)
+        p = host.which(preferred)
         if p:
             return p
     for name in NAMES:
-        if shutil.which(name):
-            return shutil.which(name)
+        if host.which(name):
+            return host.which(name)
     if INSTALL_DIR.is_dir():
         for p in sorted(INSTALL_DIR.rglob("*")):
             if p.name in NAMES and p.is_file() and os.access(p, os.X_OK):
@@ -54,5 +55,5 @@ def command(exe: str, target: Path, dbg: Path | None = None, labels: Path | None
 
 
 def launch(args: list[str]) -> subprocess.Popen:
-    return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    return host.popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)

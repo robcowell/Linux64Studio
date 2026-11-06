@@ -10,9 +10,19 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DOCS = Path(__file__).resolve().parent.parent.parent / "docs"
+def _data_root() -> Path:
+    """Where docs/ and examples/ are: beside the source (a checkout), or installed with the package
+    (the Flatpak puts them in /app/share/linux64studio; a pip install under <prefix>/share)."""
+    here = Path(__file__).resolve()
+    for root in (here.parents[2], here.parents[4] / "share" / "linux64studio" if len(here.parents) > 4 else None):
+        if root is not None and (root / "docs" / "tutorials").is_dir():
+            return root
+    return here.parents[2]
+
+
+DOCS = _data_root() / "docs"
 TUTORIALS = DOCS / "tutorials"
-EXAMPLES = Path(__file__).resolve().parent.parent.parent / "examples" / "tutorials"
+EXAMPLES = _data_root() / "examples" / "tutorials"
 
 
 @dataclass

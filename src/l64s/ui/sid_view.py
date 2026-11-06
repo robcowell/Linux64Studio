@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 import gi
@@ -15,6 +13,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from ..sid.goattracker import (MusicError, PackOptions, launch_editor, pack_song, player_code,  # noqa: E402
                                read_instrument_name, read_song_info)
+from .. import host  # noqa: E402
 from ..sid import cmusic  # noqa: E402
 from ..sid.sidfile import SidError, load_sid, usage_code  # noqa: E402
 from .editor import EditorPage  # noqa: E402
@@ -44,11 +43,11 @@ class _Player:
 
     def play(self, sid: Path, tune: int = 1) -> str | None:
         self.stop()
-        exe = shutil.which(self.settings.vsid or "vsid") or (self.settings.vsid if Path(self.settings.vsid).is_file() else None)
+        exe = host.which(self.settings.vsid or "vsid")
         if not exe:
             return "VICE's vsid isn't installed (it comes with the vice package)"
-        self.proc = subprocess.Popen([exe, "-tune", str(tune), str(sid)], stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.proc = host.popen([exe, "-tune", str(tune), str(sid)], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return None
 
     def stop(self):
@@ -333,7 +332,7 @@ class SongView(_MusicPage):
             self.status.set_text(str(e))
 
     def _play(self, *_):
-        tmp = Path(tempfile.gettempdir()) / f"l64s-{os.getpid()}-{self.path.stem}.sid"
+        tmp = host.scratch_dir() / f"l64s-{os.getpid()}-{self.path.stem}.sid"
         try:
             pack_song(self.path, tmp, self.options(), self.settings.goattracker_dir)
         except MusicError as e:

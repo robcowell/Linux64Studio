@@ -2,10 +2,11 @@
 loaded) that we write $D400-$D418 into through the binary monitor."""
 from __future__ import annotations
 
-import shutil
 import subprocess
 import threading
 from pathlib import Path
+
+from .. import host
 
 from ..emu.binmon import BinaryMonitor, MonitorError
 from ..emu.vice import free_port, wait_for_port
@@ -21,7 +22,7 @@ class LiveError(RuntimeError):
 def find_vsid(preferred: str = "") -> str | None:
     if preferred and Path(preferred).is_file():
         return preferred
-    return shutil.which(preferred or "vsid") or shutil.which("vsid")
+    return host.which(preferred or "vsid") or host.which("vsid")
 
 
 class LiveSid:
@@ -49,8 +50,8 @@ class LiveSid:
             port = free_port()
             args = [exe, "-minimized", "-binarymonitor", "-binarymonitoraddress", f"ip4://127.0.0.1:{port}",
                     "-sidenginemodel", str(MODELS.get(self.model, 256)), *self.extra_args]
-            self.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                         stderr=subprocess.DEVNULL, start_new_session=True)
+            self.proc = host.popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=True)
             if not wait_for_port(port, timeout):
                 self._stop_locked()
                 raise LiveError("vsid didn't open its monitor port")

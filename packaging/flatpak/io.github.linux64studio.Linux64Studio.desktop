@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Linux64Studio
+GenericName=C64 Development Environment
+Comment=Write, build and debug Commodore 64 programs (CBM prg Studio compatible)
+Exec=linux64studio %F
+Icon=io.github.linux64studio.Linux64Studio
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.linux64studio.Linux64Studio
+Categories=Development;IDE;
+Keywords=C64;Commodore;6502;6510;assembler;BASIC;retro;CBM;VICE;sprite;
+MimeType=text/x-asm;

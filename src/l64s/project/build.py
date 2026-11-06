@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import host
 from ..asm.assembler import Assembler, Options, Result
 from ..asm.errors import Diagnostic, SourceLoc
 from ..asm.output import source_map, write_outputs
@@ -173,7 +173,9 @@ def build_events(project: Project, commands: list[str], prg: Path | None, which:
             return False, log
         log.append(f"> {line}")
         try:
-            proc = subprocess.run(argv, cwd=project.directory, capture_output=True, text=True, timeout=300)
+            if not (host.which(argv[0]) or (project.directory / argv[0]).is_file()):
+                raise FileNotFoundError(argv[0])
+            proc = host.run(argv, cwd=project.directory, capture_output=True, text=True, timeout=300)
         except FileNotFoundError:
             log.append(f"{which} command not found: {argv[0]}")
             return False, log
@@ -512,8 +514,7 @@ _KA_AT = re.compile(r"at line (\d+), column (\d+) in (.+)$")
 
 def default_kickass_jar() -> str:
     """The Kick Assembler tools/install-kickassembler.sh installs, if it's there."""
-    base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    jar = base / "linux64studio" / "KickAssembler" / "KickAss.jar"
+    jar = host.data_home() / "linux64studio" / "KickAssembler" / "KickAss.jar"
     return str(jar) if jar.is_file() else ""
 
 
@@ -547,7 +548,7 @@ def kickass_version(java: str, jar: str) -> tuple[int, int] | None:
         return None
     if key not in _KA_VERSIONS:
         try:
-            proc = subprocess.run([java, "-jar", jar], capture_output=True, text=True, timeout=60)
+            proc = host.run([java, "-jar", jar], capture_output=True, text=True, timeout=60)
             m = re.search(r"Kick Assembler v(\d+)\.(\d+)", proc.stdout + proc.stderr)
             _KA_VERSIONS[key] = (int(m.group(1)), int(m.group(2))) if m else None
         except (OSError, subprocess.TimeoutExpired):
@@ -560,7 +561,7 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
         d = Diagnostic("error", "Kick Assembler isn't set up: choose KickAss.jar in Preferences, or run "
                                    "tools/install-kickassembler.sh", None)
         return BuildResult(False, None, None, [d], str(d))
-    if not shutil.which(java):
+    if not host.which(java):
         d = Diagnostic("error", f"Java runtime '{java}' not found", None)
         return BuildResult(False, None, None, [d], str(d))
     main = Path(only_file) if only_file else project.directory / project.main_file
@@ -582,7 +583,7 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
         cmd += ["-o", os.path.relpath(out_dir / prg_name, project.directory)]
     cmd += list(project.assembler_args)
     try:
-        proc = subprocess.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
+        proc = host.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as e:
         d = Diagnostic("error", f"Couldn't run Kick Assembler: {e}", None)
         return BuildResult(False, None, None, [d], str(d))
@@ -628,7 +629,7 @@ def _build_cc65(project: Project, only_file) -> BuildResult:
     """A C project: each file on the build list compiled (cc65/ca65) into <output>/obj, then linked
     (ld65) with a VICE label file and a debug file. ``only_file``: just compile that one, to check it."""
     from . import cc65
-    cl65 = shutil.which(cc65.CL65)
+    cl65 = host.which(cc65.CL65)
     if not cl65:
         d = Diagnostic("error", "cc65 isn't installed: sudo apt install cc65", None)
         return BuildResult(False, None, None, [d], str(d))
@@ -646,7 +647,7 @@ def _build_cc65(project: Project, only_file) -> BuildResult:
 
     def run(cmd: list[str]) -> tuple[int, str]:
         try:
-            proc = subprocess.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
+            proc = host.run(cmd, cwd=project.directory, capture_output=True, text=True, timeout=120)
         except (OSError, subprocess.TimeoutExpired) as e:
             return -1, f"Couldn't run cl65: {e}"
         return proc.returncode, proc.stdout + proc.stderr

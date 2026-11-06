@@ -15,6 +15,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import host
+
 SONG_EXTS = (".sng",)
 SFX_EXTS = (".ins",)
 TOOLS = ("goattrk2", "sidmonkey", "gt2reloc", "ins2snd2")
@@ -32,7 +34,7 @@ def find_tool(name: str, folder: str = "") -> str | None:
         p = d / name
         if p.is_file() and p.stat().st_mode & 0o111:
             return str(p)
-    return shutil.which(name)
+    return host.which(name)
 
 
 # ---------------------------------------------------------------------- file headers
@@ -133,7 +135,7 @@ def pack_song(song: Path, output: Path, options: PackOptions, folder: str = "") 
     # gt2reloc takes bare file names, so run it in the song's folder with the output beside it.
     tmp = song.parent / f".l64s-pack{output.suffix.lower()}"
     try:
-        proc = subprocess.run([tool, song.name, tmp.name, *args], cwd=song.parent, capture_output=True,
+        proc = host.run([tool, song.name, tmp.name, *args], cwd=song.parent, capture_output=True,
                               text=True, errors="replace", timeout=60)
         log = proc.stdout + proc.stderr
         if proc.returncode != 0 or not tmp.is_file():
@@ -166,7 +168,7 @@ def convert_sfx(instrument: Path, output: Path, label: str = "", folder: str = "
     tmp = output.parent / f".l64s-sfx-{output.stem}.bin"
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        proc = subprocess.run([tool, str(instrument), str(tmp), "-b"], capture_output=True, text=True,
+        proc = host.run([tool, str(instrument), str(tmp), "-b"], capture_output=True, text=True,
                               errors="replace", timeout=30)
         if proc.returncode != 0 or not tmp.is_file():
             raise MusicError(f"ins2snd2 can't convert {instrument.name}: {(proc.stdout + proc.stderr).strip()}")
@@ -233,5 +235,5 @@ def launch_editor(which: str, path: Path | None = None, folder: str = "") -> sub
         raise MusicError(f"{which} not found: set the GoatTracker folder in Preferences")
     # GoatTracker loads songs by bare name from the current folder (its name buffer is short).
     args = [tool] + ([path.name] if path else [])
-    return subprocess.Popen(args, cwd=str(path.parent) if path else None, stdin=subprocess.DEVNULL,
+    return host.popen(args, cwd=str(path.parent) if path else None, stdin=subprocess.DEVNULL,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

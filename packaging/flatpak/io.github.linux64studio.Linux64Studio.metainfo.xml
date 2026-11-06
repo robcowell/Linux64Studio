@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.linux64studio.Linux64Studio</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>Linux64Studio</name>
+  <summary>Write, build and debug Commodore 64 programs</summary>
+  <description>
+    <p>
+      A Commodore 64 development environment, modelled on CBM prg Studio, built so the Retro Game Dev
+      C64 Edition books can be followed on Linux. Its assembler accepts CBM prg Studio's syntax exactly,
+      and it builds Kick Assembler, BASIC V2 and C (cc65) projects too.
+    </p>
+    <ul>
+      <li>Source-level debugging in VICE: breakpoints, stepping, registers, memory, snapshots</li>
+      <li>A profiler and exact routine timing, and transcripts that test routines in VICE</li>
+      <li>Sprite, character set and screen editors, SID sound design and GoatTracker music</li>
+      <li>Disk images, cartridges, and step-by-step tutorials</li>
+    </ul>
+    <p>
+      VICE, and cc65 for C, are installed separately, outside the Flatpak: sudo apt install vice cc65
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.linux64studio.Linux64Studio.desktop</launchable>
+  <url type="homepage">https://github.com/robcowell/Linux64Studio</url>
+  <developer id="io.github.robcowell">
+    <name>Rob Cowell</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Development</category>
+    <category>IDE</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-11-06"/>
+  </releases>
+</component>

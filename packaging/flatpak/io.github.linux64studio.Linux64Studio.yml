@@ -1,0 +1,41 @@
+# The Linux64Studio Flatpak. Build it with tools/build-flatpak.sh (which needs flatpak-builder and
+# the GNOME 51 SDK: see the script).
+#
+# VICE, cc65, Java (Kick Assembler), GoatTracker, git and RetroDebugger aren't in the Flatpak:
+# Linux64Studio runs the host's own with flatpak-spawn --host (l64s/host.py), so they're installed
+# as usual, outside it.
+app-id: io.github.linux64studio.Linux64Studio
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: linux64studio
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # VICE's binary monitor, on localhost
+  - --share=network
+  # projects, and ~/.config/linux64studio and ~/.local/share/linux64studio shared with a normal install
+  - --filesystem=home
+  # the host's /usr, read-only at /run/host/usr: VICE's character ROM, cc65's headers
+  - --filesystem=host-os:ro
+  # running VICE, cc65, Java, GoatTracker, git and the rest on the host
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: linux64studio
+    buildsystem: simple
+    build-commands:
+      - sh packaging/flatpak/install.sh /app
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .venv
+          - .git
+          - .flatpak-builder
+          - flatpak-build
+          - flatpak-repo
+          - tests
+          - build
+          - .ruff_cache

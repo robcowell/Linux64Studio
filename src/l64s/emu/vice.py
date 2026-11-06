@@ -2,19 +2,21 @@
 from __future__ import annotations
 
 import re
-import shutil
 import socket
 import subprocess
 import time
 from pathlib import Path
+
+from .. import host
 
 DEFAULT_EMULATOR = "x64sc"
 
 
 def find_emulator(preferred: str = "") -> str | None:
     for cand in [preferred, DEFAULT_EMULATOR, "x64"]:
-        if cand and (shutil.which(cand) or Path(cand).is_file()):
-            return shutil.which(cand) or cand
+        found = host.which(cand) if cand else None
+        if found:
+            return found
     return None
 
 
@@ -53,7 +55,7 @@ def launch(prg: Path | None, emulator: str = "", labels: Path | None = None, mon
         args += ["-moncommands", str(labels)]
     args += list(extra_args or [])
     if prg is None:                            # just the machine, at READY
-        return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        return host.popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
     # A disk image may name the program to start: game.d64:intro (VICE autostarts it)
     image = Path(re.sub(r"(?i)(\.d(64|71|81)):[^/]*$", r"\1", str(prg)))
@@ -67,7 +69,7 @@ def launch(prg: Path | None, emulator: str = "", labels: Path | None = None, mon
         args += ["-autostartprgmode", "1", str(prg)]
     # VICE's log goes nowhere: it writes a line each time the monitor lets it go on ("Sync reset"),
     # so a pipe that isn't read fills after a few thousand debugger steps, and VICE stops dead.
-    return subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    return host.popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             start_new_session=True)
 
 

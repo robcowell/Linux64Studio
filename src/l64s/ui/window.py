@@ -2314,9 +2314,10 @@ class MainWindow(Adw.ApplicationWindow):
         if not tool:
             self.toast(f"{which} not found: set the GoatTracker folder in Preferences")
             return
-        subprocess.Popen([tool], cwd=str(self.project.directory) if self.project else None,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        from .. import host
+        host.popen([tool], cwd=str(self.project.directory) if self.project else None,
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                   start_new_session=True)
         self.toast("Save songs in the project folder to use them here")
 
     # ================================================================== BASIC
@@ -2705,9 +2706,10 @@ class MainWindow(Adw.ApplicationWindow):
         dirs = []
         if self.project:
             dirs += [(self.project.directory / d).resolve() for d in self.project.lib_dirs] + [self.project.directory]
+        from ..host import host_path
         for d in (os.environ.get("CC65_INC", ""), "/usr/share/cc65/include", "/usr/local/share/cc65/include"):
-            if d and Path(d).is_dir():
-                dirs.append(Path(d))
+            if d and host_path(d).is_dir():                  # (the host's /usr, in the Flatpak)
+                dirs.append(host_path(d))
                 break
         return dirs
 

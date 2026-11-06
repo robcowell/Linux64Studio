@@ -240,6 +240,27 @@ It uses VICE's binary monitor. See [docs/debugger.md](docs/debugger.md).
 
 ## Install
 
+### As a Flatpak
+
+`linux64studio.flatpak` is one file that runs on any Linux with Flatpak. It brings its own GTK and
+libadwaita; VICE, and cc65 for C, are installed as usual, outside it, and it runs them from there.
+
+```sh
+sudo apt install vice cc65                          # (cc65 only for C)
+flatpak install --user linux64studio.flatpak        # then Linux64Studio is in the app menu
+flatpak run io.github.linux64studio.Linux64Studio   # or from a terminal
+flatpak run --command=l64test io.github.linux64studio.Linux64Studio game.l64proj tests.transcript
+```
+
+`tools/build-flatpak.sh` builds the file. It needs `sudo apt install flatpak-builder` and
+`flatpak install --user flathub org.gnome.Platform//51 org.gnome.Sdk//51`; `--install` installs what
+it built. The Flatpak shares your home folder, settings and the Kick Assembler and RetroDebugger
+installed by `tools/install-*.sh` with a normal install. It also needs the network, for VICE's
+monitor on this machine, and permission to start programs outside the sandbox
+(`packaging/flatpak/` has the details).
+
+### From the source
+
 ```sh
 sudo apt install vice gir1.2-gtksource-5 gir1.2-adw-1 python3-gi python3-gi-cairo
 sudo apt install python3-mido python3-rtmidi   # optional: MIDI keyboards in the SID Designer

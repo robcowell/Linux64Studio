@@ -10,11 +10,12 @@ one argument.
 from __future__ import annotations
 
 import shlex
-import shutil
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from . import host
 
 PRESETS = ["[prg]", "[prgName]", "[prgDir]", "[ProjectDir]", "[ProjectName]", "[OutputDir]", "[OutputDirFull]",
            "[CurrentFile]", "[CurrentDir]", "[Date]", "[Version]", "[Target]", "[TargetFull]", "[System]"]
@@ -50,7 +51,7 @@ class Context:
     def make(cls, project=None, current_file: Path | None = None, prg: Path | None = None) -> "Context":
         from . import __version__ as version
         v = {"[Date]": time.strftime("%Y-%m-%d"), "[Version]": version, "[Target]": "C64",
-             "[TargetFull]": "Commodore 64", "[System]": str(Path(shutil.which("sh") or "/bin/sh").parent)}
+             "[TargetFull]": "Commodore 64", "[System]": str(Path(host.which("sh") or "/bin/sh").parent)}
         if project is not None:
             out = prg or project.output_path()
             v.update({"[ProjectDir]": str(project.directory), "[ProjectName]": project.name,
@@ -94,19 +95,19 @@ def run(tool: UserTool, ctx: Context, timeout: int = 300) -> tuple[bool, str]:
     """Run a tool. With `capture`, waits and returns (succeeded, what it printed); otherwise starts
     it on its own and returns at once."""
     cmd, cwd = argv(tool, ctx), folder(tool, ctx)
-    if shutil.which(cmd[0]) is None and not Path(cmd[0]).expanduser().exists():
+    if host.which(cmd[0]) is None and not (cwd / cmd[0]).is_file():
         raise ToolError(f"{tool.name}: can't find the program {cmd[0]}")
     if not cwd.is_dir():
         raise ToolError(f"{tool.name}: the folder {cwd} doesn't exist")
     if not tool.capture:
         try:
-            subprocess.Popen(cmd, cwd=cwd, start_new_session=True, stdin=subprocess.DEVNULL,
+            host.popen(cmd, cwd=cwd, start_new_session=True, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             raise ToolError(f"{tool.name}: {e.strerror}") from None
         return True, ""
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        p = host.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return False, f"{tool.name} was still running after {timeout} seconds, so it was stopped"
     except OSError as e:

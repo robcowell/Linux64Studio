@@ -120,7 +120,8 @@ class SourcePrinter:
     def preview(self) -> Path | None:
         """The pages as a PDF, opened in the PDF viewer."""
         stem = self.editor.path.stem if self.editor.path else "source"
-        out = Path(tempfile.mkdtemp(prefix="l64s-print-")) / f"{stem}.pdf"
+        from ..host import scratch_dir
+        out = Path(tempfile.mkdtemp(prefix="l64s-print-", dir=scratch_dir())) / f"{stem}.pdf"
         if not self.export_pdf(out):
             return None
         try:

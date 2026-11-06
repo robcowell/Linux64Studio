@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
 def config_dir() -> Path:
-    base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / "linux64studio"
+    from .host import config_home
+    return config_home() / "linux64studio"
 
 
 @dataclass

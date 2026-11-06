@@ -30,7 +30,8 @@ def test_finding_it(tmp_path, monkeypatch):
     exe.chmod(0o755)
     assert extdebug.find() == str(exe)
     other = tmp_path / "mine"
-    other.write_text("")
+    other.write_text("#!/bin/sh\n")
+    other.chmod(0o755)
     assert extdebug.find(str(other)) == str(other)            # the one in Preferences
 
 

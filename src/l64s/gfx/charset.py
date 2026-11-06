@@ -19,7 +19,8 @@ def rom_charset(uppercase: bool = True) -> list[list[int]] | None:
     """The 256 characters of the C64 ROM (upper-case/graphics or lower/upper set), if available."""
     for p in ROM_SEARCH:
         try:
-            data = p.read_bytes()
+            from ..host import host_path
+            data = host_path(p).read_bytes()         # (the host's /usr, in the Flatpak)
         except OSError:
             continue
         if len(data) >= 4096:

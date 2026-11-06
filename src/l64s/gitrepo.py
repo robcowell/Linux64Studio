@@ -8,11 +8,12 @@ are filled in.
 """
 from __future__ import annotations
 
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import host
 
 DEFAULT_IGNORE = """# {project}: Git ignore list, made {now}
 # Files Git leaves alone: what the build makes, and backups.
@@ -73,7 +74,7 @@ class Commit:
 
 
 def available() -> bool:
-    return shutil.which("git") is not None
+    return host.which("git") is not None
 
 
 class Repo:
@@ -93,7 +94,7 @@ class Repo:
                 cmd += ["-c", f"user.email={self.email}"]
         cmd += list(args)
         try:
-            p = subprocess.run(cmd, cwd=self.folder, capture_output=True, text=True, timeout=60)
+            p = host.run(cmd, cwd=self.folder, capture_output=True, text=True, timeout=60)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise GitError(f"git {args[0]} didn't run: {e}") from None
         if check and p.returncode != 0:
