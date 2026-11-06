@@ -3,8 +3,9 @@
 A Commodore 64 development environment for Linux (GTK4/libadwaita), modelled on CBM prg Studio.
 It was built so the *Retro Game Dev C64 Edition* books by Derek Morris can be followed on Linux.
 
-New to it? Start with the [tutorials](docs/tutorials/README.md): five short ones, from a first BASIC
-program to sprites, testing and C. **Help → Tutorials** shows them in the IDE, beside your work.
+New to it? Start with the [tutorials](docs/tutorials/README.md): ten short ones, from a first BASIC
+program to sprites, testing, C, screens, music, disks, the profiler and debugging without VICE.
+**Help → Tutorials** shows them in the IDE, beside your work.
 
 ## Features
 

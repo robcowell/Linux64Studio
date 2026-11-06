@@ -495,7 +495,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._refresh_programs()
         self._build_order = {(p.directory / n).resolve(): i for i, n in enumerate(p.build_list)}
         roots = [p.directory] + [p.directory / d for d in p.lib_dirs] + p.referenced_dirs()
-        tree = build_tree(p.directory, p.all_files(), self._build_order, roots, p.all_folders())
+        files = p.all_files()
+        self._tree_files = set(files)
+        tree = build_tree(p.directory, files, self._build_order, roots, p.all_folders())
         first_time = self._tree_project != self._project_key()
         self._tree_project = self._project_key()
         if first_time:                   # a project just opened: its folders as they were left
@@ -1388,6 +1390,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None,
                     transcript=None, external: bool = False, simulate: bool = False):
         self.last_build = res
+        if self.project and set(self.project.all_files()) != getattr(self, "_tree_files", set()):
+            self._populate_files()               # what the build made for the first time (.prg, .d64)
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
         self.refresh_tasks()
@@ -1663,8 +1667,9 @@ class MainWindow(Adw.ApplicationWindow):
             from ..emu.sim import SimRun
             run = SimRun(worker, lambda msg: GLib.idle_add(ended, run, msg))
         else:
+            from ..transcript import disk_args
             run = ViceRun(None, worker, lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator,
-                          self._vice_args())
+                          self._vice_args() + disk_args(res))
         try:
             run.start()
         except FileNotFoundError as e:

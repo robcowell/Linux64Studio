@@ -1,0 +1,64 @@
+{
+  "name": "intro",
+  "toolchain": "cbm",
+  "build_list": [
+    "gameMain.asm"
+  ],
+  "main_file": "gameMain.asm",
+  "executable": "intro.prg",
+  "output_dir": ".",
+  "lib_dirs": [],
+  "padding_byte": 0,
+  "vice_args": [],
+  "imported_from": "",
+  "exports": {},
+  "disk_image": "intro.d64",
+  "disk_name": "my game",
+  "disk_id": "mg",
+  "disk_file_name": "",
+  "disk_extra_files": [],
+  "run_from_disk": true,
+  "cart_type": "",
+  "cart_file": "",
+  "cart_name": "",
+  "cart_banks": [],
+  "run_cart": false,
+  "music": [],
+  "kickass_jar": "",
+  "assembler_args": [],
+  "pre_build": [],
+  "post_build": [],
+  "post_build_always": false,
+  "debug_dump": false,
+  "disk_program": "",
+  "charpad_views": {},
+  "sprite_pads": {},
+  "programs": [
+    {
+      "name": "intro",
+      "build_list": [
+        "gameMain.asm"
+      ],
+      "main_file": "gameMain.asm",
+      "executable": "intro.prg",
+      "assembler_args": [],
+      "linker_config": "",
+      "c_areas": []
+    },
+    {
+      "name": "game",
+      "build_list": [
+        "game.asm"
+      ],
+      "main_file": "game.asm",
+      "executable": "game.prg",
+      "assembler_args": [],
+      "linker_config": "",
+      "c_areas": []
+    }
+  ],
+  "current_program": "intro",
+  "linker_config": "",
+  "c_areas": [],
+  "debug_memory": []
+}

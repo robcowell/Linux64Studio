@@ -1,0 +1,14 @@
+; Fill: does it fill the whole screen, and how long does it take?
+; (With interrupts off, and the screen blanked so the VIC-II takes no cycles.)
+interrupts off
+set $d011 $0b
+wait 0.1
+set char $51              ; a ball
+call slowFill
+check cycles > #10000
+set char $2a              ; a star
+call fill
+check $0400 = $2a         ; the first place
+check $07e7 = $2a         ; and the last
+check $07e8 = $00         ; and not past it
+check cycles = #6261      ; a third of a frame

@@ -1,0 +1,7 @@
+; Bricks: is the screen there, in our characters?
+run until gMLoop
+check $0400 = $40 $40 $40         ; bricks along the top
+check $0428 = $40 $20             ; and down the side
+check $d800 & $0f = 2             ; in red
+check $d018 & $fe = $1c           ; the screen at $0400, the characters at $3000
+check $3200 = $f7 $f7 $f7 $00     ; character 64 ($3000 + 64 x 8): the brick

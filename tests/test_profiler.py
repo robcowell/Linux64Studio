@@ -31,6 +31,9 @@ def test_routine_is_the_label_before_the_pc_but_not_a_local_one():
     assert r.routine(0x1025).name == "start"
     u = r.routine(0x1031)
     assert (u.name, u.address, u.where, u.module) == ("update", 0x1030, "/p/main.asm", "main.asm")
+    # the built-in assembler names a CBM local after its label: fill@place
+    r = P.Resolver({0x2000: "fill", 0x2008: "fill@place", 0x2010: "next"}, {0x2000: ("/p/main.asm", 1)})
+    assert r.routine(0x2009).name == "fill"
 
 
 def test_kernal_and_basic_rom_routines():

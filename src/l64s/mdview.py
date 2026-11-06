@@ -137,6 +137,9 @@ def tutorials() -> list[Path]:
     """The tutorials, in order (the index first)."""
     if not TUTORIALS.is_dir():
         return []
-    files = sorted(p for p in TUTORIALS.glob("*.md") if p.name != "README.md")
+    def number(p: Path):
+        head = p.name.split("-", 1)[0]
+        return (int(head) if head.isdigit() else 999, p.name)       # 10-... after 9-...
+    files = sorted((p for p in TUTORIALS.glob("*.md") if p.name != "README.md"), key=number)
     index = TUTORIALS / "README.md"
     return ([index] if index.exists() else []) + files

@@ -1,0 +1,8 @@
+; Intro: does it load the game from the disk, and start it?
+; (Build > Build All Programs first, so the game is on the disk.)
+timeout 30                        ; loading from a disk takes a few seconds
+run until $c000                   ; the game's start, once it's loaded
+check $0400 = "loading the game"
+wait 0.5
+check $0428 = "the game is running."
+check $d020 & $0f = 5             ; its green border

@@ -174,7 +174,7 @@ def test_the_screen_as_the_vic_ii_would_show_it():
 
 
 @needs_roms
-@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites"])
+@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "9-profiler", "10-simulator"])
 def test_the_tutorials_transcripts_pass_on_the_simulator(name, tmp_path):
     """Without VICE: what the tutorials say each program does, on the simulated C64."""
     project = next((ROOT / "examples" / "tutorials" / name).glob("*.l64proj"))

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<charset>
+  <FileVersion>2</FileVersion>
+  <BK1>17</BK1>
+  <BK2>27</BK2>
+  <Col3>17</Col3>
+  <Reversed>False</Reversed>
+  <Multicolour>False</Multicolour>
+  <Uppercase>True</Uppercase>
+  <character>
+    <charcode>64</charcode>
+    <chardata>
+      <data>247</data>
+      <data>247</data>
+      <data>247</data>
+      <data>0</data>
+      <data>127</data>
+      <data>127</data>
+      <data>127</data>
+      <data>0</data>
+    </chardata>
+  </character>
+</charset>

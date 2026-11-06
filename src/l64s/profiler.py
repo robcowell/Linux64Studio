@@ -38,9 +38,10 @@ KERNAL_ROUTINES = {
 }
 _KERNAL_STARTS = sorted(KERNAL_ROUTINES)
 
-# Labels that are places inside a routine, not routines: cheap locals (@loop, !loop), cc65's own
-# (L0012), ld65's symbols (__MAIN_START__) and macro expansions
-_INNER = re.compile(r"^(@|!|L[0-9A-F]{4}$|__.*__$)|__m")
+# Labels that are places inside a routine, not routines: cheap locals (@loop, !loop, and the built-in
+# assembler's names for CBM locals, fill@loop), cc65's own (L0012), ld65's symbols (__MAIN_START__)
+# and macro expansions
+_INNER = re.compile(r"^(@|!|L[0-9A-F]{4}$|__.*__$)|__m|@")
 
 
 def cycles_at(memory: bytes, pc: int) -> int:

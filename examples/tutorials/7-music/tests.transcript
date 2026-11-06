@@ -1,0 +1,7 @@
+; Tune: is the interrupt playing the song once a frame?
+run until gMLoop
+check word $0314 = irq            ; the interrupt is ours
+check $1000 = $4c                 ; the player's there: a jmp to its init
+wait 1
+check frames >= #40               ; about 50 interrupts a second
+check frames <= #60

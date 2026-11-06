@@ -15,6 +15,18 @@ EXAMPLES = ROOT / "examples" / "tutorials"
 HAVE_CC65 = shutil.which("cl65") is not None
 
 
+def _have_goattracker():
+    from l64s.sid.goattracker import find_tool
+    return find_tool("gt2reloc") is not None
+
+
+def _skip_without_tools(project):
+    if project.parent.name == "5-c" and not HAVE_CC65:
+        pytest.skip("cc65 isn't installed")
+    if project.parent.name == "7-music" and not _have_goattracker():
+        pytest.skip("GoatTracker's gt2reloc isn't installed")
+
+
 def test_reading_markdown():
     blocks = mdview.parse("# Title\n\nSome **bold**, `code` and [a link](2-x.md), *italic*.\n\n"
                           "1. First\n   carried on\n2. Second\n\n* a bullet\n\n```\nlda #0\n\nrts\n```\n\n"
@@ -32,7 +44,8 @@ def test_reading_markdown():
 
 def test_the_tutorials_hang_together():
     files = mdview.tutorials()
-    assert files[0].name == "README.md" and len(files) == 6
+    assert files[0].name == "README.md" and len(files) == 11
+    assert [f.name.split("-")[0] for f in files[1:]] == [str(n) for n in range(1, 11)]   # in order
     for f in files:
         text = f.read_text()
         for m in re.finditer(r"!\[[^\]]*\]\(([^)]+)\)", text):        # every picture is there
@@ -53,8 +66,7 @@ def _projects():
 def test_each_example_builds(project, tmp_path):
     from l64s.project.build import build_project
     from l64s.project.model import load_project
-    if project.parent.name == "5-c" and not HAVE_CC65:
-        pytest.skip("cc65 isn't installed")
+    _skip_without_tools(project)
     shutil.copytree(project.parent, tmp_path / "p")
     res = build_project(load_project(tmp_path / "p" / project.name))
     assert res.ok, res.log
@@ -69,8 +81,7 @@ def _vice_ok():
 @pytest.mark.parametrize("project", _projects(), ids=lambda p: p.parent.name)
 def test_each_examples_transcript_passes(project, tmp_path):
     """What the tutorials say each program does, checked in VICE."""
-    if project.parent.name == "5-c" and not HAVE_CC65:
-        pytest.skip("cc65 isn't installed")
+    _skip_without_tools(project)
     shutil.copytree(project.parent, tmp_path / "p")
     out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "p" / project.name),
                           str(tmp_path / "p" / "tests.transcript"), "--vice-args=-sounddev dummy"],

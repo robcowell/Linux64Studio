@@ -1,0 +1,7 @@
+; Frames: on the simulator (Debugger > Run Transcript Without VICE) or in VICE
+run until gMLoop
+check $0400 = "counting frames"   ; the message, printed by the KERNAL
+check seconds = 0
+wait 2                            ; two seconds of the C64's time
+check seconds >= 1                ; (VICE's wait is the clock on the wall, so
+check seconds <= 2                ;  allow a second either side)

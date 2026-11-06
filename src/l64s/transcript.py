@@ -11,7 +11,8 @@ A transcript is a text file (.transcript), a command a line::
     check word result = $1235
     check cycles < 60
 
-``Runner`` runs one in a ViceRun: VICE is started with no program, the program is put into memory
+``Runner`` runs one in a ViceRun: VICE is started with no program (the project's disk image in drive
+8, if it writes one), the program is put into memory
 once BASIC is READY (as LOAD would), and each command then runs in turn. Bare numbers are hex,
 as in the debugger ($ may be written too); #12 is decimal, %1010 binary. Where an address goes, a
 label of the program's may (a C function or variable too), with +n or -n.
@@ -567,6 +568,12 @@ def keys_of(args: str) -> bytes:
     return bytes(out)
 
 
+def disk_args(res) -> list[str]:
+    """VICE's options to put the build's disk image in drive 8, if it wrote one, so the program can
+    load files from it."""
+    return ["-8", str(res.disk)] if getattr(res, "disk", None) else []
+
+
 def summary(runner: Runner, message: str = "") -> str:
     p, f = runner.passed, runner.failed
     text = f"{p} check{'s' if p != 1 else ''} passed, {f} failed"
@@ -580,7 +587,7 @@ def main(argv: list[str] | None = None) -> int:
     from pathlib import Path
 
     from .profiler import ViceRun, resolver_for
-    from .project.build import build_project
+    from .project.build import build_all, build_project
     from .project.model import load_project
     from .settings import Settings
     ap = argparse.ArgumentParser(prog="l64test", description="Run transcripts against a project's program in VICE")
@@ -592,7 +599,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     st = Settings.load()
     project = load_project(Path(args.project))
-    res = build_project(project, kickass_jar=st.kickass_jar, java=st.java, goattracker_dir=st.goattracker_dir)
+    if project.programs:                          # several programs: all of them, for the disk image
+        res, _each = build_all(project, kickass_jar=st.kickass_jar, java=st.java, goattracker_dir=st.goattracker_dir)
+    else:
+        res = build_project(project, kickass_jar=st.kickass_jar, java=st.java, goattracker_dir=st.goattracker_dir)
     if not res.ok:
         print(res.log)
         return 101
@@ -619,7 +629,7 @@ def main(argv: list[str] | None = None) -> int:
             from .emu.sim import SimRun
             run = SimRun(worker, done.append)
         else:
-            run = ViceRun(None, worker, done.append, st.emulator, args.vice_args.split())
+            run = ViceRun(None, worker, done.append, st.emulator, args.vice_args.split() + disk_args(res))
         run.start()
         while not done:
             time.sleep(0.1)

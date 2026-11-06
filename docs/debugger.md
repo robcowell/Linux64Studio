@@ -281,8 +281,9 @@ tested too. Its commands work here as they're written there.
 
 **File → New → Transcript (tests)…** makes a `.transcript` file with the commands listed at its top.
 **Debugger → Run Transcript** (or right-click in it → **Run Transcript**) builds the project and
-starts VICE with no program. Once BASIC is READY, the program is put into memory as LOAD would put
-it, without being run. Then each line runs in turn. The results stream into **Build Output**: a
+starts VICE with no program (but with the project's disk image in drive 8, if it writes one, so the
+program can load files from it). Once BASIC is READY, the program is put into memory as LOAD would
+put it, without being run. Then each line runs in turn. The results stream into **Build Output**: a
 tick for a check that passed, an error for one that failed (also marked in the transcript's
 margin), and what every other command did. Click a row to go to its line.
 
