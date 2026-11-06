@@ -182,6 +182,12 @@ what was written to it, except for what makes timing and interrupts work:
   time and sets `$DC0D`'s flag when it runs out, with an interrupt if `$DC0D` has it on. That's the
   KERNAL's own interrupt, 60 times a second, so its clock ticks and its cursor blinks. Reading
   `$DC0D` clears the flags (the debugger's reads don't).
+* **Sprite collisions**: `$D01E` (the sprites that touched another sprite) and `$D01F` (those that
+  touched the background: a set pixel of a hires character or bitmap, a `10` or `11` pair of a
+  multicolour one) are worked out once a frame, from memory as the Screen view draws it. They keep
+  adding up until the program reads them, which clears them, and the first since then sets `$D019`'s
+  flag for it (bit 2 for sprites, bit 1 for the background), with an interrupt if `$D01A` has it on.
+  `tests/test_sim.py` checks them against VICE's.
 * The **keyboard and joysticks**: CIA 1's ports (`$DC00`, `$DC01`) read the keys held down, through
   the keyboard matrix (a key reads as down in the column `$DC00` selects), and joystick 2 on
   `$DC00`, joystick 1 on `$DC01`. So the KERNAL's keyboard scan and a game's own both see them.
@@ -190,8 +196,9 @@ Interrupts happen as on a C64 while the program runs, through `$FFFE`, so a rast
 handler, music played from one, or the KERNAL's clock all work, and a breakpoint in a handler stops
 there. A single step never goes into one: Step Into and Step Over run the instruction at the PC, and
 any interrupt waits until the program runs on. Stepping over a JSR runs the subroutine with
-interrupts, as running does. CIA 2, its NMI, the CIAs' other timers and time-of-day clocks, and
-sprite collisions aren't there. The VIC-II never takes
+interrupts, as running does. CIA 2, its NMI, and the CIAs' other timers and time-of-day clocks
+aren't there. Collisions come from the frame as memory has it at its end, so a sprite moved and back
+within a frame, or a raster split, isn't seen as the VIC-II would see it. The VIC-II never takes
 cycles from the CPU either, so the counts are those of a blanked screen. The screen is a picture of
 memory, not an emulated VIC-II: a change made halfway down the frame shows on all of it, and sprites
 are drawn in front of everything. As in CBM prg Studio, the program stops at a `BRK`, and at an

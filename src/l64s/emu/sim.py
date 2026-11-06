@@ -12,6 +12,8 @@ written, except for what makes a program's timing and interrupts work:
   interrupt ($D012 and $D011 for the line, $D019 its flag, $D01A to switch it on) happens on it;
 * CIA 1's timer A ($DC04/$DC05, started with $DC0E) counts down a cycle at a time, and interrupts
   through $DC0D, as the KERNAL's 60-a-second interrupt does;
+* the sprites' collisions ($D01E, $D01F, and $D019's flags for them), worked out once a frame from
+  memory as the Screen view draws it;
 * the keyboard and joysticks: CIA 1's ports ($DC00, $DC01) read the keys held down (``hold``), as
   the keyboard matrix connects them to the columns selected, and the joysticks (``joystick``):
   port 2's on $DC00, port 1's on $DC01.
@@ -111,6 +113,9 @@ class Memory:
         # what's pressed: the joysticks in ports 1 and 2 (JOY_BITS), and the keys held (column, row)
         self.joysticks = [0, 0, 0]
         self.held: set[tuple[int, int]] = set()
+        # sprite collisions ($D01E, $D01F), worked out once a frame and kept until they're read
+        self.collided_sprites = self.collided_background = 0
+        self.next_frame = FRAME
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
@@ -174,6 +179,14 @@ class Memory:
             return (self.io[r] & 0x7F) | ((self.line() & 0x100) >> 1)
         if r == 0x019:
             return 0x70 | self.vic_flags | (0x80 if self.vic_irq() else 0)
+        if r in (0x01E, 0x01F):
+            v = self.collided_sprites if r == 0x01E else self.collided_background
+            if cpu:                                     # reading clears them
+                if r == 0x01E:
+                    self.collided_sprites = 0
+                else:
+                    self.collided_background = 0
+            return v
         if r == 0xC00:
             return self._port_a() & ~self.joysticks[2] & 0xFF
         if r == 0xC01:
@@ -274,7 +287,12 @@ class Memory:
         return bool(self.cia_flags & self.cia_mask)
 
     def tick(self, now: int) -> None:
-        """What's happened by cycle ``now``: the raster reaching the compare line, timer A running out."""
+        """What's happened by cycle ``now``: the raster reaching the compare line, timer A running out, a
+        frame drawn (and its sprites' collisions)."""
+        if now >= self.next_frame:
+            self.next_frame += FRAME * ((now - self.next_frame) // FRAME + 1)
+            if self.io[0x15]:
+                self._collide()
         if self.next_raster is not None and now >= self.next_raster:
             self.vic_flags |= 1
             self.next_raster += FRAME * ((now - self.next_raster) // FRAME + 1)
@@ -286,6 +304,18 @@ class Memory:
             else:
                 period = self.ta_latch + 1
                 self.ta_next += period * ((now - self.ta_next) // period + 1)
+
+    def _collide(self) -> None:
+        """The frame's sprite collisions, added to those not yet read. The first since a read sets
+        $D019's flag (bit 2 for sprites, bit 1 for the background), as the VIC-II does."""
+        from .simscreen import collisions
+        ss, sb = collisions(self.ram, self.io, self.chargen)
+        if ss and not self.collided_sprites:
+            self.vic_flags |= 4
+        if sb and not self.collided_background:
+            self.vic_flags |= 2
+        self.collided_sprites |= ss
+        self.collided_background |= sb
 
     def irq(self) -> bool:
         """Whether something's asking for an interrupt."""
@@ -816,7 +846,7 @@ def basic_sys(program: bytes) -> int | None:
 # snapshot loads into the simulator as its RAM and registers.
 
 _STATE = ("vic_flags", "next_raster", "ta_latch", "ta_value", "ta_t0", "ta_running", "ta_oneshot", "ta_next",
-          "cia_flags", "cia_mask", "joysticks")
+          "cia_flags", "cia_mask", "joysticks", "collided_sprites", "collided_background", "next_frame")
 
 
 def _module(name: str, major: int, minor: int, body: bytes) -> bytes:

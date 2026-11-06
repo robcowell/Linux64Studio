@@ -32,6 +32,7 @@
     <category>IDE</category>
   </categories>
   <releases>
+    <release version="0.2.0" date="2026-11-06"/>
     <release version="0.1.0" date="2026-11-06"/>
   </releases>
 </component>

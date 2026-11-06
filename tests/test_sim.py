@@ -531,3 +531,82 @@ def test_a_vice_snapshot_loads_into_the_simulator(tmp_path):
     assert load_snapshot(m, tmp_path / "v.vsf") == regs["PC"]
     assert m.memory.ram[0xC000] == 0x42 and m.cpu.sp == regs["SP"]
     assert m.run(max_cycles=FRAME * 10).why == "halt"               # and it runs on (the KERNAL, at READY)
+
+
+COLLIDE = """*=$0801
+        byte $0B, $08, $0A, $00, $9E, $32, $30, $36, $31, $00, $00, $00
+*=$080D
+start   sei
+        ldx #0          ; a clear screen
+        lda #32
+@clear  sta $0400,x
+        sta $0500,x
+        sta $0600,x
+        sta $06e8,x
+        inx
+        bne @clear
+        lda #160        ; a solid character at row 10, column 10
+        sta $0400+410
+        ldx #15         ; sprites 0-3: x, y
+@pos    lda where,x
+        sta $d000,x
+        dex
+        bpl @pos
+        lda #$80        ; their data at $2000, all solid
+        ldx #3
+@ptr    sta $07f8,x
+        dex
+        bpl @ptr
+        lda #%00001111
+        sta $d015
+loop    jmp loop
+where   byte 100,200, 110,205, 104,130, 200,130
+*=$2000
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+        byte 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255, 255,255,255
+"""
+COLLIDE_CHECKS = """run until loop
+wait 0.2
+check $d01e = $03        ; sprites 0 and 1 overlap
+check $d01f = $04        ; sprite 2 is over the solid character
+check $d019 & $06 = $06  ; and both flags are set
+"""
+
+
+def _collide(tmp_path, *args):
+    (tmp_path / "c.asm").write_text(COLLIDE)
+    (tmp_path / "c.transcript").write_text(COLLIDE_CHECKS)
+    return subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "c.asm"),
+                           str(tmp_path / "c.transcript"), *args], capture_output=True, text=True,
+                          timeout=120).stdout
+
+
+@needs_roms
+def test_sprite_collisions(tmp_path):
+    out = _collide(tmp_path, "--simulate")
+    assert " 3 checks passed, 0 failed" in out, out
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_sprite_collisions_as_in_vice(tmp_path):
+    out = _collide(tmp_path, "--vice-args=-sounddev dummy")
+    assert " 3 checks passed, 0 failed" in out, out
+
+
+def test_reading_the_collisions_clears_them():
+    m = ram_only(bytes([0xEA]))
+    mem = m.memory
+    mem.poke(1, 0x35)
+    mem.collided_sprites = 3
+    assert mem.peek(0xD01E) == 3 and mem.peek(0xD01E) == 3        # the debugger's reads don't
+    assert mem.peek(0xD01E, True) == 3 and mem.peek(0xD01E) == 0  # the program's do
+
+
+def test_a_sprite_rows_pixels():
+    from l64s.emu.simscreen import _sprite_row
+    assert _sprite_row(bytes([0x80, 0, 1]), False, False) == 1 | 1 << 23        # hires: bit 0 the leftmost
+    assert _sprite_row(bytes([0x80, 0, 0]), False, True) == 3                   # twice as wide
+    assert _sprite_row(bytes([0x40, 0, 0]), True, False) == 3                   # a multicolour pair: 2 pixels
+    assert _sprite_row(bytes([0x00, 0, 0]), True, True) == 0

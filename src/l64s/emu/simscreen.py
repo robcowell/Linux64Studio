@@ -127,3 +127,100 @@ def _draw_sprites(v: _Vic, pixels, d018: int) -> None:
                         px = BORDER_X + x - 24 + p * sx + dx
                         if 0 <= px < WIDTH:
                             target[px] = c
+
+
+# ---------------------------------------------------------------------- collisions
+# What the VIC-II's collision registers would have: $D01E, the sprites that touched another sprite,
+# and $D01F, those that touched the background's foreground (a set pixel of a hires character or
+# bitmap, a 10 or 11 pair of a multicolour one), over a frame as memory has it now. Each line is a
+# Python int, a bit a pixel, bit x being the sprite coordinate x.
+
+_REV = [int(f"{b:08b}"[::-1], 2) for b in range(256)]       # a byte's bits the other way round
+_patterns: dict = {}
+
+
+def _sprite_row(data: bytes, multi: bool, wide: bool) -> int:
+    """A sprite row's pixels (bit 0 its leftmost), from its 3 bytes."""
+    key = (data, multi, wide)
+    p = _patterns.get(key)
+    if p is None:
+        word = data[0] << 16 | data[1] << 8 | data[2]
+        p = 0
+        if multi:
+            for i in range(12):
+                if (word >> (22 - 2 * i)) & 3:
+                    p |= 3 << (2 * i)
+        else:
+            for i in range(24):
+                if word >> (23 - i) & 1:
+                    p |= 1 << i
+        if wide:
+            q = 0
+            for i in range(48 if multi else 24):
+                if p >> i & 1:
+                    q |= 3 << (2 * i)
+            p = q
+        _patterns[key] = p
+    return p
+
+
+def _background_line(v: _Vic, io, y: int) -> int:
+    """The foreground pixels of display line y (0-199), shifted to sprite coordinates (x + 24)."""
+    d011, d016, d018 = io[0x11], io[0x16], io[0x18]
+    row, line = divmod(y, 8)
+    screen = (d018 >> 4) * 0x400
+    bitmap, ecm, mcm = bool(d011 & 0x20), bool(d011 & 0x40), bool(d016 & 0x10)
+    out = bytearray(40)
+    for col in range(40):
+        i = row * 40 + col
+        code = v.byte(screen + i)
+        if bitmap:
+            b = v.byte((d018 & 8) * 0x400 + i * 8 + line)
+            multi = mcm
+        else:
+            ch = code & 0x3F if ecm else code
+            b = v.byte(((d018 >> 1) & 7) * 0x800 + ch * 8 + line)
+            multi = mcm and not ecm and io[0x800 + i] & 8
+        if multi:
+            b &= 0xAA                                   # a pair is foreground if its high bit's set
+            b |= b >> 1
+        out[col] = _REV[b]
+    return int.from_bytes(out, "little") << 24
+
+
+def collisions(ram, io, chargen) -> tuple[int, int]:
+    """($D01E, $D01F) bits for the sprites as memory has them now."""
+    on = io[0x15]
+    if not on:
+        return 0, 0
+    v = _Vic(ram, io, chargen)
+    pointers = (io[0x18] >> 4) * 0x400 + 0x3F8
+    rows: dict[int, list[tuple[int, int]]] = {}             # sprite y line -> [(sprite, pixels)]
+    for n in range(8):
+        bit = 1 << n
+        if not on & bit:
+            continue
+        x = io[2 * n] | (0x100 if io[0x10] & bit else 0)
+        y = io[2 * n + 1]
+        data = v.byte(pointers + n) * 64
+        tall = 2 if io[0x17] & bit else 1
+        for r in range(21):
+            row = bytes(v.byte(data + r * 3 + k) for k in range(3))
+            pixels = _sprite_row(row, bool(io[0x1C] & bit), bool(io[0x1D] & bit)) << x
+            if pixels:
+                for dy in range(tall):
+                    rows.setdefault((y + r * tall + dy) % 312, []).append((n, pixels))
+    ss = sb = 0
+    display = bool(io[0x11] & 0x10)
+    for line, sprites in rows.items():
+        if len(sprites) > 1:
+            for i, (a, pa) in enumerate(sprites):
+                for b, pb in sprites[i + 1:]:
+                    if pa & pb:
+                        ss |= 1 << a | 1 << b
+        if display and 50 <= line < 250:
+            bg = _background_line(v, io, line - 50)
+            for n, p in sprites:
+                if p & bg:
+                    sb |= 1 << n
+    return ss, sb

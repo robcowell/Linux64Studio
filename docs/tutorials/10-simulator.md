@@ -84,7 +84,7 @@ instruction at the PC, and the interrupt waits until the program runs on.
 
 That makes it good for logic: tables, maths, game rules, what a routine leaves in memory, and the
 timing of a main loop or an interrupt. Code that needs the real chips needs VICE: sound you can hear,
-sprite collisions, the screen as the VIC-II really draws it. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
+and the screen as the VIC-II really draws it, line by line. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.
 
 It runs at a real C64's speed. Click the Screen and the keyboard is the C64's, with the arrow keys
