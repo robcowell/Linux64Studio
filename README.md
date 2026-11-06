@@ -118,6 +118,8 @@ It was built so the *Retro Game Dev C64 Edition* books by Derek Morris can be fo
 ### BASIC V2
 
 * `.bas` files with highlighting, and a tokenizer that crunches exactly like the C64's ROM.
+* **Keyword help**: hover over a keyword, or press F1 for the BASIC Keywords reference, with an
+  example and the abbreviation for every keyword ([keyword help](docs/basic.md#keyword-help)).
 * `{clear}`/`{white}`/`{3 down}`-style control codes.
 * Automatic line numbers as you type (Return starts the next numbered line).
 * CBM prg Studio's reformatting (spaces, REMs, DATA zeros, case) and Compress/Uncompress of

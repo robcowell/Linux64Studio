@@ -502,6 +502,8 @@ class SourceEditor(EditorPage):
         elif self.is_basic:
             menu.append("Convert to pBASIC", "win.convert-to-pbasic")
         if self.is_basic:
+            menu.append("Keyword Help (F1)", "win.keyword-help")
+        if self.is_basic:
             fmt = Gio.Menu()
             fmt.append("Reformat BASIC…", "win.reformat-basic")
             fmt.append("Compress (abbreviate keywords)", "win.basic-compress")
@@ -688,8 +690,18 @@ class SourceEditor(EditorPage):
         while end.get_char().isalnum() or end.get_char() == "_":
             end.forward_char()
         word = self.buffer.get_text(start, end, False).lower()
-        if self.is_basic:
-            return False
+        if self.is_basic:                     # the keyword's help (crunched as the C64 would)
+            from ..basic.keywords import keyword_at
+            line_start = it.copy()
+            line_start.set_line_offset(0)
+            line_end = line_start.copy()
+            if not line_end.ends_line():
+                line_end.forward_to_line_end()
+            k = keyword_at(self.buffer.get_text(line_start, line_end, False), it.get_line_offset())
+            if k is None:
+                return False
+            tooltip.set_text(f"{k.title}  ({k.kind})\n{k.form}\n\n{k.text}\n\nF1 for more")
+            return True
         win = self.get_root()
         if hasattr(win, "describe_symbol"):
             line_start = it.copy()

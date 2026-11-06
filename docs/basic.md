@@ -75,6 +75,18 @@ Output is checked against VICE's `petcat -w2` (`tests/test_basic.py`). There are
 differences, both because the real C64 does it this way: `?` becomes `PRINT` (petcat leaves a
 `?`), and `π` in UTF-8 source is the single PETSCII `π` byte.
 
+## Keyword help
+
+Hover over a keyword in a BASIC or pBASIC file for what it does and how it's written. **F1**
+(or right-click → **Keyword Help**, **Tools → BASIC → Keyword Help**, **Help → BASIC Keywords**)
+opens the **BASIC Keywords** tab at the keyword under the cursor, with an example to copy and the
+keyword's abbreviation (`pO` is P, then Shift+O). Every BASIC V2 keyword is there, plus the ROM's own
+variables TI, TI$ and ST. Search by name, or by a word in the description (`colour`, `file`).
+
+The keyword under the cursor is found the way the C64 tokenizes the line: `fori=1to10` has FOR and TO,
+and the OR in `score` counts too, as on the real machine. Nothing in quote marks, after REM or in
+DATA counts as a keyword.
+
 ## Automatic line numbers
 
 As in CBM prg Studio, pressing Return at the end of a line in a `.bas` file starts the next line

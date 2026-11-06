@@ -90,7 +90,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                      [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")],
                      [("_Profile in VICE", "win.profile")])
     basic = _menu([("_List BASIC Program (.prg)…", "win.list-prg"), ("_Renumber…", "win.renumber"),
-                   ("Re_format…", "win.reformat-basic"), ("_Statistics", "win.basic-statistics")],
+                   ("Re_format…", "win.reformat-basic"), ("_Statistics", "win.basic-statistics"),
+                   ("_Keyword Help", "win.keyword-help")],
                   [("_Compress (abbreviate keywords)", "win.basic-compress"),
                    ("_Uncompress (keywords in full)", "win.basic-uncompress")],
                   [("Convert to _pBASIC", "win.convert-to-pbasic"),
@@ -118,7 +119,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                         ("_Dark", "app.appearance::dark")])
     window = _menu([("Project _Information", "win.project-info"), ("_Appearance", appearance)],
                    [("_Close Tab", "win.close-tab"), ("Close _All Tabs", "win.tab-close-all")])
-    help_ = _menu([("_Keyboard Shortcuts", "app.shortcuts")], [("_About Linux64Studio", "app.about")])
+    help_ = _menu([("_BASIC Keywords", "win.keyword-help"), ("_Keyboard Shortcuts", "app.shortcuts")],
+                  [("_About Linux64Studio", "app.about")])
 
     bar = Gio.Menu()
     for label, m in (("_File", file), ("_Edit", _edit_menu()), ("_Project", project), ("_Build", build),

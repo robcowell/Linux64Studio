@@ -369,6 +369,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("string-formatter", lambda *_: self.open_string_formatter())
         add("source-analyser", lambda *_: self.open_source_analyser())
         add("basic-statistics", lambda *_: self.open_basic_statistics())
+        add("keyword-help", lambda *_: self.keyword_help())
         add("import-charpad", lambda *_: self.import_charpad())
         add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
@@ -728,7 +729,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "charpad": "font-x-generic-symbolic", "disk": "media-floppy-symbolic",
                 "cart": "media-flash-symbolic", "sid": "audio-x-generic-symbolic",
                 "song": "audio-x-generic-symbolic", "sfx": "audio-x-generic-symbolic",
-                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "profiler": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "memory": "drive-harddisk-symbolic",
+                "screencodes": "insert-text-symbolic", "screencalc": "accessories-calculator-symbolic", "snippets": "edit-paste-symbolic", "sysgen": "system-run-symbolic", "datagen": "x-office-spreadsheet-symbolic", "strformat": "format-justify-left-symbolic", "analyser": "utilities-system-monitor-symbolic", "profiler": "utilities-system-monitor-symbolic", "utf8": "dialog-warning-symbolic", "basicstats": "view-list-bullet-symbolic", "keywords": "help-browser-symbolic", "memory": "drive-harddisk-symbolic",
                 "binary": "document-open-symbolic", "disasm": "system-search-symbolic",
                 "memmgr": "view-grid-symbolic", "snapshots": "camera-photo-symbolic",
                 "siddesigner": "audio-speakers-symbolic"}.get(ed.kind)
@@ -1828,6 +1829,27 @@ class MainWindow(Adw.ApplicationWindow):
         if not self.project:
             tool.set_scope("file")
         return tool
+
+    def keyword_help(self):
+        """F1: the BASIC keyword reference, at the keyword under the cursor in a BASIC file."""
+        from ..basic.keywords import keyword_at
+        from .keyword_help import KeywordHelp
+        ed = self.current_editor()
+        k = None
+        if isinstance(ed, SourceEditor) and ed.is_basic:
+            line_no, col, line_text = ed.position_at_click()
+            ed._click_iter_offset = None
+            k = keyword_at(line_text, col)
+            if k is None and col > 0:                   # the cursor just after the keyword
+                k = keyword_at(line_text, col - 1)
+        page = next((e for e in self.editors() if isinstance(e, KeywordHelp)), None)
+        if page is None:
+            page = self._add_page(KeywordHelp())
+        else:
+            self.tab_view.set_selected_page(self.tab_view.get_page(page))
+        if k is not None:
+            page.show_keyword(k)
+        return page
 
     def open_basic_statistics(self) -> BasicStatistics:
         tool = next((ed for ed in self.editors() if isinstance(ed, BasicStatistics)), None)
