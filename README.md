@@ -332,3 +332,12 @@ unzip c64edition-main.zip -d tests/book       # the book downloads (optional): V
 unzip c64editionvol2-main.zip -d tests/book   # and Vol 2's SpritePad/CharPad files
 .venv/bin/python -m pytest
 ```
+
+## Licence
+
+Linux64Studio is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+VICE, cc65, Kick Assembler, GoatTracker and RetroDebugger are separate programs, under their own
+licences, that Linux64Studio runs; none of them is part of it.

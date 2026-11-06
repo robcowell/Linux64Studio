@@ -145,7 +145,10 @@ class Application(Adw.Application):
         about = Adw.AboutDialog(application_name="Linux64Studio", version=__version__,
                                 application_icon=APP_ID,
                                 comments="A Commodore 64 development environment for Linux, with an assembler "
-                                         "compatible with CBM prg Studio's syntax.")
+                                         "compatible with CBM prg Studio's syntax.",
+                                developer_name="Rob Cowell", copyright="© 2026 Rob Cowell",
+                                license_type=Gtk.License.GPL_3_0,
+                                website="https://github.com/robcowell/Linux64Studio")
         about.present(self.window)
 
     def _shortcuts(self, *_):

@@ -2,6 +2,7 @@
 <component type="desktop-application">
   <id>io.github.linux64studio.Linux64Studio</id>
   <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
   <name>Linux64Studio</name>
   <summary>Write, build and debug Commodore 64 programs</summary>
   <description>
