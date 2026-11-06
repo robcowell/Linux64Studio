@@ -477,6 +477,8 @@ class SourceEditor(EditorPage):
         menu = Gio.Menu()
         menu.append("Go to Definition", "win.goto-definition")
         menu.append("Add TODO…", "win.add-todo")
+        if not self.is_basic and not (self.path and self.path.suffix.lower() == ".cfg"):
+            menu.append("Time This Routine", "win.time-routine-here")
         menu.append_submenu("Convert Number", sub)
         is_cfg = bool(self.path) and self.path.suffix.lower() == ".cfg"
         if not self.is_c and not self.ca65 and not is_cfg:      # the analyser reads CBM prg Studio, Kick and BASIC

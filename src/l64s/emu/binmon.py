@@ -109,7 +109,10 @@ class BinaryMonitor:
     def _recv_exact(self, n: int) -> bytes:
         buf = bytearray()
         while len(buf) < n:
-            chunk = self.sock.recv(n - len(buf))
+            sock = self.sock
+            if sock is None:                       # closed meanwhile (close() from another thread)
+                raise ConnectionError("The monitor connection was closed")
+            chunk = sock.recv(n - len(buf))
             if not chunk:
                 raise ConnectionError("VICE closed the monitor connection")
             buf += chunk

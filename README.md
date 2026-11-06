@@ -214,6 +214,9 @@ See [docs/music.md](docs/music.md).
   goes, by routine, source line and file, and where in the frame (by raster line) each routine
   runs. Each line's share shows beside it in the editor, with the busiest lines tinted
   ([profiler](docs/debugger.md#profiler)).
+* **Routine timing**: every call of one routine measured to the cycle in VICE: the fewest, the
+  most and the average, how often it's called, and the raster lines it runs on (right-click in the
+  editor: Time This Routine) ([timing](docs/debugger.md#routine-timing)).
 * Builds can also write a Kick Assembler-style `.dbg` debug dump for C64 Debugger, RetroDebugger
   or VS64.
 

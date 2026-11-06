@@ -255,3 +255,12 @@ def test_the_editors_figures_and_tints():
     assert figure(0.6624) == "66%" and figure(0.0144) == "1.4%" and figure(0.0004) == ""
     assert heat_level(0.66) == 0 and heat_level(0.05) == 1 and heat_level(0.015) == 2
     assert heat_level(0.004) == 3 and heat_level(0.001) is None
+
+
+def test_finding_a_routine_by_name():
+    r = P.Resolver({0x1000: "Start", 0x1100: "_move", 0x1200: "gEULoop"}, {}, c=True,
+                   functions=[(0x1300, 0x1340, "_wait_frame")])
+    assert r.address_of("Start") == 0x1000 and r.address_of("start") == 0x1000    # (any case, if no exact one)
+    assert r.address_of("move") == 0x1100 and r.address_of("move()") == 0x1100    # C's _move
+    assert r.address_of("wait_frame") == 0x1300                                    # a static function
+    assert r.address_of("$C000") == 0xC000 and r.address_of("nothing") is None

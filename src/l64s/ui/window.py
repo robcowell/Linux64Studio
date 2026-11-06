@@ -195,6 +195,7 @@ class MainWindow(Adw.ApplicationWindow):
         info_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, start_child=right, end_child=self.projinfo,
                                resize_end_child=False, shrink_end_child=False, shrink_start_child=False)
         outer.set_end_child(info_paned)
+
         tabs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.tab_view = Adw.TabView(vexpand=True)
         self.tab_view.connect("close-page", self._on_close_page)
@@ -372,6 +373,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("analyse-here", lambda *_: self.analyse_from_editor())
         add("memory-viewer", lambda *_: self.open_memory_viewer())
         add("profile", lambda *_: self.profile_project())
+        add("time-routine-here", lambda *_: self.time_routine_here())
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
         add("binary-tool", lambda *_: self.open_binary_tool())
@@ -1324,7 +1326,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _overrides(self) -> dict[str, str]:
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
 
-    def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False):
+    def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False,
+              timing=None):
         ed = self.current_editor()
         if not self.project:
             if isinstance(ed, SourceEditor) and ed.path:
@@ -1342,7 +1345,7 @@ class MainWindow(Adw.ApplicationWindow):
             only = ed.path
         if self.settings.save_before_build:
             self.save_all()
-        if self.debug and (debug or profile):
+        if self.debug and (debug or profile or timing):
             self.debug.stop()
             self.debug = None
         self.bottom_stack.set_visible_child_name("output")
@@ -1360,10 +1363,10 @@ class MainWindow(Adw.ApplicationWindow):
                 from ..asm.errors import Diagnostic
                 res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
                                   traceback.format_exc())
-            GLib.idle_add(self._build_done, res, run, debug, profile)
+            GLib.idle_add(self._build_done, res, run, debug, profile, timing)
         threading.Thread(target=work, daemon=True).start()
 
-    def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False):
+    def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None):
         self.last_build = res
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
@@ -1375,6 +1378,11 @@ class MainWindow(Adw.ApplicationWindow):
                 self._show_basic_preview(src, text, select=False)
         if not res.ok:
             self.toast("Build failed")
+            if timing is not None:
+                self.open_profiler().timing_failed("The build failed, so there's nothing to time: see Build Output.")
+            return
+        if timing is not None:
+            self._start_timing(res, timing)
             return
         if not run:
             self.toast(f"Built {res.prg.name}")
@@ -1509,7 +1517,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.tab_view.set_selected_page(self.tab_view.get_page(tool))
             return tool
         return self._add_page(ProfilerView(self.profile_project, self._open_source_line, self._line_text,
-                                           self._show_profile_figures))
+                                           self._show_profile_figures, self.time_routine))
 
     _profile_lines: dict | None = None
 
@@ -1525,6 +1533,58 @@ class MainWindow(Adw.ApplicationWindow):
         """Debugger > Profile in VICE: build the project, then run it in VICE and measure it."""
         self.open_profiler()
         self.build(run=True, profile=True)
+
+    def time_routine(self, name: str):
+        """Time every call of a routine (a label, C function or $address) in VICE, after a build."""
+        self.open_profiler()
+        self.build(run=True, timing=("name", name))
+
+    def time_routine_here(self):
+        """The editor's right-click Time This Routine: the label or C function at the cursor, or else
+        the routine the cursor's line is in."""
+        from ..symindex import word_at
+        ed = self.current_editor()
+        if not isinstance(ed, SourceEditor) or not ed.path:
+            return
+        line_no, col, line_text = ed.position_at_click()
+        ed._click_iter_offset = None
+        start, end, word = word_at(line_text, col)
+        # the routine named under the cursor: where it's defined (the label starting the line), called
+        # (jsr name, jmp name) or, in C, called or defined (name followed by a bracket); else the
+        # routine the line is in
+        before, after = line_text[:start].strip().lower(), line_text[end:].lstrip()
+        named = word and (not before or before.endswith(("jsr", "jmp")) or (ed.is_c and after.startswith("(")))
+        self.open_profiler()
+        self.build(run=True, timing=("here", word if named else "", str(ed.path), line_no))
+
+    def _start_timing(self, res: BuildResult, spec):
+        from ..profiler import resolver_for
+        view = self.open_profiler()
+        resolver = resolver_for(res, self._build_symbols(res))
+        entry, name = None, ""
+        if spec[0] == "name":
+            name = spec[1]
+            entry = resolver.address_of(name)
+            if entry is None:
+                view.timing_failed(f"There's no routine called {name} in the program (a label, a C function, "
+                                   "or an address such as $1000)")
+                return
+        else:
+            _here, word, file, line = spec
+            entry = resolver.address_of(word) if word else None
+            if entry is not None and resolver.routine(entry).address == entry:
+                name = word
+            else:                                       # the routine the line is in
+                addr = self._breakpoint_address(file, line)
+                if addr is None:
+                    view.timing_failed(f"Line {line} of {Path(file).name} makes no code, so it isn't in a routine")
+                    return
+                r = resolver.routine(addr)
+                entry, name = r.address, r.name
+        target = res.run_target(self.project) if self.project else res.prg
+        view.begin_timing(target, entry, name, self.settings.emulator, self._vice_args())
+        if view.message:
+            self.toast(view.message)
 
     def _start_profile(self, res: BuildResult):
         view = self.open_profiler()

@@ -10,7 +10,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from ..profiler import Profile, ProfileRun, Resolver, Row  # noqa: E402
+from ..profiler import Profile, ProfileRun, Resolver, Row, ViceRun  # noqa: E402
+from ..routine_timing import CPU_IRQ, KERNAL_IRQ, Timer, Timing  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 ROWS = 80                 # rows shown in each list
@@ -19,6 +20,9 @@ COLOURS = [(0.26, 0.55, 0.96), (0.95, 0.47, 0.18), (0.20, 0.70, 0.40), (0.86, 0.
            (0.60, 0.40, 0.85), (0.93, 0.75, 0.15), (0.15, 0.70, 0.75), (0.75, 0.50, 0.35)]
 OTHER = (0.55, 0.55, 0.55)
 VISIBLE = (51, 251)       # the raster lines of the screen's 25 text rows (the rest is border)
+EMPTY = ("Profile in VICE builds the program and runs it in VICE, at its real speed, measuring where the "
+         "6510's time goes: which routines and lines, and where in the frame. Play the game while it "
+         "measures; Reset starts the counts again from now.")
 
 
 def _clear(box):
@@ -116,11 +120,16 @@ class ProfilerView(EditorPage):
     kind = "profiler"
 
     def __init__(self, start: Callable[[], None], open_line: Callable[[str, int], None],
-                 line_text: Callable[[str, int], str], show_figures: Callable[[dict | None], None] | None = None):
+                 line_text: Callable[[str, int], str], show_figures: Callable[[dict | None], None] | None = None,
+                 time_routine: Callable[[str], None] | None = None):
         super().__init__(None)
         self._start, self.open_line, self.line_text = start, open_line, line_text
         self.show_figures = show_figures or (lambda _shares: None)
-        self.run: ProfileRun | None = None
+        self.time_routine = time_routine or (lambda _name: None)
+        self.run: ViceRun | None = None
+        self.mode = "profile"                # what the run's doing: profile or timing
+        self.timing: Timing | None = None
+        self.timing_name = ""
         self.profile: Profile | None = None
         self.resolver: Resolver | None = None
         self.emulated = 0                    # cycles of the program's time in the profile
@@ -160,6 +169,8 @@ class ProfilerView(EditorPage):
                                   ("files", "Files", "folder-documents-symbolic")):
             lb = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE,
                              margin_start=8, margin_end=8, margin_bottom=8)
+            lb.set_placeholder(Gtk.Label(label=EMPTY, wrap=True, margin_top=24, margin_bottom=24, margin_start=24,
+                                         margin_end=24, css_classes=["dim-label"]))
             lb.connect("row-activated", self._activated)
             self.lists[name] = lb
             self.views.add_titled_with_icon(Gtk.ScrolledWindow(child=lb, vexpand=True), name, title, icon)
@@ -169,19 +180,14 @@ class ProfilerView(EditorPage):
         self.legend = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, width_request=220)
         frame.append(Gtk.ScrolledWindow(child=self.legend, hscrollbar_policy=Gtk.PolicyType.NEVER, hexpand=False))
         self.views.add_titled_with_icon(frame, "frame", "Frame", "video-display-symbolic")
-        self.views.connect("notify::visible-child-name", lambda *_: self.profile and self._refresh(figures=False))
+        self.timing_page = TimingPage(self._time_clicked, lambda: self.stop())
+        self.views.add_titled_with_icon(Gtk.ScrolledWindow(child=self.timing_page, hscrollbar_policy=Gtk.PolicyType.NEVER),
+                                        "timing", "Timing", "alarm-symbolic")
+        self.views.connect("notify::visible-child-name", lambda *_: self._refresh(figures=False))
         switcher = Adw.ViewSwitcher(stack=self.views, policy=Adw.ViewSwitcherPolicy.WIDE,
                                     halign=Gtk.Align.CENTER, margin_bottom=6)
         self.append(switcher)
-        self.empty = Adw.StatusPage(icon_name="utilities-system-monitor-symbolic", title="Profiler",
-                                    description="Profile in VICE builds the program and runs it in VICE, at its "
-                                                "real speed, measuring where the 6510's time goes: which routines "
-                                                "and lines, and where in the frame. Play the game while it "
-                                                "measures; Reset starts the counts again from now.")
-        self.body = Gtk.Stack(vexpand=True)
-        self.body.add_named(self.empty, "empty")
-        self.body.add_named(self.views, "views")
-        self.append(self.body)
+        self.append(self.views)
         self._update_buttons()
         GLib.timeout_add(1000, self._tick)
 
@@ -200,6 +206,7 @@ class ProfilerView(EditorPage):
         self.resolver = resolver
         self.profile = None
         self.emulated = 0
+        self.mode = "profile"
         self.state, self.message = "starting", ""
         idle = GLib.idle_add
         run = ProfileRun(target, resolver,
@@ -219,6 +226,43 @@ class ProfilerView(EditorPage):
         if self.run:
             self.run.stop()
 
+    def _time_clicked(self, name: str):
+        self.time_routine(name)
+
+    def begin_timing(self, target, entry: int, name: str, emulator: str = "", extra_args: list[str] | None = None):
+        """Run the program in VICE and time every call of the routine at ``entry``."""
+        if self.run:
+            self.run.stop()
+        self.mode = "timing"
+        self.timing, self.timing_name = None, name
+        self.state, self.message = "starting", ""
+        self.views.set_visible_child_name("timing")
+        self.timing_page.set_name(name)
+        idle = GLib.idle_add
+        run = ViceRun(target, lambda m: Timer(m, entry, lambda t: idle(self._timed, run, t)),
+                      lambda msg: idle(self._ended, run, msg), emulator, extra_args)
+        self.run = run
+        try:
+            run.start()
+        except FileNotFoundError as e:
+            self.run = None
+            self.state, self.message = "idle", str(e)
+        self._refresh()
+
+    def _timed(self, run, timing):
+        if run is not self.run:
+            return False
+        self.timing = timing
+        if self.state == "starting":
+            self.state = "running"
+        self._dirty = True
+        return False
+
+    def timing_failed(self, message: str):
+        """The routine couldn't be timed (not found, the build failed): say why."""
+        self.views.set_visible_child_name("timing")
+        self.timing_page.show_message(message)
+
     def closing(self):
         """The tab's closing: stop measuring (VICE carries on)."""
         self._closed = True
@@ -226,6 +270,11 @@ class ProfilerView(EditorPage):
         self.show_figures(None)
 
     def clear(self):
+        if self.mode == "timing":
+            if self.timing:
+                self.timing.clear()
+                self._refresh()
+            return
         if self.profile:
             self.profile.clear()
             self.emulated = 0
@@ -252,7 +301,8 @@ class ProfilerView(EditorPage):
     def _ended(self, run, message):
         if run is not self.run:
             return False
-        self.state, self.message = ("stopped" if self.profile else "idle"), message
+        done = self.timing if self.mode == "timing" else self.profile
+        self.state, self.message = ("stopped" if done else "idle"), message
         self.run = None
         self._refresh()
         return False
@@ -271,12 +321,25 @@ class ProfilerView(EditorPage):
         self.go.set_sensitive(not running)
         self.stop_button.set_sensitive(running)
         self.reset.set_sensitive(self.state == "running")
-        self.copy.set_sensitive(bool(self.profile and self.profile.samples))
+        page = self.views.get_visible_child_name()
+        self.copy.set_sensitive(bool(self.timing and self.timing.calls) if page == "timing"
+                                else bool(self.profile and self.profile.samples))
+        self.timing_page.set_running(running)
 
     def _status_text(self) -> str:
         p = self.profile
         if self.state == "starting":
+            if self.mode == "timing":
+                return f"Starting VICE, waiting for {self.timing_name} to be called…"
             return "Starting VICE, waiting for the program to start…"
+        if self.mode == "timing":
+            t = self.timing
+            if t is None:
+                return self.message
+            text = f"Timing {self.timing_name}: {len(t.calls):,} calls measured"
+            if self.state == "running":
+                return "Measuring: " + text
+            return "Stopped: " + text + (f". {self.message}" if self.message else "")
         if p is None:
             return self.message
         secs = self.emulated / self.clock
@@ -297,8 +360,9 @@ class ProfilerView(EditorPage):
             self._push_figures()
         self._update_buttons()
         self.status.set_text(self._status_text())
+        if self.views.get_visible_child_name() == "timing":
+            self.timing_page.show(self.timing, self.timing_name, self.message if self.mode == "timing" else "")
         p = self.profile
-        self.body.set_visible_child_name("views" if p is not None else "empty")
         if p is None or not p.samples:
             for lb in self.lists.values():
                 _clear(lb)
@@ -307,6 +371,8 @@ class ProfilerView(EditorPage):
             return
         # (only the page that's showing: the others when they're shown)
         page = self.views.get_visible_child_name()
+        if page == "timing":
+            return
         routines = p.routines()
         colours = {(r.name, r.address): COLOURS[i] for i, r in enumerate(routines[:len(COLOURS)])}
         if page == "routines":
@@ -380,6 +446,205 @@ class ProfilerView(EditorPage):
             self.open_line(r.file, r.line or 1)
 
     def _copy(self):
+        if self.views.get_visible_child_name() == "timing":
+            if self.timing and self.timing.calls:
+                Gdk.Display.get_default().get_clipboard().set(self.timing.report(self.timing_name))
+            return
         if self.profile and self.profile.samples:
             Gdk.Display.get_default().get_clipboard().set(
                 self.profile.report(self.emulated / self.clock))
+
+
+class Histogram(Gtk.DrawingArea):
+    """How many calls took how many cycles."""
+
+    def __init__(self):
+        super().__init__(content_height=140, content_width=200, hexpand=True)
+        self.bins: list[tuple[int, int, int]] = []
+        self.set_draw_func(self._draw)
+
+    def show(self, bins):
+        self.bins = bins
+        self.queue_draw()
+
+    def _draw(self, _w, cr, width, height):
+        fg = self.get_color()
+        if not self.bins:
+            return
+        top = max(n for _a, _b, n in self.bins) or 1
+        base, left = height - 18, 4
+        w = (width - 2 * left) / len(self.bins)
+        cr.set_source_rgb(*COLOURS[0])
+        for i, (_a, _b, n) in enumerate(self.bins):
+            h = (base - 6) * n / top
+            cr.rectangle(left + i * w + 1, base - h, max(1.0, w - 2), h)
+        cr.fill()
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.7)
+        cr.select_font_face("Sans")
+        cr.set_font_size(10)
+        cr.move_to(left, height - 4)
+        cr.show_text(f"{self.bins[0][0]:,} cycles")
+        text = f"{self.bins[-1][1]:,}"
+        cr.move_to(width - left - cr.text_extents(text).x_advance, height - 4)
+        cr.show_text(text)
+
+
+class CallFrame(Gtk.DrawingArea):
+    """The frame, top to bottom, shaded where the routine runs: how many of its calls are running
+    on each raster line."""
+
+    def __init__(self):
+        super().__init__(content_width=90, content_height=330, vexpand=True, has_tooltip=True)
+        self.cover: list[float] = []
+        self.set_draw_func(self._draw)
+        self.connect("query-tooltip", self._tooltip)
+
+    def show(self, timing: Timing | None):
+        self.cover = []
+        if timing and timing.calls:
+            lines = timing.timing[1]
+            hits = [0] * lines
+            for c in timing.calls:
+                n = c.end_line - c.start_line if c.end_line >= c.start_line else c.end_line + lines - c.start_line
+                for k in range(n + 1):
+                    hits[(c.start_line + k) % lines] += 1
+            self.cover = [h / len(timing.calls) for h in hits]
+        self.queue_draw()
+
+    def _draw(self, _w, cr, width, height):
+        fg = self.get_color()
+        n = len(self.cover) or 312
+        per = (height - 12) / n
+        left = 30
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.08)
+        cr.rectangle(left, 6, width - left, n * per)
+        cr.fill()
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.05)
+        cr.rectangle(left, 6 + VISIBLE[0] * per, width - left, (VISIBLE[1] - VISIBLE[0]) * per)
+        cr.fill()
+        for i, f in enumerate(self.cover):
+            if f > 0:
+                cr.set_source_rgba(*COLOURS[1], 0.25 + 0.75 * f)
+                cr.rectangle(left, 6 + i * per, width - left, per + 0.6)
+                cr.fill()
+        cr.select_font_face("Sans")
+        cr.set_font_size(10)
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.6)
+        for ln in range(0, n, 50):
+            cr.move_to(2, 6 + ln * per + 4)
+            cr.show_text(str(ln))
+
+    def _tooltip(self, _w, _x, y, _kb, tip):
+        if not self.cover:
+            return False
+        n = len(self.cover)
+        ln = int((y - 6) / ((self.get_height() - 12) / n))
+        if not 0 <= ln < n:
+            return False
+        tip.set_text(f"Raster line {ln}: running in {self.cover[ln] * 100:.0f}% of the calls")
+        return True
+
+
+class TimingPage(Gtk.Box):
+    """Routine timing: every call of one routine, measured in VICE."""
+
+    def __init__(self, start: Callable[[str], None], stop: Callable[[], None]):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_start=12, margin_end=12,
+                         margin_bottom=8)
+        self._start = start
+        row = Gtk.Box(spacing=6)
+        row.append(Gtk.Label(label="Routine"))
+        self.entry = Gtk.Entry(placeholder_text="a label, a C function or an address ($1000)", hexpand=True,
+                               width_chars=20,
+                               tooltip_text="What to time: its first instruction is where each call starts")
+        self.entry.connect("activate", lambda *_: self._go())
+        row.append(self.entry)
+        self.go = Gtk.Button(label="Time in VICE", css_classes=["suggested-action"],
+                             tooltip_text="Build the program and run it in VICE, measuring every call of the routine")
+        self.go.connect("clicked", lambda *_: self._go())
+        row.append(self.go)
+        self.stop_button = Gtk.Button(label="Stop", sensitive=False)
+        self.stop_button.connect("clicked", lambda *_: stop())
+        row.append(self.stop_button)
+        self.append(row)
+        self.note = Gtk.Label(wrap=True, xalign=0, max_width_chars=60, width_chars=30, css_classes=["dim-label"], label=(
+            "Times every call of one routine exactly, in cycles, as the program runs in VICE: the fewest, "
+            "the most and the average, how often it's called, and where in the frame it runs. Name it "
+            "above, or right-click in it in the editor: Time This Routine."))
+        self.append(self.note)
+        body = Gtk.Box(spacing=16, vexpand=True)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, hexpand=True)
+        self.grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)     # the figures, a row each
+        left.append(self.grid)
+        self.hist_label = Gtk.Label(label="Calls by cycles", xalign=0, css_classes=["heading"], visible=False)
+        left.append(self.hist_label)
+        self.histogram = Histogram()
+        left.append(self.histogram)
+        body.append(left)
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.frame_label = Gtk.Label(label="Where in the frame", css_classes=["heading"], visible=False)
+        side.append(self.frame_label)
+        self.frame = CallFrame()
+        side.append(self.frame)
+        body.append(side)
+        self.append(body)
+
+    def _go(self):
+        name = self.entry.get_text().strip()
+        if name:
+            self._start(name)
+
+    def set_name(self, name: str):
+        if self.entry.get_text().strip() != name:
+            self.entry.set_text(name)
+
+    def set_running(self, running: bool):
+        self.go.set_sensitive(not running)
+        self.stop_button.set_sensitive(running)
+
+    def show_message(self, message: str):
+        self.note.set_text(message)
+        self.note.remove_css_class("dim-label")
+
+    def _row(self, r: int, label: str, value: str, extra: str = ""):
+        row = Gtk.Box(spacing=18)
+        row.append(Gtk.Label(label=label, xalign=0, width_chars=15, css_classes=["dim-label"]))
+        row.append(Gtk.Label(label=value, xalign=1, width_chars=12, css_classes=["monospace"]))
+        row.append(Gtk.Label(label=extra, xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
+                             css_classes=["dim-label"]))
+        self.grid.append(row)
+
+    def show(self, t: Timing | None, name: str, message: str = ""):
+        _clear(self.grid)
+        st = t.stats() if t else None
+        if message:
+            self.show_message(message)
+        for w in (self.hist_label, self.frame_label):
+            w.set_visible(st is not None)
+        if t is None or st is None:
+            self.histogram.show([])
+            self.frame.show(None)
+            return
+        line, frame = t.timing[0], t.frame_cycles
+        r = 0
+        how = {KERNAL_IRQ: "an interrupt handler (through the KERNAL's vector)",
+               CPU_IRQ: "an interrupt handler (the CPU's vector)"}.get(t.how, "a subroutine (JSR)")
+        self._row(r, "Routine", name, how)
+        r += 1
+        self._row(r, "Calls measured", f"{len(t.calls):,}",
+                  f"of {t.counted:,} counted" if t.counted > len(t.calls) else "")
+        r += 1
+        pf = t.per_frame()
+        if pf is not None:
+            self._row(r, "Calls a frame", f"{pf:.2f}", f"over {t.frames:,.0f} frames")
+            r += 1
+        for key, label in (("min", "Fewest cycles"), ("mean", "Average"), ("median", "Median"), ("max", "Most")):
+            v = st[key]
+            self._row(r, label, f"{v:,.0f}", f"{v / line:.1f} raster lines, {100 * v / frame:.1f}% of a frame")
+            r += 1
+        s0, s1, e0, e1 = t.lines()
+        self._row(r, "Starts", f"line {s0}" if s0 == s1 else f"lines {s0}-{s1}")
+        r += 1
+        self._row(r, "Ends", f"line {e0}" if e0 == e1 else f"lines {e0}-{e1}")
+        self.histogram.show(t.histogram())
+        self.frame.show(t)

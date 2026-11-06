@@ -98,6 +98,27 @@ class Resolver:
                 return self.srcmap[self._src_starts[i]]
         return None
 
+    def address_of(self, name: str) -> int | None:
+        """Where a routine starts, from its name as it's written in the source (a label, any case if
+        no label matches exactly; a C function, with or without "()"), or a $hex address."""
+        name = name.strip()
+        if name.startswith("$"):
+            try:
+                return int(name[1:], 16) & 0xFFFF
+            except ValueError:
+                return None
+        name = name.removesuffix("()")
+        wanted = [name] + (["_" + name] if self.c else [])
+        for w in wanted:
+            for a, n in self.labels:
+                if n == w:
+                    return a
+            for a, _b, n in self.functions:
+                if n == w:
+                    return a
+        low = {w.lower() for w in wanted}
+        return next((a for a, n in self.labels if n.lower() in low), None)
+
     def in_program(self, pc: int) -> bool:
         """Is pc in the program's code (not the ROMs', nor the autostart's)?"""
         return (self._containing(self.functions, self._fstarts, pc) is not None
@@ -359,7 +380,7 @@ class Sampler:
         t0, done, slept = time.monotonic(), 0, 0.0  # the batch's start: wall time, emulated cycles
         try:
             if not self._wait_for_program():
-                return
+                return ""
             per_line, lines, clock = self.timing
             frame = per_line * lines
             t0 = time.monotonic()
@@ -395,6 +416,7 @@ class Sampler:
             if out:
                 self.on_batch(out, emulated)
             self._resume()
+        return f"VICE stopped answering: {self.error}" if self.error else ""
 
     def _advance(self, count: int) -> dict[str, int]:
         """Run count instructions; the registers where VICE stopped."""
@@ -436,34 +458,33 @@ def timing_for(pal_flag: int) -> tuple[int, int, int]:
 
 
 
-class ProfileRun:
-    """A program running in VICE (started for this) with a Sampler on it. The callbacks come from
-    a thread: ``on_start(memory, timing)`` when the program's started, ``on_batch(samples,
-    emulated cycles)``, and ``on_end(message)`` when sampling ends ("" if stop() ended it)."""
+class ViceRun:
+    """A program running in VICE (started for this), with a worker on its monitor: a Sampler or a
+    routine_timing.Timer, anything with ``vice_event(type, body)``, ``run() -> message`` (on this
+    run's thread; "" when all went well) and ``stop_soon()``. ``on_end(message)`` comes from the
+    thread when the worker's done: "" if stop() ended it."""
 
-    def __init__(self, target, resolver: Resolver, on_start, on_batch, on_end, emulator: str = "",
-                 extra_args: list[str] | None = None):
-        self.target, self.resolver = target, resolver
-        self.on_start, self.on_batch, self.on_end = on_start, on_batch, on_end
+    def __init__(self, target, make_worker, on_end, emulator: str = "", extra_args: list[str] | None = None):
+        self.target, self.make_worker, self.on_end = target, make_worker, on_end
         self.emulator, self.extra_args = emulator, list(extra_args or [])
         self.proc = None
         self.monitor = None
-        self.sampler: Sampler | None = None
+        self.worker = None
         self._stopping = False
 
     def start(self):
-        """Launch VICE (raises FileNotFoundError without it), and sample on a thread."""
+        """Launch VICE (raises FileNotFoundError without it), and run the worker on a thread."""
         from .emu import vice
         from .emu.binmon import BinaryMonitor
         port = vice.free_port()
         self.proc = vice.launch(self.target, self.emulator, None, port, self.extra_args)
         self.monitor = BinaryMonitor(self._event)
-        self.sampler = Sampler(self.monitor, self.on_batch, self.resolver.in_program, self.on_start)
-        threading.Thread(target=self._work, args=(port,), name="profile-run", daemon=True).start()
+        self.worker = self.make_worker(self.monitor)
+        threading.Thread(target=self._work, args=(port,), name="vice-run", daemon=True).start()
 
     def _event(self, rtype, body):
-        if self.sampler:
-            self.sampler.vice_event(rtype, body)
+        if self.worker:
+            self.worker.vice_event(rtype, body)
 
     def _work(self, port: int):
         from .emu import vice
@@ -476,24 +497,36 @@ class ProfileRun:
         except (OSError, MonitorError) as e:
             self.on_end(f"Couldn't talk to VICE: {e}")
             return
-        self.sampler.run()
+        msg = self.worker.run()
         if self._stopping:
             msg = ""
-        elif self.sampler.error:
-            msg = f"VICE stopped answering: {self.sampler.error}"
-        else:
+        elif not msg and not self.monitor.connected:
             msg = "VICE was closed"
         self.monitor.close()            # (VICE carries on running the program)
         self.on_end(msg)
 
     def stop(self):
-        """Stop sampling. VICE carries on running the program."""
+        """Stop the worker. VICE carries on running the program."""
         self._stopping = True
-        if self.sampler:
-            self.sampler.stop_soon()
+        if self.worker:
+            self.worker.stop_soon()
 
     def quit(self):
-        """Stop sampling and close VICE."""
+        """Stop the worker and close VICE."""
         self.stop()
         if self.proc and self.proc.poll() is None:
             self.proc.terminate()
+
+
+class ProfileRun(ViceRun):
+    """VICE with a Sampler: ``on_start(memory, timing)`` when the program's started, ``on_batch(samples,
+    emulated cycles)``, ``on_end(message)``, all from a thread."""
+
+    def __init__(self, target, resolver: Resolver, on_start, on_batch, on_end, emulator: str = "",
+                 extra_args: list[str] | None = None):
+        super().__init__(target, lambda m: Sampler(m, on_batch, resolver.in_program, on_start), on_end,
+                         emulator, extra_args)
+
+    @property
+    def sampler(self) -> Sampler | None:
+        return self.worker

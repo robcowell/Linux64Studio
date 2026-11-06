@@ -147,6 +147,43 @@ how much time passed between samples, which keeps the program at its real speed.
 crackle, as VICE stops so often. A share is an estimate, more exact the longer you let it run:
 with 10,000 samples, a 10% share is within about half a percent.
 
+### Routine timing
+
+The profiler's shares are estimates. To find out exactly how long one routine takes, for example
+whether an interrupt handler fits in the border, use the Profiler's **Timing** page. Name the
+routine (a label, a C function, or an address such as `$1000`) and press **Time in VICE**. You can
+also right-click in the editor and choose **Time This Routine**. That times the routine named under
+the cursor if it's on a `jsr`, a `jmp`, a label's own line or, in C, a call. Otherwise it times the
+routine the line is in. The program is built and run in VICE, and each call is measured to the
+cycle:
+
+* **Fewest, average, median and most cycles** a call, also as raster lines and as a share of a frame.
+  A PAL frame is 19,656 cycles: 312 lines of 63.
+* **Calls a frame**, and how many calls were measured and counted.
+* **Starts** and **Ends**: the raster lines its calls start and end on. **Where in the frame**
+  shades the lines it runs on, deeper the more of its calls run there.
+* **Calls by cycles**: a histogram, to tell a routine that always takes the same time from one with
+  slow cases.
+
+A call is timed from its first instruction to the instruction it returns to: just after the `jsr`,
+or for an interrupt handler the instruction the interrupt came in at. That includes the `rts`, or
+for a handler that goes through the KERNAL (via `$0314`) the KERNAL's own exit. Anything that
+happens meanwhile counts too, such as an interrupt arriving during the routine, because that's
+time the routine really takes. A handler reached through the KERNAL's vector or the CPU's own
+`$FFFE` is recognised as one. A routine that's neither called by `jsr` nor an interrupt handler
+can't be timed, because where it ends isn't known.
+
+How it measures: VICE stops at the routine's first instruction, and again where the call returns
+(once the stack pointer is back where it was, so a return from something the routine calls
+doesn't count). The raster position at the two stops gives the exact number of cycles; stopping
+doesn't change the emulated machine. A checkpoint that doesn't stop counts every call. The time
+comes from the second CIA's time-of-day clock, which runs on emulated time. Timing starts that
+clock, so a program that uses CIA 2's time-of-day clock itself will see it changed. Calls are measured up
+to about 60 a second, chosen at random so they're a fair share. A routine that loops back to its
+own first instruction (`while (!ready) {}` in C) has every call measured. The program keeps close
+to its real speed, so you can play it meanwhile. A call taking a whole frame or more would be
+counted short by whole frames, as the raster position goes round.
+
 ## Kick Assembler projects
 
 Kick Assembler projects (Vol 2, or your own) get the same source-level debugging: breakpoints in
