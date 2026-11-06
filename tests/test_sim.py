@@ -254,7 +254,7 @@ def test_the_screen_as_the_vic_ii_would_show_it():
 
 
 @needs_roms
-@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "9-profiler", "10-simulator"])
+@pytest.mark.parametrize("name", ["1-basic", "2-assembler", "3-sprites", "6-screen", "7-music", "8-disk", "9-profiler", "10-simulator"])
 def test_the_tutorials_transcripts_pass_on_the_simulator(name, tmp_path):
     """Without VICE: what the tutorials say each program does, on the simulated C64."""
     from l64s.sid.goattracker import find_tool
@@ -608,11 +608,14 @@ def test_reading_the_collisions_clears_them():
 
 
 def test_a_sprite_rows_pixels():
-    from l64s.emu.simscreen import _sprite_row
-    assert _sprite_row(bytes([0x80, 0, 1]), False, False) == 1 | 1 << 23        # hires: bit 0 the leftmost
-    assert _sprite_row(bytes([0x80, 0, 0]), False, True) == 3                   # twice as wide
-    assert _sprite_row(bytes([0x40, 0, 0]), True, False) == 3                   # a multicolour pair: 2 pixels
-    assert _sprite_row(bytes([0x00, 0, 0]), True, True) == 0
+    from l64s.emu.simscreen import _pattern, _sprite_colours
+
+    def row(data, multi, wide):
+        return _pattern(0, _sprite_colours(bytes(data), multi, wide, 1, 2, 3))
+    assert row([0x80, 0, 1], False, False) == 1 | 1 << 23        # hires: bit 0 the leftmost
+    assert row([0x80, 0, 0], False, True) == 3                   # twice as wide
+    assert row([0x40, 0, 0], True, False) == 3                   # a multicolour pair: 2 pixels
+    assert row([0x00, 0, 0], True, True) == 0
 
 
 SPLIT = """*=$0801
@@ -676,7 +679,7 @@ def test_a_raster_split_and_a_multiplexed_sprite_on_the_screen(tmp_path):
     m.type_keys(b"RUN\r")
     m.run(max_cycles=FRAME * 10)
     mem = m.memory
-    rgb = simscreen.render(mem.ram, mem.io, mem.chargen, mem.screen_lines(whole=True))
+    rgb = simscreen.render(mem.ram, mem.io, mem.chargen, *mem.screen_frame(whole=True))
     px = lambda x, line: rgb[((line - simscreen.FIRST_LINE) * simscreen.WIDTH + x) * 3:][:3]   # noqa: E731
     assert px(2, 60) == simscreen.RGB[0] and px(2, 120) == simscreen.RGB[2] and px(2, 220) == simscreen.RGB[0]
     sx = simscreen.BORDER_X + 100 - 24 + 4                         # inside the sprites, across
@@ -696,3 +699,74 @@ def test_a_multiplexed_sprites_collision_as_in_vice(tmp_path):
                               str(tmp_path / "s.transcript"), *args], capture_output=True, text=True,
                              timeout=120).stdout
         assert " 1 check passed, 0 failed" in out, (args, out)
+
+
+# The Screen against VICE's picture: tests/fixtures/simscreen's programs, each drawing a steady frame
+# with something the Screen must draw as the VIC-II does. Each picture's digest is of the Screen's
+# colour numbers, which test_the_screen_as_vice_shows_it found the same as VICE's, pixel for pixel.
+SCREENS = {"text": "529803ea0cdf9e9f", "bitmap": "26bde9335693e4bd", "border": "4ff71abd85139fb4"}
+
+
+def _screen_program(name: str, tmp_path) -> Path:
+    from l64s.asm.cli import main as l64asm
+    prg = tmp_path / f"{name}.prg"
+    assert l64asm([str(ROOT / "tests" / "fixtures" / "simscreen" / f"{name}.asm"), "-o", str(prg)]) == 0
+    return prg
+
+
+def _simulated_screen(prg: Path) -> list[list[int]]:
+    m = Machine()
+    m.boot()
+    m.load(prg.read_bytes())
+    m.type_keys(b"RUN\r")
+    m.run(max_cycles=FRAME * 30)
+    m.run(max_cycles=FRAME, until=lambda: m.memory.line() == 200)     # (past the changes the frames make)
+    mem = m.memory
+    return simscreen.indices(mem.ram, mem.io, mem.chargen, *mem.screen_frame(whole=True))
+
+
+def _digest(picture: list[list[int]]) -> str:
+    import hashlib
+    return hashlib.sha256(bytes(c for row in picture for c in row)).hexdigest()[:16]
+
+
+@needs_roms
+@pytest.mark.parametrize("name", sorted(SCREENS))
+def test_the_screens_picture_is_vices(name, tmp_path):
+    assert _digest(_simulated_screen(_screen_program(name, tmp_path))) == SCREENS[name]
+
+
+@needs_roms
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+@pytest.mark.parametrize("name", sorted(SCREENS))
+def test_the_screen_as_vice_shows_it(name, tmp_path):
+    from l64s.emu import vice
+    from l64s.emu.binmon import BinaryMonitor
+    prg = _screen_program(name, tmp_path)
+    ours = _simulated_screen(prg)
+    port = vice.free_port()
+    proc = vice.launch(prg, "", None, port, ["-sounddev", "dummy"])
+    try:
+        assert vice.wait_for_port(port, 15)
+        mon = BinaryMonitor()
+        mon.connect(port=port)
+        time.sleep(3)
+        mon.ping()
+        mon.resume()
+        time.sleep(2)
+        width, _height, wx, wy, pixels = mon.display()
+        mon.quit()
+    finally:
+        proc.terminate()
+    differ = []
+    for py, row in enumerate(ours):
+        line = simscreen.FIRST_LINE + py
+        for px, c in enumerate(row):
+            if px < 4:                                     # (left of what VICE draws)
+                continue
+            x = wx + 4 + px - simscreen.BORDER_X           # the display window's left is at wx + 4
+            y = wy - 1 + line - simscreen.TOP_LINE         # and its top at wy - 1
+            if pixels[y * width + x] & 15 != c:
+                differ.append((px, line, c, pixels[y * width + x] & 15))
+    assert not differ, f"{len(differ)} pixels differ (x, line, ours, VICE's): {differ[:10]}"
+    assert _digest(ours) == SCREENS[name]

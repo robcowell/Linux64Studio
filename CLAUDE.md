@@ -56,7 +56,9 @@ only package that imports GTK. Put logic in a model module with tests, and keep 
 - `emu/`: VICE integration. `vice.py` launches `x64sc`; `binmon.py` is a client for VICE's binary
   monitor protocol (TCP, API v2). `sim.py` is Debug Without VICE: py65's 6510 with the C64's memory
   and ROMs, the raster and CIA 1 timer A interrupts, behind `SimMonitor` (binmon's methods), so the
-  debugger and transcripts drive either. `ui/debugger.py` (`DebugSession`) works around VICE 3.7.1
+  debugger and transcripts drive either; `simdrive.py` is its drive 8, a 1541's DOS answering the
+  KERNAL's serial routines (taken over at their entry points), ported from Rift64's
+  (`~/code/Rift64/public/js/c64-disk.js`); `simscreen.py` draws its screen. `ui/debugger.py` (`DebugSession`) works around VICE 3.7.1
   quirks (calibrated quiet step after register writes, ignoring start-up stops, breakpoint
   disabling around writes); read its comments before changing stepping.
 - Formats, each with a model and CLI: `gfx/` (CBM `.spt`/`.cst`/`.sdd`, SpritePad `.spd`,

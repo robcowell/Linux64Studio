@@ -1514,9 +1514,10 @@ class MainWindow(Adw.ApplicationWindow):
                     symbols[value] = name
         start = res.run_target(self.project) if self.project else res.prg
         if simulate:
-            start = res.prg                     # (the simulator has no disk drive or cartridge port)
+            start = res.prg                     # (with the disk in its drive 8; it has no cartridge port)
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
-                               self._vice_args(), c_lines=res.c_lines, asm_lines=res.asm_lines, simulate=simulate)
+                               self._vice_args(), c_lines=res.c_lines, asm_lines=res.asm_lines, simulate=simulate,
+                               disk=res.disk if simulate else None)
         r = res.asm_result
         if r is not None:
             # CBM prg Studio's BREAKPOINT, DEBUGSTARTADDRESS and WATCH directives
@@ -1666,7 +1667,8 @@ class MainWindow(Adw.ApplicationWindow):
                           folder=self.project.directory if self.project else None)
         if simulate:
             from ..emu.sim import SimRun
-            run = SimRun(worker, lambda msg: GLib.idle_add(ended, run, msg))
+            from ..transcript import sim_machine
+            run = SimRun(worker, lambda msg: GLib.idle_add(ended, run, msg), sim_machine(res))
         else:
             from ..transcript import disk_args
             run = ViceRun(None, worker, lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator,

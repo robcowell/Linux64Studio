@@ -18,6 +18,9 @@ written, except for what makes a program's timing and interrupts work:
   the keyboard matrix connects them to the columns selected, and the joysticks (``joystick``):
   port 2's on $DC00, port 1's on $DC01.
 
+The disk drive is ``emu.simdrive``'s: the KERNAL's serial bus routines are taken over at their entry
+points (while the KERNAL is banked in) and answered by drive 8 (``attach_disk``).
+
 Interrupts happen as on a C64 while the program runs (an IRQ when one of those is on and the I flag
 is clear), but a single step never goes into one: a step is the instruction at the PC.
 
@@ -118,10 +121,16 @@ class Memory:
         self.next_frame = FRAME
         # the VIC-II's registers (and the bank) as this frame started, and the writes since, with the
         # raster line of each [(line, register, value)]; and the last whole frame's (simscreen)
-        from .simscreen import registers_now
+        from .simscreen import Rows, registers_now
         self.frame_start = registers_now(self.io)
         self.frame_log: list[tuple[int, int, int]] = []
-        self.last_frame: tuple[bytes, list] | None = None
+        # each character row's screen codes and colours, as the VIC-II read them on its badline this
+        # frame ({row: (codes, colours)}); the rows being counted (simscreen.Rows), and when the next
+        # line's read happens (14 cycles into it, as the VIC-II's reads start at its 15th)
+        self.fetched: dict[int, tuple[bytes, bytes]] = {}
+        self.rows = Rows()
+        self.next_line = 14
+        self.last_frame: tuple[bytes, list, dict] | None = None
         self.ram[0], self.ram[1] = 0x2F, 0x37
         self.watch: dict[int, int] = {}        # address -> OP_LOAD | OP_STORE (load/store checkpoints)
         self.touched: list[tuple[int, int]] = []   # (address, op) of watched accesses, for the run loop
@@ -299,6 +308,8 @@ class Memory:
     def tick(self, now: int) -> None:
         """What's happened by cycle ``now``: the raster reaching the compare line, timer A running out, a
         frame drawn (and its sprites' collisions)."""
+        if now >= self.next_line:
+            self._lines_to(now)
         if now >= self.next_frame:
             self.next_frame += FRAME * ((now - self.next_frame) // FRAME + 1)
             self._end_frame()
@@ -314,29 +325,48 @@ class Memory:
                 period = self.ta_latch + 1
                 self.ta_next += period * ((now - self.ta_next) // period + 1)
 
+    def _lines_to(self, now: int) -> None:
+        """The VIC-II's reads of the lines it's reached by ``now``: on a badline, the row's screen and
+        colour memory."""
+        from .simscreen import fetch_row, registers_now
+        if now - self.next_line > FRAME:                # (a jump in time: a snapshot restored, say)
+            self.next_line = now - now % CYCLES_PER_LINE + 14
+            self.rows = type(self.rows)()
+        while now >= self.next_line:
+            line = (self.next_line // CYCLES_PER_LINE) % LINES
+            if line == 0:
+                self.fetched = {}
+            where, bad = self.rows.line(line, self.io[0x11])
+            if bad:
+                self.fetched[where[0]] = fetch_row(self.ram, self.io, self.chargen, registers_now(self.io), where[0])
+            self.next_line += CYCLES_PER_LINE
+
     def _end_frame(self) -> None:
-        """A frame's been drawn: keep its registers line by line, and work out its sprite collisions."""
+        """A frame's been drawn: keep its registers line by line and its rows as read, and work out its
+        sprite collisions."""
         from .simscreen import frame_lines, registers_now
-        self.last_frame = (self.frame_start, self.frame_log)
+        self.last_frame = (self.frame_start, self.frame_log, self.fetched)
         if self.frame_log and any(r == 0x15 and v for _l, r, v in self.frame_log) or self.frame_start[0x15]:
-            self._collide(frame_lines(self.frame_start, self.frame_log))
+            self._collide(frame_lines(self.frame_start, self.frame_log), self.fetched)
         self.frame_start = registers_now(self.io)
         self.frame_log = []
 
-    def screen_lines(self, whole: bool) -> list[bytes]:
-        """The registers on each raster line, for the Screen: the last whole frame's (``whole``: as the
-        program runs, a steady picture), or this frame's up to the raster line, with the registers as
-        they are now below it (stopped: what a change just made does)."""
+    def screen_frame(self, whole: bool) -> tuple[list[bytes], dict]:
+        """For the Screen: the registers on each raster line, and the rows as the VIC-II read them
+        (simscreen.render's ``lines`` and ``fetched``). ``whole``: the last whole frame's (as the program
+        runs, a steady picture); else this frame's up to the raster line, with the registers and memory
+        as they are now below it (stopped: what a change just made does)."""
         from .simscreen import frame_lines, registers_now
         if whole and self.last_frame is not None:
-            return frame_lines(*self.last_frame)
-        return frame_lines(self.frame_start, self.frame_log, registers_now(self.io), self.line())
+            start, log, fetched = self.last_frame
+            return frame_lines(start, log), fetched
+        return frame_lines(self.frame_start, self.frame_log, registers_now(self.io), self.line()), self.fetched
 
-    def _collide(self, lines) -> None:
+    def _collide(self, lines, fetched) -> None:
         """The frame's sprite collisions, added to those not yet read. The first since a read sets
         $D019's flag (bit 2 for sprites, bit 1 for the background), as the VIC-II does."""
         from .simscreen import collisions
-        ss, sb = collisions(self.ram, self.io, self.chargen, lines)
+        ss, sb = collisions(self.ram, self.io, self.chargen, lines, fetched)
         if ss and not self.collided_sprites:
             self.vic_flags |= 4
         if sb and not self.collided_background:
@@ -408,9 +438,24 @@ class Machine:
     def __init__(self, roms: dict[str, bytes] | None = None):
         self.roms = find_roms() if roms is None else roms
         self.skip_kernal = "kernal" not in self.roms      # step over KERNAL calls (no KERNAL to run)
+        from .simdrive import ROUTINES, Bus
+        self.bus = Bus()                                  # the serial bus, with drive 8 on it (emu.simdrive)
+        self._serial = frozenset(ROUTINES)
         self.power_on()
 
+    @property
+    def drive(self):
+        """Drive 8 (an ``emu.simdrive.Drive``)."""
+        return self.bus.drives[8]
+
+    def attach_disk(self, disk) -> None:
+        """Put a disk in drive 8: a disk image's path, a ``DiskImage``, or None to take it out."""
+        from ..disk.image import DiskImage
+        self.drive.image = DiskImage.load(disk) if disk is not None and not isinstance(disk, DiskImage) else disk
+        self.drive.changed = False
+
     def power_on(self) -> None:
+        self.bus.reset()
         self.memory = Memory(self.roms, lambda: self.cpu.processorCycles)
         self.cpu = CPU(memory=self.memory, pc=0)
         self.cpu.processorCycles = 0
@@ -524,6 +569,18 @@ class Machine:
             cp = self._hit(self.exec_at[pc])
             if cp is not None:
                 raise Stopped("checkpoint", cp)
+        if pc in self._serial and m.kernal_in:
+            # a KERNAL serial bus routine: done at the level of its commands and bytes, with the drive
+            # (emu.simdrive) at the other end, then returned from
+            self.bus.routine(pc, c, m.ram)
+            sp = c.sp
+            back = m.ram[0x100 + ((sp + 1) & 0xFF)] | m.ram[0x100 + ((sp + 2) & 0xFF)] << 8
+            c.sp = (sp + 2) & 0xFF
+            c.pc = (back + 1) & 0xFFFF
+            c.processorCycles += 40                       # (about the routine's own work, and its RTS)
+            if pc == self.resume_at:
+                self.resume_at = None
+            return
         op = self.memory.peek(pc)
         if op in ILLEGAL:
             raise Stopped("jam")

@@ -350,8 +350,9 @@ class DiskImage:
                     blocks=e[30] | (e[31] << 8), slot=(t, s, i), type_byte=ftype))
         return out
 
-    def find(self, name: str) -> DirEntry | None:
-        raw = to_petscii_name(name)
+    def find(self, name: str | bytes) -> DirEntry | None:
+        """The file called ``name`` (or, as bytes, with that PETSCII name)."""
+        raw = name if isinstance(name, bytes) else to_petscii_name(name)
         return next((e for e in self.entries() if e.raw_name == raw), None)
 
     @staticmethod
@@ -457,8 +458,8 @@ class DiskImage:
             sector = 0
         raise DiskError("The disk is full")
 
-    def add_file(self, name: str, data: bytes, file_type: str = "prg", replace: bool = False) -> DirEntry:
-        raw = to_petscii_name(name)
+    def add_file(self, name: str | bytes, data: bytes, file_type: str = "prg", replace: bool = False) -> DirEntry:
+        raw = name if isinstance(name, bytes) else to_petscii_name(name)
         if not raw:
             raise DiskError("A file needs a name")
         if file_type not in ("prg", "seq", "usr"):
@@ -497,7 +498,7 @@ class DiskImage:
         e[3], e[4] = chain[0]
         e[5:21] = raw + bytes([PAD]) * (16 - len(raw))
         e[30], e[31] = blocks & 0xFF, blocks >> 8
-        return self.find(name)
+        return self.find(raw)
 
     def delete(self, name_or_entry: str | DirEntry) -> None:
         e = name_or_entry if isinstance(name_or_entry, DirEntry) else self.find(name_or_entry)

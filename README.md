@@ -236,8 +236,10 @@ See [docs/music.md](docs/music.md).
   ([cycles](docs/debugger.md#cycles)).
 * **Debug without VICE** (Ctrl+Shift+F5): the program on a simulated C64, as in CBM prg Studio's own
   debugger: a 6510 (py65) with exact cycles, the real ROMs, the raster line and interrupts (the
-  VIC-II's raster interrupt and CIA 1's timer), sprite collisions, and a Screen view, but not the
-  rest of the VIC-II, SID or CIAs. Play it on the Screen with the keyboard and a joystick on the arrow keys, and save
+  VIC-II's raster interrupt and CIA 1's timer), sprite collisions, a 1541 in drive 8 with the
+  project's disk image (LOAD, SAVE, files and DOS commands), and a Screen drawn line by line as the
+  VIC-II draws it (scrolling, borders, sprite priority; checked against VICE's picture), but not the rest of
+  the VIC-II, SID or CIAs. Play it on the Screen with the keyboard and a joystick on the arrow keys, and save
   and restore it in Snapshots. Transcripts run on it too (`l64test --simulate`), with no emulator or
   display, and can move the joystick and hold keys ([debugging without VICE](docs/debugger.md#debugging-without-vice)).
 * **Debug in RetroDebugger / C64 Debugger** opens the program there with its debug dump

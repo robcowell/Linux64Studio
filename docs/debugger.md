@@ -200,18 +200,60 @@ interrupts, as running does. CIA 2, its NMI, and the CIAs' other timers and time
 aren't there. The VIC-II never takes cycles from the CPU either, so the counts are those of a
 blanked screen.
 
-The **Screen** is drawn a raster line at a time, each line with the VIC-II's registers as they were
-on it: the simulator records every write to them, with the line it happened on. So raster splits
-show as on a C64: a border or background colour changed halfway down, a mode or character set
-changed for the bottom of the screen, and sprites moved further down once drawn, to be shown again
-(multiplexed). The sprite collisions are worked out from the same lines. While the program runs,
-the Screen shows the last whole frame; stopped, it shows this frame down to the line the raster has
-reached, and below that the registers as they are now, so a change you've just made shows from that
-line down. Still only a picture of memory: the screen and colour memory are read as they are now,
-not as each line was drawn; a register written partway along a line counts from that line on;
-vertical fine scrolling, the 38-column and 24-row modes, and sprite priority aren't drawn (sprites
-are in front of everything). As in CBM prg Studio, the program stops at a `BRK`, and at an
-opcode the 6510 doesn't document (the simulator doesn't run those). **Skip** moves past either.
+**The disk drive.** When the project writes a disk image, it's in the simulator's drive 8, so a
+program can load from it, as tutorial 8's intro loads its game. The simulator takes over the
+KERNAL's serial bus routines (LISTEN, TALK, SECOND, CIOUT, ACPTR and the rest) and answers them as a
+1541 would, as VICE's virtual devices and Rift64's emulated drives do. Everything above them is the
+real KERNAL: LOAD, SAVE, OPEN, `GET#`, `INPUT#`, `PRINT#`, CLOSE, and ST with its errors. The drive
+does what a 1541's DOS does:
+
+* LOAD and SAVE, and files opened to read, write (`,S,W`, `,P,W`, `,U,W`) or append (`,A`), PRG, SEQ
+  or USR. `@0:` replaces a file, and `*` and `?` match names.
+* `$` is the directory, as a 1541 sends it, so `LOAD"$",8` and LIST show it. It takes a pattern
+  (`$0:A*`) and a type (`$:*=P`).
+* The command channel (15) reads `73,CBM DOS V2.6 1541,00,00` at first, then `00, OK,00,00` or the
+  error, such as `62,FILE NOT FOUND,00,00`. It takes the DOS commands I, UI, S (scratch), R (rename),
+  C (copy), V (validate) and N (new).
+* Buffers (`#`) work with the block commands U1, U2, B-R, B-W, B-A, B-F and B-P.
+
+The drive's disk is a copy: what the program writes stays in the simulator, and the project's disk
+image isn't changed. Drives 9 and up aren't there, so they give DEVICE NOT PRESENT. Also missing:
+relative (REL) files, and code run in the drive (M-W, M-E and B-E are taken and do nothing; M-R reads
+zeros). So are fast loaders and anything else that works the bus lines itself. Loading is as quick as
+VICE's virtual devices, not as slow as a 1541. `tests/test_simdrive.py` runs the same BASIC program's
+disk work in VICE, with its emulated 1541, and checks that both give the same results.
+
+The **Screen** is drawn a raster line at a time, as the VIC-II draws it:
+
+* Each line has the VIC-II's registers as they were on it: the simulator records every write to
+  them, with the line it happened on. So raster splits show as on a C64: a border or background
+  colour changed halfway down, a mode or character set changed for the bottom of the screen, and
+  sprites moved further down once drawn, to be shown again (multiplexed).
+* Each character row's screen and colour memory are as the VIC-II read them, on the row's badline.
+  So a program that changes the screen while it's drawn shows as it would on a C64, not as memory
+  is when you look.
+* Rows start where `$D011`'s vertical scroll puts them, so the screen scrolls a pixel at a time both
+  ways. The border covers the edges in the 38-column and 24-row modes, and it's in front of the
+  sprites. Switching to 24 rows between lines 247 and 251 opens the top and bottom border, as on a
+  C64.
+* Sprite 0 is in front of sprite 1, and so on. A sprite with its `$D01B` bit set is behind the
+  characters' (or bitmap's) foreground. Where the VIC-II has no row to show (above and below the rows
+  when they're scrolled, or in an opened border), it shows the byte at `$3FFF` of its bank (`$39FF`
+  in ECM).
+
+`tests/test_sim.py` checks three screens using all of these against VICE's picture, pixel for pixel.
+The sprite collisions are worked out from the same lines. While the program runs, the Screen shows
+the last whole frame. Stopped, it shows this frame down to the line the raster has reached, with the
+registers and memory as they are now below that, so a change you've just made shows from that line
+down. What isn't drawn as on a C64:
+
+* a register written partway along a line counts from the start of that line;
+* the character set and bitmap are read as they are, not as on each line;
+* the side border can't be opened;
+* tricks that upset the VIC-II's counters (FLI, line crunch, stretched sprites).
+
+As in CBM prg Studio, the program stops at a `BRK`, and at an opcode the 6510 doesn't document (the
+simulator doesn't run those). **Skip** moves past either.
 
 **Click the Screen to play the program**: the arrow keys or the keypad (8, 4, 6, 2) move joystick 2,
 keypad 0 or Right Ctrl fires, and the other keys are the C64's (Return, Backspace for DEL, Escape for
@@ -383,9 +425,9 @@ A few things to know:
 * **Debugger → Run Transcript Without VICE**, or `l64test --simulate`, runs them on the
   [simulated C64](#debugging-without-vice) instead: no emulator to start, nothing on screen, so it
   suits CI with no display. Calls' cycles are exact, with no timers used, and `wait` is the C64's
-  own time. Interrupts happen there too (the raster interrupt and CIA 1's timer), but a transcript
-  that tests the rest of the VIC-II, the SID or the CIAs needs VICE, and so does one that loads from
-  a disk. The tutorials' transcripts pass on both, but for the disk one's.
+  own time. Interrupts happen there too (the raster interrupt and CIA 1's timer), and the project's
+  disk image is in its drive 8 as well. A transcript that tests the rest of the VIC-II, the SID or the
+  CIAs needs VICE. The tutorials' transcripts pass on both.
 
 ## Kick Assembler projects
 

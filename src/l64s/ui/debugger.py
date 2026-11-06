@@ -34,7 +34,7 @@ class DebugSession(GObject.Object):
 
     def __init__(self, prg: Path, labels: Path | None, srcmap: dict[int, tuple[str, int]],
                  symbols: dict[int, str], emulator: str, extra_args: list[str], c_lines: list | None = None,
-                 asm_lines: list | None = None, simulate: bool = False):
+                 asm_lines: list | None = None, simulate: bool = False, disk: Path | None = None):
         super().__init__()
         self.simulate = simulate                # on emu.sim's simulated C64, not VICE
         self.start_cycles = 0                   # the simulator's cycle count when the program started
@@ -47,8 +47,11 @@ class DebugSession(GObject.Object):
         self.prg, self.labels, self.srcmap, self.symbols = prg, labels, srcmap, symbols
         self.emulator, self.extra_args = emulator, extra_args
         if simulate:
-            from ..emu.sim import SimMonitor
-            self.monitor = SimMonitor(self._on_event)
+            from ..emu.sim import Machine, SimMonitor
+            machine = Machine()
+            if disk is not None:
+                machine.attach_disk(disk)                # (a copy, in its drive 8)
+            self.monitor = SimMonitor(self._on_event, machine)
         else:
             self.monitor = BinaryMonitor(self._on_event)
         self.proc = None
@@ -585,9 +588,10 @@ class DebuggerPanel(Gtk.Box):
         screen_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_end=6)
         screen_box.append(self.screen)
         screen_box.append(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
-            "Drawn a raster line at a time, with the VIC-II's registers as each line had them (raster "
-            "splits, multiplexed sprites); running, the last whole frame. Click it to play: the arrows or keypad move joystick 2, keypad 0 or Right Ctrl "
-            "fires, and the other keys are the C64's.")))
+            "Drawn as the VIC-II draws it, a raster line at a time, with the registers and screen memory "
+            "each line had (raster splits, multiplexed sprites); running, the last whole frame. Click it to "
+            "play: the arrows or keypad move joystick 2, keypad 0 or Right Ctrl fires, and the other keys "
+            "are the C64's.")))
         self.right_stack = Gtk.Stack()
         self.right_stack.add_titled(right, "memory", "Memory")
         self.right_stack.add_titled(screen_box, "screen", "Screen")
@@ -696,7 +700,7 @@ class DebuggerPanel(Gtk.Box):
             return
         mem = s.monitor.machine.memory
         # running, the last whole frame (a steady picture); stopped, this one so far and now below it
-        rgb = simscreen.render(mem.ram, mem.io, mem.chargen, mem.screen_lines(whole=s.running))
+        rgb = simscreen.render(mem.ram, mem.io, mem.chargen, *mem.screen_frame(whole=s.running))
         texture = Gdk.MemoryTexture.new(simscreen.WIDTH, simscreen.HEIGHT, Gdk.MemoryFormat.R8G8B8,
                                         GLib.Bytes.new(rgb), simscreen.WIDTH * 3)
         self.screen.set_paintable(texture)

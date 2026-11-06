@@ -15,3 +15,8 @@ program first sends `U0>M1`), where file `H` fits by crossing onto side two.
 files `S1` to `S20`, scratch `S3` and `S7`, save four 50798-byte files `BIG1` to `BIG4`
 (which fill the gaps and cross tracks), then validate. Both also come from Rift64
 (`tests/fixtures/allocation/`), recorded with VICE 3.7.1's true drive emulation.
+
+`simscreen/` holds three programs that each draw a steady frame (text with both scrolls, 24 rows
+and 38 columns; a multicolour bitmap with expanded sprites; ECM with the top and bottom border
+opened). `tests/test_sim.py` checks the simulator's Screen against VICE 3.7.1's picture of each,
+pixel for pixel, and keeps a digest of each so the check also runs without VICE.

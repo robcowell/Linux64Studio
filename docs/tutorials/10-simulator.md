@@ -83,10 +83,15 @@ raster interrupt and CIA 1's timer are, so interrupts happen as on a C64: the KE
 a second, and any a program sets up. A step never goes into one, though: **F11** runs the
 instruction at the PC, and the interrupt waits until the program runs on.
 
+When the project writes a disk image, it's in the simulator's drive 8, so LOAD, SAVE and files
+opened with OPEN work as with a 1541 (as in [tutorial 8](8-disk.md)). What the program writes stays
+in the simulator: the project's disk image isn't changed.
+
 That makes it good for logic: tables, maths, game rules, what a routine leaves in memory, and the
 timing of a main loop or an interrupt. Code that needs the real chips needs VICE: sound you can hear,
-and the screen exactly as the VIC-II draws it (the Screen is close: it's drawn a line at a time,
-with the registers each line had, but from memory as it is now). **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
+and the cycles the VIC-II steals. The Screen is close to a C64's: it's drawn a line at a time, with
+the registers and screen memory each line had, and it matches VICE's picture for text, bitmaps,
+scrolling, sprites and the border. **Skip KERNAL calls**, in the Debugger tab's bar, steps over KERNAL calls
 without running them, as in CBM prg Studio.
 
 It runs at a real C64's speed. Click the Screen and the keyboard is the C64's, with the arrow keys

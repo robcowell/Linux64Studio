@@ -132,6 +132,11 @@ check $d020 & $0f = 5
 the game's first instruction: once the intro has loaded it and jumped there. Run **Build All
 Programs** first, so the disk has the latest game on it. `l64test` builds every program itself.
 
+It passes without VICE too: **Debugger → Run Transcript Without VICE** (or `l64test --simulate`)
+runs it on the simulated C64, which has the disk in its drive 8 as well ([tutorial
+10](10-simulator.md)). So does **Debug Without VICE**: set a breakpoint on `jmp GAME` and see the
+game in memory at `$C000` once `LOAD` comes back.
+
 ## Try next
 
 * Change the name in the intro to `gamex` (and its length to 5), and see the border flash: the file

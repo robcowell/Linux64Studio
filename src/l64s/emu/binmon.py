@@ -30,6 +30,7 @@ CMD_ADVANCE = 0x71
 CMD_EXECUTE_UNTIL_RETURN = 0x73
 CMD_PING = 0x81
 CMD_REGISTERS_AVAILABLE = 0x83
+CMD_DISPLAY_GET = 0x84
 CMD_DUMP = 0x41
 CMD_UNDUMP = 0x42
 CMD_EXIT = 0xAA
@@ -248,6 +249,15 @@ class BinaryMonitor:
 
     def step_out(self) -> None:
         self.request(CMD_EXECUTE_UNTIL_RETURN)
+
+    def display(self) -> tuple[int, int, int, int, bytes]:
+        """VICE's picture, a byte a pixel (the C64's colour numbers): (width, height, the display
+        window's x and y in it, the pixels, a row at a time). VICE 3.7.1's has 504 x 312, and the
+        window's top left (a sprite's X 24, raster line 51) is at x + 4, y - 1."""
+        _t, body = self.request(CMD_DISPLAY_GET, bytes([1, 0]))
+        n = struct.unpack_from("<I", body, 0)[0]
+        width, height, x, y = struct.unpack_from("<HHHH", body, 4)
+        return width, height, x, y, bytes(body[4 + n:])
 
     def dump(self, path: str, save_roms: bool = False, save_disks: bool = False) -> None:
         """Save a snapshot of the whole machine to a .vsf file."""

@@ -649,6 +649,16 @@ def disk_args(res) -> list[str]:
     return ["-8", str(res.disk)] if getattr(res, "disk", None) else []
 
 
+def sim_machine(res):
+    """A simulated C64 (emu.sim) with the build's disk image in drive 8, if it wrote one (a copy:
+    what the program writes to it stays in the simulator)."""
+    from .emu.sim import Machine
+    m = Machine()
+    if getattr(res, "disk", None):
+        m.attach_disk(res.disk)
+    return m
+
+
 def summary(runner: Runner, message: str = "") -> str:
     p, f = runner.passed, runner.failed
     text = f"{p} check{'s' if p != 1 else ''} passed, {f} failed"
@@ -703,7 +713,7 @@ def main(argv: list[str] | None = None) -> int:
                           folder=project.directory)
         if args.simulate:
             from .emu.sim import SimRun
-            run = SimRun(worker, done.append)
+            run = SimRun(worker, done.append, sim_machine(res))
         else:
             run = ViceRun(None, worker, done.append, st.emulator, args.vice_args.split() + disk_args(res))
         run.start()
