@@ -12,6 +12,7 @@ and memory. The editor highlights the source line, or the line that called the m
 | Ctrl+F10 / Ctrl+F11 | Step over / into one instruction, even in C |
 | F9 | Toggle breakpoint |
 | Shift+F8 | Skip an instruction: move past it without running it |
+| Ctrl+Shift+F5 | Debug without VICE, on the simulated C64 ([debugging without VICE](#debugging-without-vice)) |
 
 ## Joysticks
 
@@ -152,6 +153,44 @@ build it came from.
 The snapshot files are read directly for listing and comparing, without VICE (`tests/test_snapshot.py`;
 the save and restore round trip through VICE runs with `L64S_VICE_TESTS=1`).
 
+## Debugging without VICE
+
+**Debugger → Debug Without VICE (simulator)** (Ctrl+Shift+F5) debugs the program on a C64 simulated
+inside Linux64Studio, as CBM prg Studio's own debugger does, with no emulator started. Everything
+above works the same: breakpoints and their conditions, stepping by line or instruction, C variables,
+editing registers and memory, Skip Instruction and memory before debugging. There's no VICE window:
+the Debugger tab has a **Screen** beside **Memory**, which draws the screen from memory, and it's
+redrawn while the program runs.
+
+What's simulated is the 6510 (from [py65](https://github.com/mnaberez/py65)) and the C64's memory.
+The memory has the real BASIC, KERNAL and character ROMs, from VICE's install, banked in and out by
+`$01` as on a C64. So the program is started as on a C64: the KERNAL boots to READY, the program is
+loaded, and RUN is typed (a program not at `$0801` starts at its first byte, or at
+`DEBUGSTARTADDRESS`). KERNAL calls run for real. Every instruction takes its exact cycles, page
+crossings and branches included, so the cycle counter counts every run exactly, with no **Count
+all** needed. `tests/test_sim.py` checks the counts against VICE's.
+
+What isn't simulated: the VIC-II, SID and CIAs. `$D000`-`$DFFF` is memory that reads back what was
+written to it, with a few exceptions:
+
+* The raster line (`$D012`, and `$D011`'s top bit) counts as on a PAL C64, 63 cycles a line, so code
+  that waits for a line gets there. `$D019`'s raster flag is set when the compare line goes by.
+* The keyboard and joysticks (`$DC00`, `$DC01`) read as nothing pressed. Type keys into the
+  keyboard buffer with a transcript's `type`.
+* The CIAs' interrupt flags read 0.
+
+No interrupts happen, so stepping never goes off into an interrupt handler. But code that waits for
+an interrupt (a raster interrupt, the KERNAL's jiffy clock) waits for ever. The VIC-II never takes
+cycles from the CPU either, so the counts are those of a blanked screen. The screen is a picture of
+memory, not an emulated VIC-II: a change made halfway down the frame shows on all of it, and sprites
+are drawn in front of everything. As in CBM prg Studio, the program stops at a `BRK`, and at an
+opcode the 6510 doesn't document (the simulator doesn't run those). **Skip** moves past either.
+
+**Skip KERNAL calls**, in the Debugger tab's bar, steps over JSRs into the KERNAL's jump table
+(`$FF81`-`$FFF3`) as if they returned at once, as CBM prg Studio's option does. Without VICE's ROMs
+there's no KERNAL to run, so it's on, and a program that isn't at `$0801` (or has a SYS line) starts
+at once. Snapshots need VICE.
+
 ## Profiler
 
 **Debugger → Profile in VICE** builds the project, runs it in VICE, and measures where the 6510's
@@ -276,7 +315,8 @@ check $d021 & $0f = 0
 | `type "<text>"` | Types keys for the program to read, with `INPUT` or `GET`: listing notation, so letters unshifted, capitals shifted, and `{return}`, `{clear}`, `{f1}` and other codes. Any length (the keyboard buffer takes 10 at a time); it goes on once the program has read them all, so follow it with `wait` before checking the answer. |
 | `interrupts on` / `off` | Clears or sets the I flag: off, a call's cycles are its own, with no interrupt counted in them. |
 | `timeout <seconds>` | How long a call or `until` may take before it fails (10 s at first). |
-| `clearregs`, `resetstack`, `end`, `break` | As in CBM prg Studio. `break` stops the transcript there. `skipkernal` isn't needed, since VICE has the real KERNAL. |
+| `clearregs`, `resetstack`, `end`, `break` | As in CBM prg Studio. `break` stops the transcript there. |
+| `skipkernal on` / `off` | On the simulator, steps over KERNAL calls as if they returned at once (or doesn't). In VICE it isn't needed, since VICE has the real KERNAL. |
 
 Numbers are hex unless written otherwise, as in the debugger: `$20` and `20` are both 32, and `#20`
 is 20. A label's name always means the label, even one spelled in hex digits such as `add16`. A label
@@ -294,6 +334,11 @@ A few things to know:
 * `l64test project transcript...` runs transcripts from the command line, printing a line a command.
   Its exit status is the number of failed checks, so it suits a test script or CI.
   `--vice-args="-sounddev dummy"` keeps it quiet.
+* **Debugger → Run Transcript Without VICE**, or `l64test --simulate`, runs them on the
+  [simulated C64](#debugging-without-vice) instead: no emulator to start, nothing on screen, so it
+  suits CI with no display. Calls' cycles are exact, with no timers used, and `wait` is the C64's
+  own time. A transcript that tests the VIC-II, SID or CIAs, or waits for an interrupt, needs VICE.
+  The tutorials' transcripts pass on both.
 
 ## Kick Assembler projects
 

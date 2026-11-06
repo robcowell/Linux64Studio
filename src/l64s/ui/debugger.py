@@ -1,4 +1,5 @@
-"""Debugger: runs the program in VICE with the binary monitor and shows registers, code and memory."""
+"""Debugger: runs the program in VICE with the binary monitor, or on the simulated C64 (emu.sim), and
+shows registers, code and memory (and the simulator's screen)."""
 from __future__ import annotations
 
 import threading
@@ -33,8 +34,11 @@ class DebugSession(GObject.Object):
 
     def __init__(self, prg: Path, labels: Path | None, srcmap: dict[int, tuple[str, int]],
                  symbols: dict[int, str], emulator: str, extra_args: list[str], c_lines: list | None = None,
-                 asm_lines: list | None = None):
+                 asm_lines: list | None = None, simulate: bool = False):
         super().__init__()
+        self.simulate = simulate                # on emu.sim's simulated C64, not VICE
+        self.start_cycles = 0                   # the simulator's cycle count when the program started
+        self.debug_start: int | None = None     # DEBUGSTARTADDRESS: where the simulator starts a non-BASIC program
         # C builds: which C line each address belongs to, for stepping by C line (step_line)
         self.lines = LineTable(c_lines or [])
         self.asm_lines = LineTable(asm_lines or [])       # the project's own .s files: stepped by instruction
@@ -42,7 +46,11 @@ class DebugSession(GObject.Object):
         self._cancel_step = False
         self.prg, self.labels, self.srcmap, self.symbols = prg, labels, srcmap, symbols
         self.emulator, self.extra_args = emulator, extra_args
-        self.monitor = BinaryMonitor(self._on_event)
+        if simulate:
+            from ..emu.sim import SimMonitor
+            self.monitor = SimMonitor(self._on_event)
+        else:
+            self.monitor = BinaryMonitor(self._on_event)
         self.proc = None
         self.running = False
         # Every stop and resume VICE reports gets the next number. A stop that a resume has
@@ -69,6 +77,9 @@ class DebugSession(GObject.Object):
             self.line_addr.setdefault((str(Path(f).resolve()), ln), addr)
 
     def start(self, breakpoints: list[int]):
+        if self.simulate:
+            threading.Thread(target=self._start_simulated, args=(breakpoints,), daemon=True).start()
+            return
         port = vice.free_port()
         self.proc = vice.launch(self.prg, self.emulator, self.labels, port, self.extra_args)
 
@@ -95,6 +106,41 @@ class DebugSession(GObject.Object):
                 return
             GLib.idle_add(self.emit, "connected")
         threading.Thread(target=connect, daemon=True).start()
+
+    def _start_simulated(self, breakpoints: list[int]):
+        """Boot the simulated C64 to READY, load the program as LOAD would, put the memory to load
+        before debugging in, and start it: RUN for a BASIC program, else from DEBUGSTARTADDRESS or the
+        start of the program (or a BASIC program's SYS, with no KERNAL to RUN it)."""
+        from ..emu.sim import basic_sys
+        m = self.monitor
+        machine = m.machine
+        try:
+            m.connect()
+            machine.boot()
+            start = machine.load(Path(self.prg).read_bytes())
+            for address, data in self.overlays:
+                machine.memory.write(address, data)
+            if self.debug_start is not None:
+                machine.set_register("PC", self.debug_start)
+            elif start == 0x0801 and machine.has_kernal:
+                machine.type_keys(b"RUN\r")
+            elif start == 0x0801:
+                machine.set_register("PC", basic_sys(machine.memory.read(0x0801, 0x08FF)) or 0x0801)
+            else:
+                machine.set_register("PC", start)
+            for a in sorted(set(breakpoints) | self.source_breakpoints):
+                self.checkpoints[a] = m.add_checkpoint(a).id
+                if a in self.conditions:
+                    m.set_condition(self.checkpoints[a], self.conditions[a])
+            self.start_cycles = machine.cycles           # (the panel counts from here)
+            m.resume()
+            self.running = True
+            self.event_seq += 1
+            self.starting = False
+        except (OSError, MonitorError) as e:
+            GLib.idle_add(self.emit, "ended", f"Couldn't start the simulator: {e}")
+            return
+        GLib.idle_add(self.emit, "connected")
 
     def _load_overlays(self):
         """At the program's start: write the memory to load before debugging, and carry on."""
@@ -388,6 +434,12 @@ class DebuggerPanel(Gtk.Box):
             self.buttons[key] = b
         self.state_label = Gtk.Label(label="Not debugging", css_classes=["dim-label"], margin_start=12)
         bar.append(self.state_label)
+        # the simulator's: step over KERNAL calls (CBM prg Studio's Skip Kernal Calls)
+        self.skip_kernal = Gtk.CheckButton(label="Skip KERNAL calls", visible=False, margin_start=12, tooltip_text=(
+            "Step over JSRs into the KERNAL's jump table ($FF81-$FFF3) as if they returned at once. The "
+            "simulator runs the real KERNAL when VICE's ROMs are installed; without them, this is on."))
+        self.skip_kernal.connect("toggled", self._skip_kernal_toggled)
+        bar.append(self.skip_kernal)
 
         body = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, vexpand=True)
         self.append(body)
@@ -508,7 +560,24 @@ class DebuggerPanel(Gtk.Box):
         vbox.append(Gtk.ScrolledWindow(child=self.vars_list, vexpand=True, min_content_height=110))
         self.vars_box = vbox
         vbox.set_visible(False)
-        stack = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL, start_child=vbox, end_child=right,
+        # the simulator's screen, beside the memory (VICE has a window of its own)
+        self.screen = Gtk.Picture(content_fit=Gtk.ContentFit.CONTAIN, can_shrink=True, vexpand=True,
+                                  alternative_text="The simulated C64's screen")
+        screen_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_end=6)
+        screen_box.append(self.screen)
+        screen_box.append(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label", "caption"], label=(
+            "The screen as memory has it: text and bitmap modes, the border and sprites; no raster effects "
+            "or scrolling.")))
+        self.right_stack = Gtk.Stack()
+        self.right_stack.add_titled(right, "memory", "Memory")
+        self.right_stack.add_titled(screen_box, "screen", "Screen")
+        self.right_switcher = Gtk.StackSwitcher(stack=self.right_stack, visible=False, halign=Gtk.Align.START,
+                                                margin_end=6)
+        right_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        right_outer.append(self.right_switcher)
+        right_outer.append(self.right_stack)
+        self._screen_timer = 0
+        stack = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL, start_child=vbox, end_child=right_outer,
                           shrink_start_child=False, shrink_end_child=False, position=190)
         body.set_end_child(stack)
 
@@ -520,11 +589,58 @@ class DebuggerPanel(Gtk.Box):
         self._counter, self._cycles_total, self._raster_at_stop, self._timing = None, 0, None, None
         self.count_cycles.set_active(False)
         self.cycles_label.set_text("—")
-        session.connect("connected", lambda *_: self._set_running(True))
+        session.connect("connected", self._on_connected)
         session.connect("stopped", self._on_stopped)
         session.connect("resumed", lambda *_: self._set_running(True))
         session.connect("ended", self._on_ended)
-        self.state_label.set_text("Starting VICE…")
+        sim = session.simulate
+        self.state_label.set_text("Starting the simulator…" if sim else "Starting VICE…")
+        self.count_cycles.set_visible(not sim)               # (the simulator counts every cycle anyway)
+        self.right_switcher.set_visible(sim)
+        self.skip_kernal.set_visible(sim)
+        if sim:
+            self._updating = True
+            self.skip_kernal.set_active(session.monitor.machine.skip_kernal)
+            self._updating = False
+            self._count_at_stop = 0
+            self.right_stack.set_visible_child_name("screen")
+            self._show_screen()
+            if not self._screen_timer:
+                self._screen_timer = GLib.timeout_add(200, self._screen_tick)
+        else:
+            self.right_stack.set_visible_child_name("memory")
+
+    def _on_connected(self, session):
+        if session.simulate:
+            self._count_at_stop = session.start_cycles
+        self._set_running(True)
+
+    # ---------------------------------------------------------------- the simulator
+    def _skip_kernal_toggled(self, button):
+        s = self.session
+        if s is not None and s.simulate and not self._updating:
+            s.monitor.machine.skip_kernal = button.get_active()
+
+    def _show_screen(self):
+        from ..emu import simscreen
+        s = self.session
+        if s is None or not s.simulate:
+            return
+        mem = s.monitor.machine.memory
+        rgb = simscreen.render(mem.ram, mem.io, mem.chargen)
+        texture = Gdk.MemoryTexture.new(simscreen.WIDTH, simscreen.HEIGHT, Gdk.MemoryFormat.R8G8B8,
+                                        GLib.Bytes.new(rgb), simscreen.WIDTH * 3)
+        self.screen.set_paintable(texture)
+
+    def _screen_tick(self):
+        """While the simulator runs, its screen five times a second."""
+        s = self.session
+        if s is None or not s.simulate:
+            self._screen_timer = 0
+            return False
+        if s.running and self.right_stack.get_visible_child_name() == "screen":
+            self._show_screen()
+        return True
 
     def _set_running(self, running: bool):
         stepping = running and self.session is not None and self.session.stepping
@@ -630,6 +746,14 @@ class DebuggerPanel(Gtk.Box):
         src = session.srcmap.get(pc)
         self.emit("show-source", src[0] if src else "", src[1] if src else 0)
         self._show_variables(session, pc, snapshot)
+        if session.simulate:
+            self._show_screen()
+            why = session.monitor.last_stop
+            if why == "brk":
+                self.state_label.set_text(f"Stopped at a BRK (${pc:04X}): Skip moves past it")
+            elif why == "jam":
+                self.state_label.set_text(f"Stopped: ${pc:04X} isn't an instruction the 6510 has (or the "
+                                          "simulator knows)")
 
     def _skip(self, s, pc: int):
         """Move the PC past the instruction at it without running it (CBM prg Studio's Shift+F8):
@@ -656,7 +780,11 @@ class DebuggerPanel(Gtk.Box):
             return                             # the same stop again (Pause shows it, and VICE reports it)
         self._pc_at_stop = regs.get("PC")
         ran = None
-        if self._counter is not None:
+        if session.simulate:                               # every cycle, exactly
+            now = session.monitor.cycles
+            ran = now - self._count_at_stop
+            self._count_at_stop = now
+        elif self._counter is not None:
             now = session.cmd(self._counter.read)
             if now is not None:
                 ran = self._count_at_stop - now
@@ -1006,6 +1134,8 @@ class DebuggerPanel(Gtk.Box):
         regs = s.cmd(s.monitor.get_registers) or {}
         self._raster_at_stop = (regs.get("LIN", 0), regs.get("CYC", 0))
         self._pc_at_stop = regs.get("PC")
+        if s.simulate:
+            self._count_at_stop = s.monitor.cycles
         if self._counter is not None:
             now = s.cmd(self._counter.read)
             if now is not None:

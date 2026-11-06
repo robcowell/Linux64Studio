@@ -53,6 +53,8 @@ gMLoop  lda #250        ; wait for line 250, below the screen
 gMWait  cmp RASTER
         bne gMWait
         inc SP0X
+gMLeave cmp RASTER      ; then for line 250 to end, so it's once a frame
+        beq gMLeave
         jmp gMLoop
 
 *=$2000
@@ -70,6 +72,8 @@ How it works:
 * **Moving it.** The loop waits for the raster, the line the VIC-II is drawing, to reach line 250,
   below the visible screen, then moves the ball a pixel right. That happens once a frame, 50 times a
   second on a PAL C64, so the movement is smooth, and never in the middle of drawing the ball.
+  A line lasts 63 cycles and the loop takes far fewer, so it then waits for line 250 to end:
+  without that, it would see line 250 again and move the ball 4 pixels a frame.
 
 Press **Ctrl+F5**. The ball floats across from the left.
 

@@ -37,6 +37,7 @@ VERBS = {"run", "until", "call", "goto", "set", "fill", "check", "show", "watch"
 READY_LOOP = range(0xE5CD, 0xE5D7)        # the KERNAL waiting for a key, at READY.
 KEYBUF, KEYCOUNT, KEYBUF_SIZE = 0x0277, 0x00C6, 10      # the KERNAL's keyboard buffer
 TRAP = 0x0000                              # where a call returns to: its RTS goes to $0000
+PAL_HZ = 985_248                           # a PAL C64's cycles a second
 
 
 class TranscriptError(Exception):
@@ -100,6 +101,8 @@ class Runner:
         self._stopped = threading.Event()
         self._stop = threading.Event()
         self._running = False
+        # on the simulated C64 (emu.sim) rather than VICE: cycles come from it, exactly, and time is its own
+        self.simulated = getattr(monitor, "simulator", False)
 
     # ------------------------------------------------------------------ the worker's side
     def vice_event(self, rtype: int, body: bytes):
@@ -138,6 +141,8 @@ class Runner:
                     self._say(c, False, str(e))
                     break
         except (MonitorError, OSError, ConnectionError) as e:
+            if self.simulated:
+                return f"The simulator stopped: {e}"
             return "VICE was closed" if not self.monitor.connected else f"VICE stopped answering: {e}"
         except TranscriptError as e:
             return str(e)
@@ -201,7 +206,10 @@ class Runner:
         self._stopped.wait(self.timeout)
 
     def _ready(self):
-        """Wait for BASIC's READY (VICE has just started)."""
+        """Wait for BASIC's READY (VICE has just started). The simulator boots there, if it has the ROMs."""
+        if self.simulated:
+            self.monitor.machine.boot()
+            return
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline and not self._stop.is_set():
             self._resume()
@@ -228,6 +236,9 @@ class Runner:
     def _calibrate(self):
         """How many cycles the timers add to a call: time an RTS (6 cycles) in the KERNAL."""
         m = self.monitor
+        if self.simulated:
+            self.call_offset = 0                     # (its count is exact)
+            return
         kernal = m.read_memory(0xE000, 0xFFFF)
         rts = 0xE000 + kernal.index(0x60)
         self.cycles = None
@@ -259,6 +270,10 @@ class Runner:
                 r = m.get_registers()
                 if r["PC"] == address and (sp is None or r["SP"] == sp):
                     return r
+                why = getattr(m, "last_stop", "")
+                if why in ("brk", "jam"):                # the simulator stops at those (VICE goes on)
+                    what_ = "a BRK" if why == "brk" else "an instruction the 6510 hasn't got"
+                    raise TranscriptError(f"The simulator stopped at {what_}, at ${r['PC']:04X}")
                 self._resume()                       # (there, but deeper: a recursive call, say)
         finally:
             self._stop_vice()
@@ -273,11 +288,20 @@ class Runner:
         m.write_memory(0x0100 + ((sp - 1) & 0xFF), bytes([(TRAP - 1) & 0xFF, ((TRAP - 1) >> 8) & 0xFF]))
         self._set_register("SP", (sp - 2) & 0xFF)
         self._land(address)
+        failure = f"The call to {name or f'${address:04X}'} didn't return"
+        if self.simulated:
+            start = m.cycles
+            try:
+                self._until(TRAP, sp, failure=failure)
+                self.cycles = m.cycles - start
+            finally:
+                self._set_register("PC", pc)
+            return
         # the counter last, once the registers are set (VICE's step after a register write takes time)
         counter = CycleCounter(m)
         start = counter.start()
         try:
-            self._until(TRAP, sp, failure=f"The call to {name or f'${address:04X}'} didn't return")
+            self._until(TRAP, sp, failure=failure)
             self.cycles = (start - counter.read()) - self.call_offset
         finally:
             counter.stop()
@@ -347,8 +371,12 @@ class Runner:
             except ValueError:
                 raise TranscriptError("wait <seconds>, such as wait 0.5") from None
             self._settle()
-            self._resume()
-            time.sleep(seconds)
+            if self.simulated:                       # the C64's own time: a PAL second of cycles
+                self._stop_vice()
+                m.machine.run(int(seconds * PAL_HZ))
+            else:
+                self._resume()
+                time.sleep(seconds)
             r = self._regs()
             self._say(c, None, f"ran {seconds:g} s; stopped at ${r['PC']:04X}")
         elif verb == "type":
@@ -386,7 +414,13 @@ class Runner:
             self.timeout = float(args.removesuffix("s"))
             self._say(c, None, f"calls and runs time out after {self.timeout:g} s")
         elif verb == "skipkernal":
-            self._say(c, None, "(not needed: VICE has the real KERNAL)")
+            if self.simulated:
+                on = args.lower() not in ("off", "0", "no")
+                self._stop_vice()
+                m.machine.skip_kernal = on
+                self._say(c, None, "KERNAL calls are stepped over" if on else "KERNAL calls run")
+            else:
+                self._say(c, None, "(not needed: VICE has the real KERNAL)")
         elif verb in ("show", "watch"):
             self._say(c, None, self._show(args))
         elif verb == "check":
@@ -553,6 +587,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("project", help="the project (.l64proj, .cbmprj, .code-workspace) or source file")
     ap.add_argument("transcripts", nargs="+", help=".transcript files")
     ap.add_argument("--vice-args", default="", help="extra options for x64sc (e.g. -sounddev dummy)")
+    ap.add_argument("--simulate", action="store_true",
+                    help="run them on the simulated C64 (a 6510 with the ROMs, no VIC-II, SID or CIAs), not VICE")
     args = ap.parse_args(argv)
     st = Settings.load()
     project = load_project(Path(args.project))
@@ -576,10 +612,14 @@ def main(argv: list[str] | None = None) -> int:
             return 101
         done: list[str] = []
         mark = {True: "pass", False: "FAIL", None: "    "}
-        run = ViceRun(None, lambda m: Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                                             lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}"),
-                                             overlays=memory),
-                      done.append, st.emulator, args.vice_args.split())
+        def worker(m, commands=commands, t=t, mark=mark):
+            return Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
+                          lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}"), overlays=memory)
+        if args.simulate:
+            from .emu.sim import SimRun
+            run = SimRun(worker, done.append)
+        else:
+            run = ViceRun(None, worker, done.append, st.emulator, args.vice_args.split())
         run.start()
         while not done:
             time.sleep(0.1)

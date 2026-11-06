@@ -21,6 +21,9 @@ def land(monitor, pc: int, run_until_stopped) -> None:
     it to stop again (the caller's own event handling)."""
     m = monitor
     pc &= 0xFFFF
+    if getattr(m, "simulator", False):             # (the simulator has no such quirk)
+        m.set_register("PC", pc)
+        return
     saved = m.read_memory(TRAMPOLINE, TRAMPOLINE + 2)
     m.write_memory(TRAMPOLINE, bytes([0x4C, pc & 0xFF, pc >> 8]))
     cid = m.add_checkpoint(pc).id

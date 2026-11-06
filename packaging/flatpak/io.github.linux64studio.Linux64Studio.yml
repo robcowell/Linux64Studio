@@ -23,6 +23,18 @@ finish-args:
   # running VICE, cc65, Java, GoatTracker, git and the rest on the host
   - --talk-name=org.freedesktop.Flatpak
 modules:
+  # py65, the 6502 that Debug Without VICE runs (l64s/emu/sim.py): its wheel unpacked into
+  # site-packages (pure Python; the runtime has no pip)
+  - name: python3-py65
+    buildsystem: simple
+    build-commands:
+      - >-
+        python3 -m zipfile -e py65-1.2.0-py2.py3-none-any.whl
+        "$(python3 -c "import sysconfig; print(sysconfig.get_path('purelib', vars={'base': '/app'}))")"
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/f6/3d/7171f8401bb3cf058d233af314d3e314a348488bd22b2143b3591566a172/py65-1.2.0-py2.py3-none-any.whl
+        sha256: 8e51f149647f2c2b44e5eb54350057771ccaef97f5f3d593fa3737e44c1ce4b7
   - name: linux64studio
     buildsystem: simple
     build-commands:

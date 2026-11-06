@@ -26,6 +26,7 @@ ACCELS = {
     "win.run-file": ["F5"],                 # CBM prg Studio: Build -> Program -> And Run
     "win.run-project": ["<Control>F5"],     # CBM prg Studio: Build -> Project -> And Run
     "win.debug-project": ["<Shift>F5"],
+    "win.debug-sim": ["<Control><Shift>F5"],
     "win.toggle-breakpoint": ["F9"],
     "win.debug-continue": ["F8"],
     "win.debug-skip": ["<Shift>F8"],

@@ -7,3 +7,5 @@ check $d000 = #24          ; x: the left edge
 check $2000 = $00 $7e $00  ; the top row of the ball, from sprites.bin
 until gMLoop               ; once round the loop: a frame
 check $d000 = #25          ; a pixel to the right
+wait 0.2                   ; about 10 frames
+check $d000 < #40          ; about 10 pixels further, not 40: once a frame

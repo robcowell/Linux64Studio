@@ -330,6 +330,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("run-project", lambda *_: self.build(run=True))
         add("run-file", lambda *_: self.build(run=True, current_file=True))
         add("debug-project", lambda *_: self.build(run=True, debug=True))
+        add("debug-sim", lambda *_: self.build(run=True, debug=True, simulate=True))
         add("toggle-breakpoint", lambda *_: self._toggle_breakpoint())
         add("debug-continue", lambda *_: self.debugger.do("continue"))
         add("debug-over", lambda *_: self.debugger.do("over"))
@@ -382,6 +383,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("profile", lambda *_: self.profile_project())
         add("time-routine-here", lambda *_: self.time_routine_here())
         add("run-transcript", lambda *_: self.run_transcript())
+        add("run-transcript-sim", lambda *_: self.run_transcript(simulate=True))
         add("debug-skip", lambda *_: self.debugger.do("skip"))
         add("tutorials", lambda *_: self.open_tutorials())
         add("external-debugger", lambda *_: self.build(run=True, external=True))
@@ -1343,7 +1345,8 @@ class MainWindow(Adw.ApplicationWindow):
         return {str(e.path): e.get_text() for e in self.editors() if isinstance(e, SourceEditor) and e.path}
 
     def build(self, run: bool = False, current_file: bool = False, debug: bool = False, profile: bool = False,
-              timing=None, transcript=None, external: bool = False):
+              timing=None, transcript=None, external: bool = False, simulate: bool = False):
+        """simulate: debug, or run the transcript, on the simulated C64 (emu.sim) rather than VICE."""
         ed = self.current_editor()
         if not self.project:
             if isinstance(ed, SourceEditor) and ed.path:
@@ -1379,11 +1382,11 @@ class MainWindow(Adw.ApplicationWindow):
                 from ..asm.errors import Diagnostic
                 res = BuildResult(False, None, None, [Diagnostic("error", f"Internal error: {e}", None)],
                                   traceback.format_exc())
-            GLib.idle_add(self._build_done, res, run, debug, profile, timing, transcript, external)
+            GLib.idle_add(self._build_done, res, run, debug, profile, timing, transcript, external, simulate)
         threading.Thread(target=work, daemon=True).start()
 
     def _build_done(self, res: BuildResult, run: bool, debug: bool, profile: bool = False, timing=None,
-                    transcript=None, external: bool = False):
+                    transcript=None, external: bool = False, simulate: bool = False):
         self.last_build = res
         self.bp_panel.refresh()                  # the addresses breakpoints stop at
         self.projinfo.refresh_soon(100)          # the labels' values
@@ -1402,7 +1405,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._start_timing(res, timing)
             return
         if transcript is not None:
-            self._start_transcript(res, *transcript)
+            self._start_transcript(res, *transcript, simulate=simulate)
             return
         if external:
             self._start_external_debugger(res)
@@ -1413,7 +1416,7 @@ class MainWindow(Adw.ApplicationWindow):
         if profile:
             self._start_profile(res)
         elif debug:
-            self._start_debug(res)
+            self._start_debug(res, simulate)
         else:
             self._launch(res.run_target(self.project) if self.project else res.prg, res.labels)
 
@@ -1494,7 +1497,7 @@ class MainWindow(Adw.ApplicationWindow):
                 addrs.add(a)
         return addrs
 
-    def _start_debug(self, res: BuildResult):
+    def _start_debug(self, res: BuildResult, simulate: bool = False):
         if self.project and self.project.toolchain == TOOLCHAIN_KICKASS and not res.srcmap:
             self.toast("Kick Assembler didn't write a debug dump (.dbg), so the debugger can't show source lines")
         if self.project and self.project.toolchain == TOOLCHAIN_CC65 and not res.srcmap:
@@ -1506,8 +1509,10 @@ class MainWindow(Adw.ApplicationWindow):
                 if "__m" not in key and not name.startswith("@") and value not in symbols:
                     symbols[value] = name
         start = res.run_target(self.project) if self.project else res.prg
+        if simulate:
+            start = res.prg                     # (the simulator has no disk drive or cartridge port)
         session = DebugSession(start, res.labels, res.srcmap, symbols, self.settings.emulator,
-                               self._vice_args(), c_lines=res.c_lines, asm_lines=res.asm_lines)
+                               self._vice_args(), c_lines=res.c_lines, asm_lines=res.asm_lines, simulate=simulate)
         r = res.asm_result
         if r is not None:
             # CBM prg Studio's BREAKPOINT, DEBUGSTARTADDRESS and WATCH directives
@@ -1517,6 +1522,7 @@ class MainWindow(Adw.ApplicationWindow):
                     session.conditions[addr] = cond
             if r.debug_start is not None:
                 session.source_breakpoints.add(r.debug_start)
+                session.debug_start = r.debug_start
             session.watches = list(r.watches)
         session.overlays = self._debug_memory()
         self.debug = session
@@ -1586,7 +1592,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.toast(f"Opening {target.name} in {Path(exe).name}" + ("" if dbg else " (labels only: no debug dump)"))
 
     # ------------------------------------------------------------------ transcripts
-    def run_transcript(self):
+    def run_transcript(self, simulate: bool = False):
         """Debugger > Run Transcript: the transcript being edited (or the last one looked at) run in
         VICE against the project's program, after a build. Its results go to Build Output."""
         from ..transcript import TranscriptError, parse
@@ -1609,15 +1615,16 @@ class MainWindow(Adw.ApplicationWindow):
         if not commands:
             self.toast(f"{ed.path.name} has no commands")
             return
-        self.build(run=True, transcript=(ed, commands))
+        self.build(run=True, transcript=(ed, commands), simulate=simulate)
 
-    def _start_transcript(self, res: BuildResult, ed, commands):
+    def _start_transcript(self, res: BuildResult, ed, commands, simulate: bool = False):
         from ..asm.errors import Diagnostic, SourceLoc
         from ..profiler import ViceRun, resolver_for
         from ..transcript import Runner, summary
         path = str(ed.path)
         rows: list = []
-        log: list[str] = [f"Running {ed.path.name} against {res.prg.name} in VICE…"]
+        log: list[str] = [f"Running {ed.path.name} against {res.prg.name} "
+                          f"{'on the simulated C64' if simulate else 'in VICE'}…"]
         mark = {True: "pass", False: "FAIL", None: "    "}
 
         def show():
@@ -1649,9 +1656,15 @@ class MainWindow(Adw.ApplicationWindow):
         ed.clear_errors()
         self.bottom_stack.set_visible_child_name("output")
         memory = self._debug_memory()
-        run = ViceRun(None, lambda m: Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                                             lambda o: GLib.idle_add(outcome, o), overlays=memory),
-                      lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator, self._vice_args())
+        def worker(m):
+            return Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
+                          lambda o: GLib.idle_add(outcome, o), overlays=memory)
+        if simulate:
+            from ..emu.sim import SimRun
+            run = SimRun(worker, lambda msg: GLib.idle_add(ended, run, msg))
+        else:
+            run = ViceRun(None, worker, lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator,
+                          self._vice_args())
         try:
             run.start()
         except FileNotFoundError as e:

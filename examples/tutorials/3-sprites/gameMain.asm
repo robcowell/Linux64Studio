@@ -39,6 +39,8 @@ gMLoop  lda #250        ; wait for line 250, below the screen
 gMWait  cmp RASTER
         bne gMWait
         inc SP0X
+gMLeave cmp RASTER      ; then for line 250 to end, so it's once a frame
+        beq gMLeave
         jmp gMLoop
 
 ;===============================================================================

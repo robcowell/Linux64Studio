@@ -5,7 +5,7 @@ description = "A GTK4 C64 development IDE for Linux, compatible with CBM prg Stu
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = ["py65>=1.2"]   # the 6502 of Debug Without VICE (emu.sim)
 
 [project.scripts]
 l64asm = "l64s.asm.cli:main"
