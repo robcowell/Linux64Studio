@@ -87,7 +87,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                      [("_Continue", "win.debug-continue"), ("Step _Over", "win.debug-over"),
                       ("Step _Into", "win.debug-into"), ("Step O_ut", "win.debug-out")],
                      [("Step Over One Instruction", "win.debug-over-instruction"),
-                      ("Step Into One Instruction", "win.debug-into-instruction")],
+                      ("Step Into One Instruction", "win.debug-into-instruction"),
+                      ("S_kip Instruction (don't run it)", "win.debug-skip")],
                      [("Toggle _Breakpoint", "win.toggle-breakpoint")],
                      [("_Memory Viewer", "win.memory-viewer"), ("_Snapshots", "win.snapshots")],
                      [("_Profile in VICE", "win.profile"), ("Run _Transcript", "win.run-transcript")])

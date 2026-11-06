@@ -11,6 +11,7 @@ and memory. The editor highlights the source line, or the line that called the m
 | F10 / F11 / Shift+F11 | Step over / into / out (in C, by C line: [stepping by C line](c.md#stepping-by-c-line)) |
 | Ctrl+F10 / Ctrl+F11 | Step over / into one instruction, even in C |
 | F9 | Toggle breakpoint |
+| Shift+F8 | Skip an instruction: move past it without running it |
 
 ## Joysticks
 
@@ -62,6 +63,38 @@ or `31.`) or a label, with an offset if you like (`gMLoop`, `SCREENRAM+$28`). Se
 a label is a quick way to run a routine again. The flag buttons (N V – B D I Z C) toggle each
 status bit. Registers and flags that changed since the program last stopped are highlighted,
 so after a step you can see what the instruction did.
+
+## Skipping an instruction
+
+**Skip Instruction** (Shift+F8, the toolbar's last arrow, or **Debugger → Skip Instruction**) moves the
+PC past the instruction at it without running it, as CBM prg Studio's Shift+F8 does. Registers,
+flags and memory stay as they were. Use it to jump over a `jsr` to code you don't want to run yet, or
+a loop that waits for something that won't happen while you're debugging.
+
+## Memory before debugging
+
+**Project Properties → Build → Memory before debugging** lists files to write into memory when
+debugging starts, as CBM prg Studio's debugger's external files: level data, a table the program
+expects, a character set from another program. They go in once the program is loaded, just before it
+runs (when RUN starts it), and before a [transcript](#transcripts)'s first command.
+
+* A `.prg` goes at its own load address.
+* Any other file goes at the address given with it.
+* An overlay file (`.ovl`, CBM prg Studio's format) says where its bytes go:
+
+```
+; a comment
+*=c000          the address for the bytes after it (hex)
+42 43 44        bytes, one or several a line
+00*10           a byte repeated: $00, $10 (16) times
+decimal         the numbers after this are decimal
+```
+
+CBM prg Studio can also take a VICE snapshot here. Linux64Studio can't: its RAM would overwrite the
+program just loaded. Use **Debugger → Snapshots** to go back to a machine state instead. A
+cartridge isn't started by RUN, so with **Run with the cartridge plugged in** the memory isn't
+loaded. A program run from a disk image is loaded with LOAD first, so the memory goes in as that
+LOAD starts: anywhere the loaded file covers, the file wins.
 
 ## Cycles
 

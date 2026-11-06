@@ -223,6 +223,9 @@ See [docs/music.md](docs/music.md).
 * **Routine timing**: every call of one routine measured to the cycle in VICE: the fewest, the
   most and the average, how often it's called, and the raster lines it runs on (right-click in the
   editor: Time This Routine) ([timing](docs/debugger.md#routine-timing)).
+* **Skip Instruction** (Shift+F8) moves past an instruction without running it, and **memory before
+  debugging** writes data files and CBM prg Studio overlay files (`.ovl`) into memory before the
+  program starts ([memory before debugging](docs/debugger.md#memory-before-debugging)).
 * A **cycle counter** in the Debugger tab: each step's exact cycles, and a total
   ([cycles](docs/debugger.md#cycles)).
 * **Debug in RetroDebugger / C64 Debugger** opens the program there with its debug dump

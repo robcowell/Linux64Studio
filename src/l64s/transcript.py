@@ -87,8 +87,9 @@ class Runner:
     thread as it comes."""
 
     def __init__(self, monitor, commands: list[Command], program: bytes, symbols: dict[str, int], on_outcome,
-                 timeout: float = 10.0):
+                 timeout: float = 10.0, overlays: list[tuple[int, bytes]] | None = None):
         self.monitor, self.commands, self.program = monitor, commands, program
+        self.overlays = overlays or []          # memory to load too (overlays.load_all)
         self.symbols, self.on_outcome = symbols, on_outcome
         self.timeout = timeout
         self.outcomes: list[Outcome] = []
@@ -194,6 +195,8 @@ class Runner:
         if start == 0x0801:                           # VARTAB, ARYTAB and STREND: the end of the program
             ptr = bytes([end & 0xFF, end >> 8])
             self.monitor.write_memory(0x002D, ptr * 3)
+        for address, data in self.overlays:          # the project's memory before debugging
+            self.monitor.write_memory(address, data, side_effects=0xD000 <= address <= 0xDFFF)
 
     def _calibrate(self):
         """Find out whether this VICE ignores a step after a register write (as the debugger does),
@@ -487,6 +490,12 @@ def main(argv: list[str] | None = None) -> int:
         print(res.log)
         return 101
     resolver = resolver_for(res)
+    from .overlays import OverlayError, load_all
+    try:
+        memory = load_all(project.directory, project.debug_memory)
+    except OverlayError as e:
+        print(f"Memory before debugging: {e}")
+        return 101
     failed = 0
     for t in args.transcripts:
         try:
@@ -497,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
         done: list[str] = []
         mark = {True: "pass", False: "FAIL", None: "    "}
         run = ViceRun(None, lambda m: Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                                             lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}")),
+                                             lambda o: print(f"{t}:{o.line}: {mark[o.ok]} {o.text}: {o.message}"),
+                                             overlays=memory),
                       done.append, st.emulator, args.vice_args.split())
         run.start()
         while not done:

@@ -28,6 +28,7 @@ ACCELS = {
     "win.debug-project": ["<Shift>F5"],
     "win.toggle-breakpoint": ["F9"],
     "win.debug-continue": ["F8"],
+    "win.debug-skip": ["<Shift>F8"],
     "win.debug-over": ["F10"],
     "win.debug-into": ["F11"],
     "win.debug-out": ["<Shift>F11"],
@@ -58,6 +59,7 @@ SHORTCUT_GROUPS = [
                        ("<Shift>F5", "Debug project")]),
     ("Debugging", [("F9", "Toggle breakpoint"), ("F8", "Continue"), ("F10", "Step over"),
                    ("F11", "Step into"), ("<Shift>F11", "Step out"),
+                   ("<Shift>F8", "Skip an instruction (without running it)"),
                    ("<Control>F10", "Step over one instruction (in C)"),
                    ("<Control>F11", "Step into one instruction (in C)")]),
 ]

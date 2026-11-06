@@ -376,6 +376,7 @@ class MainWindow(Adw.ApplicationWindow):
         add("profile", lambda *_: self.profile_project())
         add("time-routine-here", lambda *_: self.time_routine_here())
         add("run-transcript", lambda *_: self.run_transcript())
+        add("debug-skip", lambda *_: self.debugger.do("skip"))
         add("external-debugger", lambda *_: self.build(run=True, external=True))
         add("memory-manager", lambda *_: self.open_memory_manager())
         add("snapshots", lambda *_: self.open_snapshots())
@@ -1510,6 +1511,7 @@ class MainWindow(Adw.ApplicationWindow):
             if r.debug_start is not None:
                 session.source_breakpoints.add(r.debug_start)
             session.watches = list(r.watches)
+        session.overlays = self._debug_memory()
         self.debug = session
         self.debugger.set_c_program(self._c_program(res), res.c_sp)
         self.debugger.attach(session)
@@ -1639,8 +1641,9 @@ class MainWindow(Adw.ApplicationWindow):
         resolver = resolver_for(res, self._build_symbols(res))
         ed.clear_errors()
         self.bottom_stack.set_visible_child_name("output")
+        memory = self._debug_memory()
         run = ViceRun(None, lambda m: Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
-                                             lambda o: GLib.idle_add(outcome, o)),
+                                             lambda o: GLib.idle_add(outcome, o), overlays=memory),
                       lambda msg: GLib.idle_add(ended, run, msg), self.settings.emulator, self._vice_args())
         try:
             run.start()
@@ -1725,6 +1728,18 @@ class MainWindow(Adw.ApplicationWindow):
         view.begin(target, resolver_for(res, self._build_symbols(res)), self.settings.emulator, self._vice_args())
         if view.message:
             self.toast(view.message)
+
+    def _debug_memory(self) -> list:
+        """The project's memory to load before debugging, read (a file that can't be is left out, with
+        a note)."""
+        from ..overlays import OverlayError, load
+        out = []
+        for entry in (self.project.debug_memory if self.project else []):
+            try:
+                out += load(self.project.directory, entry)
+            except OverlayError as e:
+                self.toast(f"Not loaded before debugging: {e}")
+        return out
 
     def _c_program(self, res: BuildResult):
         """A C build's variables for the debugger: types from the project's C sources (as they are in
@@ -3799,6 +3814,67 @@ class MainWindow(Adw.ApplicationWindow):
             dg = Adw.PreferencesGroup(title="Debugging in other tools")
             dg.add(dd)
             bpage.add(dg)
+        memory = [dict(e) for e in p.debug_memory]
+        mg = Adw.PreferencesGroup(title="Memory before debugging", description=(
+            "Files written into memory once the program is loaded, before it runs, when debugging (and before "
+            "a transcript): data for a level, a table the program expects. A .prg goes at its own load "
+            "address, other files at the address given, and an overlay file (.ovl, CBM prg Studio's format) "
+            "says where its bytes go."))
+        bpage.add(mg)
+        mem_rows: list = []
+
+        def rebuild_memory():
+            from ..overlays import describe
+            for r in mem_rows:
+                mg.remove(r)
+            mem_rows.clear()
+            for i, e in enumerate(memory):
+                row = Adw.ActionRow(title=e["file"], subtitle=describe(e))
+                rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Remove",
+                                css_classes=["flat"])
+                rm.connect("clicked", lambda _b, i=i: (memory.pop(i), rebuild_memory()))
+                row.add_suffix(rm)
+                mg.add(row)
+                mem_rows.append(row)
+            add = Adw.ActionRow(title="Add a file", subtitle="Address: empty for a .prg or .ovl")
+            m_addr = Gtk.Entry(placeholder_text="$2000", width_chars=7, valign=Gtk.Align.CENTER)
+            m_btn = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+
+            def choose(*_):
+                text = m_addr.get_text().strip()
+                address = None
+                if text:
+                    from ..project import ldcfg
+                    try:
+                        address = ldcfg.parse_address(text)
+                    except ValueError:
+                        self.toast("Give the address in hex ($2000) or decimal (#8192)")
+                        return
+                fd = Gtk.FileDialog(title="Memory to load before debugging", initial_folder=Gio.File.new_for_path(
+                    str(p.directory)))
+
+                def done(d, r):
+                    try:
+                        f = d.open_finish(r)
+                    except GLib.Error:
+                        return
+                    path = Path(f.get_path())
+                    if address is None and path.suffix.lower() not in (".prg", ".ovl"):
+                        self.toast(f"{path.name} needs an address: type it first, then choose the file")
+                        return
+                    try:
+                        rel = str(path.relative_to(p.directory))
+                    except ValueError:
+                        rel = str(path)
+                    memory.append({"file": rel, "address": address} if address is not None else {"file": rel})
+                    rebuild_memory()
+                fd.open(self, None, done)
+            m_btn.connect("clicked", choose)
+            add.add_suffix(m_addr)
+            add.add_suffix(m_btn)
+            mg.add(add)
+            mem_rows.append(add)
+        rebuild_memory()
         eg = Adw.PreferencesGroup(
             title="Build events",
             description="Commands run in the project folder before and after a project build, one a line, as in "
@@ -3965,6 +4041,7 @@ class MainWindow(Adw.ApplicationWindow):
         rebuild_banks()
 
         def closed(*_):
+            p.debug_memory = memory
             p.executable = exe.get_text().strip() or p.executable
             p.toolchain = toolchains[tool.get_selected()]
             if is_c:

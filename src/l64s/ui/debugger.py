@@ -19,6 +19,7 @@ from ..emu.values import FLAG_NAMES, ValueError_, is_io, parse_address, parse_by
 from .hexview import HexView  # noqa: E402
 
 REGISTERS = [("PC", 4), ("A", 2), ("X", 2), ("Y", 2), ("SP", 2)]
+NEWSTT = 0xA7AE          # BASIC's statement loop (where RUN starts the program)
 
 
 class DebugSession(GObject.Object):
@@ -60,6 +61,9 @@ class DebugSession(GObject.Object):
         self._quiet = False
         self._quiet_stop = threading.Event()
         self.checkpoints: dict[int, int] = {}  # address -> checkpoint id
+        # Memory to load before debugging (Project.debug_memory, loaded): [(address, bytes)]
+        self.overlays: list[tuple[int, bytes]] = []
+        self._overlay_checkpoint: int | None = None
         # From the source (CBM prg Studio's BREAKPOINT, DEBUGSTARTADDRESS and WATCH directives):
         self.source_breakpoints: set[int] = set()          # kept whatever the editor's gutter says
         self.conditions: dict[int, str] = {}               # address -> VICE condition, e.g. "X == $14"
@@ -85,6 +89,10 @@ class DebugSession(GObject.Object):
                     self.checkpoints[a] = self.monitor.add_checkpoint(a).id
                     if a in self.conditions:
                         self.monitor.set_condition(self.checkpoints[a], self.conditions[a])
+                if self.overlays:
+                    # BASIC's statement loop first runs for the RUN that starts the program, once
+                    # it's loaded: the memory goes in there (the KERNAL's reset would clear some)
+                    self._overlay_checkpoint = self.monitor.add_checkpoint(NEWSTT).id
                 self.monitor.resume()
                 self.running = True
                 self.event_seq += 1   # anything VICE reported before this is out of date
@@ -94,6 +102,18 @@ class DebugSession(GObject.Object):
                 return
             GLib.idle_add(self.emit, "connected")
         threading.Thread(target=connect, daemon=True).start()
+
+    def _load_overlays(self):
+        """At the program's start: write the memory to load before debugging, and carry on."""
+        m = self.monitor
+        try:
+            m.delete_checkpoint(self._overlay_checkpoint)
+            for address, data in self.overlays:
+                m.write_memory(address, data, side_effects=0xD000 <= address <= 0xDFFF)
+            m.resume()
+        except (OSError, MonitorError) as e:
+            GLib.idle_add(self.emit, "ended", f"Couldn't load the memory before debugging: {e}")
+        self._overlay_checkpoint = None
 
     def _calibrate(self):
         """Find out whether a step after a register write is ignored, while the KERNAL is still
@@ -190,6 +210,10 @@ class DebugSession(GObject.Object):
             if self.starting:
                 return
             pc = body[0] | (body[1] << 8)
+            if pc == NEWSTT and self._overlay_checkpoint is not None:
+                # (not a stop to show: the memory goes in, from another thread than this reader's)
+                threading.Thread(target=self._load_overlays, daemon=True).start()
+                return
             self.running = False
             self.event_seq += 1
             seq = self.event_seq
@@ -364,6 +388,8 @@ class DebuggerPanel(Gtk.Box):
                                ("into", "go-down-symbolic", "Step into (F11)"),
                                ("over", "go-next-symbolic", "Step over (F10)"),
                                ("out", "go-up-symbolic", "Step out (Shift+F11)"),
+                               ("skip", "go-last-symbolic", "Skip an instruction: move past it without running "
+                                                            "it (Shift+F8)"),
                                ("stop", "media-playback-stop-symbolic", "Stop debugging")]:
             b = Gtk.Button(icon_name=icon, tooltip_text=tip, sensitive=False)
             b.connect("clicked", lambda _b, k=key: self.do(k))
@@ -523,7 +549,7 @@ class DebuggerPanel(Gtk.Box):
         self.cycles_reset.set_sensitive(editable)
         self.buttons["continue"].set_sensitive(not running)
         self.buttons["pause"].set_sensitive(running)
-        for k in ("into", "over", "out"):
+        for k in ("into", "over", "out", "skip"):
             self.buttons[k].set_sensitive(not running)
         self.buttons["stop"].set_sensitive(True)
 
@@ -555,6 +581,10 @@ class DebuggerPanel(Gtk.Box):
             s.cancel_step()                    # stops where it's got to
             return
         self._one_instruction = False
+        if key == "skip":
+            if not s.running and pc is not None:
+                self._skip(s, pc)
+            return
         if key in ("into", "over") and not s.running and pc is not None and s.steps_by_c_line(pc):
             s.step_line(over=key == "over")    # in C: to the next line, not the next instruction
             return
@@ -609,6 +639,18 @@ class DebuggerPanel(Gtk.Box):
         src = session.srcmap.get(pc)
         self.emit("show-source", src[0] if src else "", src[1] if src else 0)
         self._show_variables(session, pc, snapshot)
+
+    def _skip(self, s, pc: int):
+        """Move the PC past the instruction at it without running it (CBM prg Studio's Shift+F8):
+        to jump over a JSR, say, or code that would hang."""
+        from ..asm.disasm import disassemble_one
+        mem = s.cmd(s.monitor.read_memory, pc, min(0xFFFF, pc + 2))
+        if not mem:
+            return
+        size = disassemble_one(mem, 0, pc)[0]
+        if s.cmd(s.set_register, "PC", (pc + size) & 0xFFFF) is None and s.monitor.connected:
+            self._on_stopped(s, (pc + size) & 0xFFFF, snapshot=False)
+            self.state_label.set_text(f"Stopped (skipped ${pc:04X}, not run)")
 
     # ---------------------------------------------------------------- cycles
     def _count(self, session, regs: dict[str, int]):

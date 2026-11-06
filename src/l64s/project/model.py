@@ -93,6 +93,10 @@ class Project:
     # "size": 2048}] (see project.ldcfg)
     linker_config: str = ""
     c_areas: list[dict] = field(default_factory=list)
+    # Memory to load before debugging (and before a transcript runs), as CBM prg Studio's debugger's
+    # external files: [{"file": "data/level.bin", "address": 8192}] (no address: a .prg's own; an
+    # .ovl overlay file says where its bytes go). See overlays.py
+    debug_memory: list[dict] = field(default_factory=list)
 
     @property
     def directory(self) -> Path:
