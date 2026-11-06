@@ -130,3 +130,24 @@ def test_a_routines_first_instruction_runs_once(tmp_path):
                           str(tmp_path / "t.transcript"), "--vice-args=-sounddev dummy"],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0 and "4 checks passed, 0 failed" in out.stdout, out.stdout
+
+
+def test_the_keys_to_type():
+    from l64s.transcript import keys_of
+    assert keys_of('"50{return}"') == b"50\r"
+    assert keys_of('"aB{clear}{2 down}"') == bytes([0x41, 0xC2, 0x93, 0x11, 0x11])   # (B shifted, as in a listing)
+    with pytest.raises(TranscriptError, match="return"):
+        keys_of("50")
+    with pytest.raises(TranscriptError, match="Unknown control code"):
+        keys_of('"{nothing}"')
+
+
+@pytest.mark.skipif(not _vice_ok(), reason="set L64S_VICE_TESTS=1 (with VICE) to run VICE")
+def test_typing_more_than_the_keyboard_buffer_holds(tmp_path):
+    (tmp_path / "t.bas").write_text('10 print "{clear}";:input a$\n20 print "got ";a$\n')
+    (tmp_path / "t.transcript").write_text('run\nwait 1\ntype "abcdefghijklmnopq{return}"\nwait 0.5\n'
+                                           'check $0428 = "got abcdefghijklmnopq"\n')
+    out = subprocess.run([sys.executable, "-m", "l64s.transcript", str(tmp_path / "t.bas"),
+                          str(tmp_path / "t.transcript"), "--vice-args=-sounddev dummy"],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0 and "1 check passed, 0 failed" in out.stdout, out.stdout

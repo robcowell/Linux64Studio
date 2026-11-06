@@ -214,11 +214,65 @@ in the project folder, opens it, and copies the `tokenfile` line to paste at the
 file. CBM prg Studio's tutorial 18 (give PRINT the token `A1` and see it in the `.prg`) works as it
 describes.
 
+### BASIC extensions that come with it
+
+Linux64Studio has token files for 27 C64 BASIC extensions, so `tokenfile simons-basic` is all a
+Simons' Basic program needs. A name without a folder is looked for beside the BASIC file first, then
+among these. They come from VICE's `petcat`, which knows these extensions' keywords. Programs
+tokenized with them are byte-for-byte what `petcat -w<dialect>` makes, which
+`tests/test_basic_dialects.py` checks for every extension. `tools/gen-basic-tokens.py` makes them
+again (after a new VICE, say).
+
+Each file has BASIC V2's keywords too, ordered so the longest keyword that matches is taken, as
+`petcat` takes it: V2's `next`, not an extension's `ne`; Simons' `end proc`, not V2's `end`. A few
+extensions put BASIC somewhere other than `$0801`, so their programs are built with that load
+address (`l64bas --load-address`). Each file's first lines say so.
+
+| Extension | `tokenfile` | BASIC starts at |
+|---|---|---|
+| Basex | `basex` | $0401 |
+| Basic Lightning | `basic-lightning` | $0801 |
+| Basic on Bails | `basic-on-bails` | $0801 |
+| Basic v4.0 extension | `basic-v4-0-extension` | $0801 |
+| @Basic | `basic` | $0801 |
+| Blarg | `blarg` | $0801 |
+| Drago Basic v2.2 | `drago-basic-v2-2` | $0801 |
+| Eve Basic | `eve-basic` | $0801 |
+| Expanded Basic | `expanded-basic` | $0801 |
+| Final Cartridge III | `final-cartridge-iii` | $0801 |
+| Game Basic | `game-basic` | $0801 |
+| Graphics Basic | `graphics-basic` | $1001 |
+| Kipper Basic | `kipper-basic` | $0801 |
+| Magic Basic | `magic-basic` | $0801 |
+| Pegasus Basic v4.0 | `pegasus-basic-v4-0` | $0401 |
+| REU-Basic | `reu-basic` | $0801 |
+| Simons' Basic | `simons-basic` | $0801 |
+| Speech Basic v2.7 | `speech-basic-v2-7` | $0801 |
+| Super Basic | `super-basic` | $0801 |
+| Super Expander Chip | `super-expander-chip` | $0801 |
+| Supergrafik 64 | `supergrafik-64` | $0801 |
+| The Tool 64 | `the-tool-64` | $5B01 |
+| Ultrabasic-64 | `ultrabasic-64` | $2C01 |
+| Warsaw Basic | `warsaw-basic` | $0801 |
+| WS Basic final | `ws-basic-final` | $0801 |
+| WS Basic | `ws-basic` | $0801 |
+| Xbasic | `xbasic` | $0801 |
+
+A few keywords are left out, and each file's first lines name them. Super Expander Chip's `key` is
+`$FE00`, and a `$00` would end the line it's in. Some extensions also have keywords that are only
+symbols (Warsaw Basic's `***`), which would make `*` stop being multiply.
+
 ## Listing programs
 
 Opening a `.prg` (or *List BASIC Program…*) lists it as a new `.bas` file. Control characters
 come out as `{names}`, and repeated ones as `{3 down}`. For a machine-code program you see its
 BASIC loader, e.g. `10 sys (2064)`.
+
+A program with keywords BASIC V2 doesn't have is listed with the extension they're from, and the
+listing starts with its `tokenfile` line, so building it again gives the same program. When only one
+extension fits (Simons' Basic's `$64 xx` tokens are its own), that one is used. When several fit (most
+extensions share the tokens from `$CC`), you're asked which. `l64bas --list` does the same, with
+`--tokens simons-basic` to choose.
 
 ## BASIC and assembly together
 

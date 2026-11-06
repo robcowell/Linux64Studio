@@ -1,6 +1,14 @@
-; Guess the number: does it start, and ask for a guess?
+; Guess the number: does it start, ask for a guess, and answer it?
 run
 wait 2
 check $0400 = "guess the number"
 check $0428 = "i'm thinking of a number from 1 to 100."
 check $0450 = "your guess? "
+
+; The number is 1 to 100, so 0 is always too low and 101 too high
+type "0{return}"
+wait 0.5
+check $0478 = "higher!"            ; the 4th line of the screen
+type "101{return}"
+wait 0.5
+check $04c8 = "lower!"             ; the 6th

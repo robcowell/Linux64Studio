@@ -337,9 +337,10 @@ def link_lines(lines: list[BasicLine], start: int = 0x0801, warnings: list[Basic
 
 # ---------------------------------------------------------------------- detokenizing
 
-def detokenize(prg: bytes, has_load_address: bool = True, style: str = "standard") -> str:
+def detokenize(prg: bytes, has_load_address: bool = True, style: str = "standard", tokens=None) -> str:
     """Turn a tokenized BASIC program back into source text, writing control codes in strings and
-    REMs in `style` (codestyles.STYLES)."""
+    REMs in `style` (codestyles.STYLES). `tokens`: a BASIC extension's (tokenfile.load), whose
+    keywords are listed too."""
     if has_load_address:
         if len(prg) < 2:
             raise BasicError("File is too short to be a program")
@@ -358,7 +359,7 @@ def detokenize(prg: bytes, has_load_address: bool = True, style: str = "standard
         end = mem.find(b"\0", off + 4)
         if end == -1:
             raise BasicError(f"Line {number} has no end marker; this doesn't look like a BASIC program")
-        out_lines.append(f"{number} {list_line(mem[off + 4:end], style)}")
+        out_lines.append(f"{number} {list_line(mem[off + 4:end], style, tokens)}")
         nxt = link - start
         off = nxt if start <= link and nxt > off else end + 1
         guard += 1
@@ -367,13 +368,39 @@ def detokenize(prg: bytes, has_load_address: bool = True, style: str = "standard
     return "\n".join(out_lines) + ("\n" if out_lines else "")
 
 
-def list_line(data: bytes, style: str = "standard") -> str:
-    """LIST one crunched line."""
+def _extension_tokens(tokens) -> tuple[dict[int, str], dict[tuple[int, int], str]]:
+    """A token file's keywords by token: (one-byte, two-byte)."""
+    one: dict[int, str] = {}
+    two: dict[tuple[int, int], str] = {}
+    for t in tokens or []:
+        if len(t.value) == 1:
+            one.setdefault(t.value[0], t.keyword.lower())
+        else:
+            two.setdefault((t.value[0], t.value[1]), t.keyword.lower())
+    return one, two
+
+
+def list_line(data: bytes, style: str = "standard", tokens=None) -> str:
+    """LIST one crunched line (with a BASIC extension's `tokens` too, if given)."""
     from .codestyles import code_text
     parts = []
     in_quote = False
     in_rem = False
-    for b in data:
+    ext1, ext2 = _extension_tokens(tokens)
+    i = 0
+    while i < len(data):
+        b = data[i]
+        i += 1
+        if not in_quote and not in_rem and (ext1 or ext2):
+            if i < len(data) and (b, data[i]) in ext2:          # a two-byte token: Simons' Basic's $64 xx
+                parts.append(ext2[(b, data[i])])
+                i += 1
+                continue
+            if b in ext1:
+                parts.append(ext1[b])
+                if ext1[b] == "rem":
+                    in_rem = True
+                continue
         if b == 0x22:
             in_quote = not in_quote
             parts.append('"')

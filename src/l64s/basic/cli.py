@@ -33,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--start", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--step", type=lambda s: int(s, 0), default=10)
     ap.add_argument("--prefix", default="@", help="pBASIC's label prefix")
+    ap.add_argument("--tokens", metavar="NAME_OR_FILE",
+                    help="with --list: a BASIC extension's keywords (simons-basic, or a .tkn file). Without it, "
+                         "the extension a program's keywords fit is used, if only one does")
     ap.add_argument("--codes", choices=["standard", "bastext", "tok64"], default="standard",
                     help="how --list writes control codes")
     ap.add_argument("--preview", action="store_true", help="print the numbered BASIC a .pbas file makes")
@@ -44,7 +47,19 @@ def main(argv: list[str] | None = None) -> int:
     conv = None                       # a .pbas file's numbering, to give errors its own lines
     try:
         if a.list:
-            text = detokenize(src.read_bytes(), style=a.codes)
+            from . import tokenfile
+            data = src.read_bytes()
+            name = a.tokens
+            if name is None:
+                found = tokenfile.candidates(data)
+                name = found[0] if len(found) == 1 else None
+                if len(found) > 1:
+                    print(f"l64bas: its keywords fit several BASIC extensions ({', '.join(found)}): listed as BASIC "
+                          "V2; choose one with --tokens", file=sys.stderr)
+            tokens = tokenfile.load(tokenfile.find(name, src.parent)) if name else None
+            text = detokenize(data, style=a.codes, tokens=tokens)
+            if name:
+                text = f"tokenfile {name}\n" + text
             if a.output:
                 Path(a.output).write_text(text)
             else:

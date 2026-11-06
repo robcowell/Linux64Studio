@@ -2365,16 +2365,29 @@ class MainWindow(Adw.ApplicationWindow):
             return None
         return self.list_program_bytes(data, prg.with_suffix(".bas"), prg.name)
 
-    def list_program_bytes(self, data: bytes, dest: Path, label: str):
+    def list_program_bytes(self, data: bytes, dest: Path, label: str, dialect: str | None = None):
+        """List a tokenized BASIC program into a new tab. A program with keywords BASIC V2 doesn't have
+        is listed with the BASIC extension they're from (basic.tokenfile.candidates): the one that
+        fits, or the one chosen when several do."""
+        from ..basic import tokenfile
         from ..basic.tokenizer import BasicError, detokenize
+        if dialect is None:
+            found = tokenfile.candidates(data)
+            if len(found) > 1:
+                self._choose_dialect(found, lambda d: self.list_program_bytes(data, dest, label, d or ""))
+                return None
+            dialect = found[0] if found else ""
+        tokens = tokenfile.load(tokenfile.builtin()[dialect]) if dialect else None
         try:
-            text = detokenize(data, style=self.settings.basic_code_style)
+            text = detokenize(data, style=self.settings.basic_code_style, tokens=tokens)
         except BasicError as e:
             self.toast(f"Couldn't list {label}: {e}")
             return None
         if not text:
             self.toast(f"{label} doesn't contain a BASIC program")
             return None
+        if dialect:                              # (so building it again uses the same keywords)
+            text = f"tokenfile {dialect}\n" + text
         base = dest
         n = 1
         while dest.exists() or str(dest.resolve()) in self.pages:
@@ -2384,8 +2397,30 @@ class MainWindow(Adw.ApplicationWindow):
         self._watch_breakpoints(ed)
         ed.replace_text(text)
         self._add_page(ed)
-        self.toast(f"Listed {label}. Save to keep it as {dest.name}")
+        title = tokenfile.builtin_title(tokenfile.builtin()[dialect]) if dialect else ""
+        self.toast(f"Listed {label}" + (f", with {title}'s keywords" if title else "") +
+                   f". Save to keep it as {dest.name}")
         return ed
+
+    def _choose_dialect(self, names: list[str], done):
+        """Several BASIC extensions fit a program: which is it?"""
+        from ..basic import tokenfile
+        titles = [tokenfile.builtin_title(tokenfile.builtin()[n]) for n in names]
+        dlg = Adw.AlertDialog(heading="Which BASIC is it?", body=(
+            "The program has keywords BASIC V2 doesn't, and they fit more than one BASIC extension (they "
+            "share their tokens). Choose the one it was written for."))
+        drop = Gtk.DropDown.new_from_strings(titles + ["BASIC V2 only"])
+        dlg.set_extra_child(drop)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("list", "List")
+        dlg.set_default_response("list")
+        dlg.set_response_appearance("list", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(d, res):
+            if d.choose_finish(res) == "list":
+                i = drop.get_selected()
+                done(names[i] if i < len(names) else None)
+        dlg.choose(self, None, chosen)
 
     def renumber_dialog(self):
         ed = self.current_editor()

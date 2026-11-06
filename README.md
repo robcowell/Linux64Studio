@@ -127,7 +127,9 @@ program to sprites, testing and C. **Help → Tutorials** shows them in the IDE,
 * Automatic line numbers as you type (Return starts the next numbered line).
 * CBM prg Studio's reformatting (spaces, REMs, DATA zeros, case) and Compress/Uncompress of
   keyword abbreviations.
-* **Token files** for BASIC extensions' keywords (`tokenfile`).
+* **Token files** for BASIC extensions' keywords (`tokenfile`), with 27 C64 extensions'
+  ready made (Simons' Basic, the Final Cartridge III and more), and programs using them listed back
+  with their keywords ([BASIC extensions](docs/basic.md#basic-extensions-that-come-with-it)).
 * Renumbering that updates GOTO/GOSUB/THEN targets.
 * Listing any `.prg` back to source, with control codes in Linux64Studio's, CBM prg Studio's
   BasText or Tok64 (petcat) style (all three are read).

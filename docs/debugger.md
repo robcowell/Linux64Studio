@@ -273,6 +273,7 @@ check $d021 & $0f = 0
 | `show [<what> [count]]` (or `watch`) | Shows registers, or memory, in the results. |
 | `step [n]`, `stepover [n]` | Runs one instruction (or n), over a JSR with `stepover`. |
 | `wait <seconds>` | Lets the program run that long. |
+| `type "<text>"` | Types keys for the program to read, with `INPUT` or `GET`: listing notation, so letters unshifted, capitals shifted, and `{return}`, `{clear}`, `{f1}` and other codes. Any length (the keyboard buffer takes 10 at a time); it goes on once the program has read them all, so follow it with `wait` before checking the answer. |
 | `interrupts on` / `off` | Clears or sets the I flag: off, a call's cycles are its own, with no interrupt counted in them. |
 | `timeout <seconds>` | How long a call or `until` may take before it fails (10 s at first). |
 | `clearregs`, `resetstack`, `end`, `break` | As in CBM prg Studio. `break` stops the transcript there. `skipkernal` isn't needed, since VICE has the real KERNAL. |

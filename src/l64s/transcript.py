@@ -31,10 +31,11 @@ FLAGS = {"n": 7, "v": 6, "b": 4, "d": 3, "i": 2, "z": 1, "c": 0}
 OPS = {"=": lambda a, b: a == b, "==": lambda a, b: a == b, "<>": lambda a, b: a != b, "!=": lambda a, b: a != b,
        "<": lambda a, b: a < b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b, ">=": lambda a, b: a >= b}
 VERBS = {"run", "until", "call", "goto", "set", "fill", "check", "show", "watch", "step", "stepover",
-         "wait", "interrupts", "clearregs", "resetstack", "skipkernal", "end", "break", "timeout",
+         "wait", "type", "interrupts", "clearregs", "resetstack", "skipkernal", "end", "break", "timeout",
          *REGISTERS}
 
 READY_LOOP = range(0xE5CD, 0xE5D7)        # the KERNAL waiting for a key, at READY.
+KEYBUF, KEYCOUNT, KEYBUF_SIZE = 0x0277, 0x00C6, 10      # the KERNAL's keyboard buffer
 TRAP = 0x0000                              # where a call returns to: its RTS goes to $0000
 
 
@@ -350,6 +351,17 @@ class Runner:
             time.sleep(seconds)
             r = self._regs()
             self._say(c, None, f"ran {seconds:g} s; stopped at ${r['PC']:04X}")
+        elif verb == "type":
+            keys = keys_of(args)
+            self._settle()
+            for i in range(0, len(keys), KEYBUF_SIZE):
+                self._keys_read(f"the keys before {args}")
+                chunk = keys[i:i + KEYBUF_SIZE]
+                self._stop_vice()
+                m.write_memory(KEYBUF, chunk)
+                m.write_memory(KEYCOUNT, bytes([len(chunk)]))
+            self._keys_read(args)
+            self._say(c, None, f"typed {len(keys)} key{'s' if len(keys) != 1 else ''}")
         elif verb in ("step", "stepover"):
             n = parse_number(args) if args else 1
             self._step(n, verb == "stepover")
@@ -384,6 +396,19 @@ class Runner:
             raise Stop("")
         elif verb == "break":
             raise Stop("break: the transcript stops here")
+
+    def _keys_read(self, what: str):
+        """Let the program run until it has read every key in the keyboard buffer."""
+        deadline = time.monotonic() + self.timeout
+        while True:
+            self._stop_vice()
+            if self.monitor.read_memory(KEYCOUNT, KEYCOUNT)[0] == 0:
+                return
+            if time.monotonic() > deadline:
+                raise TranscriptError(f"The program didn't read {what} in {self.timeout:g} s (is it waiting "
+                                      "for a key, with INPUT or GET?)")
+            self._resume()
+            time.sleep(0.05)
 
     def _value_of(self, subject: str) -> tuple[str, int | bytes]:
         """What a check or show looks at: a register, a flag, cycles, word <address>, or memory."""
@@ -473,10 +498,39 @@ TEMPLATE = """; {name}: a transcript. Run it with Debugger > Run Transcript: VIC
 ;   check a = $20            check a register, flag (c, z, n, v), cycles (the last call's),
 ;   check <address> = <bytes>    memory, or word <address>; & masks bits: check $d020 & $0f = 0
 ;   show <address> [count]   show memory (or a register) in the results
+;   type "50{{return}}"       type keys for the program to read (INPUT, GET): then wait for its answer
 ;   wait <seconds>  step [n]  until <label>  goto <label>  interrupts on|off  timeout <seconds>
 
 run until start
 """
+
+
+def keys_of(args: str) -> bytes:
+    """The keys of a type command: "text" in listing notation, letters unshifted and capitals shifted
+    (as in a BASIC listing's strings), with {codes}: {return}, {clear}, {down}, {f1}, {$0d}..."""
+    from .basic.petscii import ControlCodeError, char_to_petscii, parse_control
+    m = re.fullmatch(r'"(.*)"', args.strip())
+    if not m:
+        raise TranscriptError('type "text", with {return} for Return: type "50{return}"')
+    out = bytearray()
+    text = m.group(1)
+    i = 0
+    try:
+        while i < len(text):
+            if text[i] == "{":
+                end = text.find("}", i)
+                if end < 0:
+                    raise TranscriptError("A { without its }")
+                out += bytes(parse_control(text[i + 1:end]))
+                i = end + 1
+            else:
+                out.append(char_to_petscii(text[i], True))
+                i += 1
+    except ControlCodeError as e:
+        raise TranscriptError(str(e)) from None
+    if not out:
+        raise TranscriptError("Nothing to type")
+    return bytes(out)
 
 
 def summary(runner: Runner, message: str = "") -> str:

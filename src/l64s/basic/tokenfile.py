@@ -49,8 +49,11 @@ def parse(text: str, name: str = "") -> list[Token]:
         if not re.fullmatch(r"[0-9A-Fa-f]{2}|[0-9A-Fa-f]{4}", val):
             raise BasicError(f"{name or 'token file'} line {n}: {parts[1]!r} isn't a token in hex (80-FF)", n, name)
         value = bytes.fromhex(val)
-        if value[0] < 0x80:
-            raise BasicError(f"{name or 'token file'} line {n}: a token is $80 or more, not ${val}", n, name)
+        if (len(value) == 1 and value[0] < 0x80) or value[0] == 0 or 0 in value:
+            # (a two-byte token may start lower: Simons' Basic's are $64 xx; none may hold a $00, which
+            # would end its line)
+            raise BasicError(f"{name or 'token file'} line {n}: a token is $80 or more (or two bytes, neither "
+                             f"$00), not ${val}", n, name)
         if kw.lower() in seen:
             raise BasicError(f"{name or 'token file'} line {n}: {kw} is in the file twice", n, name)
         seen.add(kw.lower())
@@ -65,11 +68,103 @@ def load(path: Path) -> list[Token]:
         raise BasicError(f"Can't read the token file {Path(path).name}: {e.strerror}") from None
 
 
+BUILTIN = Path(__file__).resolve().parent.parent / "data" / "tokens"
+
+
+def builtin() -> dict[str, Path]:
+    """The token files Linux64Studio comes with, one for each C64 BASIC extension VICE's petcat knows
+    (tools/gen-basic-tokens.py made them): {name: path}, simons-basic say."""
+    return {p.stem: p for p in sorted(BUILTIN.glob("*.tkn"))}
+
+
+def builtin_title(path: Path) -> str:
+    """A shipped file's extension's name, from its first line ("Simons' Basic")."""
+    try:
+        first = path.read_text(errors="replace").splitlines()[0]
+    except (OSError, IndexError):
+        return path.stem
+    return first.lstrip("# ").split(" (C64)")[0]
+
+
 def find(name: str, folder: Path) -> Path:
+    """The token file a `tokenfile` line names: in the BASIC file's folder, else one Linux64Studio
+    comes with (tokenfile simons-basic)."""
     p = Path(name).expanduser()
     if not p.suffix:
         p = p.with_suffix(".tkn")
-    return p if p.is_absolute() else Path(folder) / p
+    found = p if p.is_absolute() else Path(folder) / p
+    if not found.exists() and not p.is_absolute() and (BUILTIN / p.name).exists():
+        return BUILTIN / p.name
+    return found
+
+
+def candidates(prg: bytes) -> list[str]:
+    """The shipped BASIC extensions whose keywords account for every byte of a tokenized program
+    that BASIC V2 can't list (outside strings and REMs). Empty if V2 lists it all, or none fits.
+    Several often fit: most extensions put their tokens at $CC on."""
+    from .tokenizer import BasicError, _extension_tokens
+    lines = _program_lines(prg)
+    if lines is None or not any(_unknown(line, {}, {}) for line in lines):
+        return []
+    out = []
+    for name, path in builtin().items():
+        try:
+            one, two = _extension_tokens(load(path))
+        except BasicError:
+            continue
+        if sum(_unknown(line, one, two) for line in lines) == 0:
+            out.append(name)
+    return out
+
+
+def guess(prg: bytes) -> str | None:
+    """The one shipped BASIC extension a program fits (candidates), or None if none or several do."""
+    found = candidates(prg)
+    return found[0] if len(found) == 1 else None
+
+
+def _program_lines(prg: bytes) -> list[bytes] | None:
+    if len(prg) < 4:
+        return None
+    start, mem = prg[0] | prg[1] << 8, prg[2:]
+    out, off = [], 0
+    while off + 4 <= len(mem) and len(out) < 10000:
+        link = mem[off] | mem[off + 1] << 8
+        if link == 0:
+            break
+        end = mem.find(b"\0", off + 4)
+        if end < 0:
+            return None
+        out.append(mem[off + 4:end])
+        nxt = link - start
+        off = nxt if nxt > off else end + 1
+    return out
+
+
+def _unknown(line: bytes, one: dict, two: dict) -> int:
+    """Bytes in a crunched line that neither BASIC V2 nor the extension's tokens account for."""
+    n, i, in_quote, in_rem = 0, 0, False, False
+    while i < len(line):
+        b = line[i]
+        i += 1
+        if b == 0x22:
+            in_quote = not in_quote
+            continue
+        if in_quote or in_rem:
+            continue
+        if i < len(line) and (b, line[i]) in two:
+            i += 1
+            continue
+        if b in one:
+            in_rem = one[b] == "rem"
+            continue
+        if b == 0x8F:                              # REM
+            in_rem = True
+        elif 0x80 <= b <= 0xCB or b == 0xFF or 0x20 <= b <= 0x5F:
+            continue
+        else:
+            n += 1
+    return n
 
 
 def table(tokens: list[Token]) -> list[tuple[bytes, int | bytes, str]]:
