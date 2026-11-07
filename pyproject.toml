@@ -1,6 +1,6 @@
 [project]
 name = "linux64studio"
-version = "0.3.0"
+version = "0.4.0"
 description = "A GTK4 C64 development IDE for Linux, compatible with CBM prg Studio's assembler syntax"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
