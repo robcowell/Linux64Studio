@@ -85,8 +85,9 @@ def _resolve(path: str, base: Path | None) -> str | None:
     return path
 
 
-def parse(path: str | Path, base: Path | None = None) -> DebugInfo:
-    """Read a .dbg file. `base` is where to look for sources whose paths aren't found as they are."""
+def parse(path: str | Path, base: Path | None = None, original: dict[str, str] | None = None) -> DebugInfo:
+    """Read a .dbg file. `base` is where to look for sources whose paths aren't found as they are;
+    `original`, the files built from copies (project.kickpaths), by each copy's path."""
     try:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError) as e:
@@ -99,7 +100,8 @@ def parse(path: str | Path, base: Path | None = None) -> DebugInfo:
                 continue
             idx, _, name = line.partition(",")
             try:
-                sources[int(idx)] = _resolve(name.strip(), base)
+                found = _resolve(name.strip(), base)
+                sources[int(idx)] = original.get(found, found) if original and found else found
             except ValueError:
                 continue
     entries: list[Entry] = []

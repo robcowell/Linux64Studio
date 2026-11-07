@@ -567,6 +567,13 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
     main = Path(only_file) if only_file else project.directory / project.main_file
     out_dir = (project.directory / project.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    lib_dirs = [(project.directory / lib).resolve() for lib in project.lib_dirs]
+    # Sources written on Windows (..\Content\x.bin, Library for library): built from a copy with
+    # the paths as the files are called (project.kickpaths), its errors and lines mapped back
+    from .kickpaths import shadow
+    copy = shadow(main, lib_dirs, out_dir / ".kick-src")
+    if copy is not None:
+        main = copy.main
     # -odir relative to the main file's folder: Kick Assembler 4 adds even an absolute path to that
     # folder (writing to <source dir>/home/...); Kick Assembler 5 takes either
     odir = os.path.relpath(out_dir, main.resolve().parent)
@@ -574,8 +581,8 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
     version = kickass_version(java, jar)
     if version is None or version >= (5, 0):
         cmd.append("-debugdump")            # source lines for the debugger (Kick Assembler 5 and later)
-    for lib in project.lib_dirs:
-        cmd += ["-libdir", str((project.directory / lib).resolve())]
+    for lib in lib_dirs:
+        cmd += ["-libdir", str(lib)]
     prg_name = main.with_suffix(".prg").name
     if project.executable and not only_file and Path(project.executable).name != prg_name:
         prg_name = Path(project.executable).name
@@ -599,8 +606,10 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
         if m and diags and diags[-1].loc is None:
             f = Path(m.group(3))
             if not f.is_absolute():
-                f = (project.directory / f).resolve()
-            diags[-1] = Diagnostic("error", diags[-1].message, SourceLoc(str(f), int(m.group(1))))
+                f = next((d / f for d in (main.parent, project.directory) if (d / f).is_file()),
+                         project.directory / f).resolve()
+            where = copy.map(str(f)) if copy is not None else str(f)
+            diags[-1] = Diagnostic("error", diags[-1].message, SourceLoc(where, int(m.group(1))))
     # Where the files went, as Kick Assembler reports them (its versions put them in different
     # places), else where they should be
     written = _written(proc.stdout + proc.stderr, [project.directory, out_dir, main.resolve().parent])
@@ -618,7 +627,7 @@ def _build_kickass(project: Project, jar: str, java: str, only_file) -> BuildRes
         # -debugdump: which line made which bytes, for source-level debugging and the memory tools
         from ..kickdbg import DebugDumpError, parse, source_map
         try:
-            res.kick_debug = parse(dbg, project.directory)
+            res.kick_debug = parse(dbg, project.directory, copy.original if copy is not None else None)
             res.srcmap = source_map(res.kick_debug)
         except DebugDumpError as e:
             res.log += f"\n{e}"

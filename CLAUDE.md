@@ -51,7 +51,8 @@ only package that imports GTK. Put logic in a model module with tests, and keep 
   Code + Kick Assembler `.code-workspace` (Vol 2). `build.py` (`build_project`) assembles the
   **build list in order** (as CBM does), merges BASIC at `$0801`, packs GoatTracker music, and
   writes `.prg` plus optional disk image / cartridge; `BuildResult.run_target` is what VICE runs.
-  Kick Assembler is an external tool (`toolchain == TOOLCHAIN_KICKASS`), and so is cc65 for C
+  Kick Assembler is an external tool (`toolchain == TOOLCHAIN_KICKASS`; sources with Windows import
+  paths, as the books' are, build from a fixed copy made by `kickpaths.py`), and so is cc65 for C
   (`TOOLCHAIN_CC65`: `project/cc65.py` builds with `cl65`, `cc65dbg.py` reads ld65's `--dbgfile`).
 - `emu/`: VICE integration. `vice.py` launches `x64sc`; `binmon.py` is a client for VICE's binary
   monitor protocol (TCP, API v2). `sim.py` is Debug Without VICE: py65's 6510 with the C64's memory

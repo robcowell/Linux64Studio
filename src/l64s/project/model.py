@@ -134,6 +134,7 @@ class Project:
 
     def referenced_dirs(self) -> list[Path]:
         """Folders that the project's sources import files from (e.g. Vol 2's ../../Content)."""
+        from .kickpaths import find
         dirs: list[Path] = []
         roots = [self.directory] + [(self.directory / d).resolve() for d in self.lib_dirs]
         for root in roots:
@@ -145,7 +146,7 @@ class Project:
                 except OSError:
                     continue
                 for m in _IMPORT_RE.finditer(text):
-                    target = (src.parent / m.group(1).replace("\\", "/")).resolve()
+                    target = find(m.group(1), [src.parent]) or (src.parent / m.group(1).replace("\\", "/")).resolve()
                     d = target.parent
                     if d.is_dir() and d not in dirs and not any(d == r or r in d.parents for r in roots):
                         dirs.append(d)

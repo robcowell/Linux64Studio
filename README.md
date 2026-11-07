@@ -18,6 +18,10 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
   identical to the book's `.prg` files ([dialect](docs/dialect.md)).
 * **Projects**: opens CBM prg Studio `.cbmprj` files directly and builds them in the same order.
   It also opens VS Code + Kick Assembler workspaces (Vol 2) and its own `.l64proj` files.
+* **Kick Assembler sources written on Windows** build as they are: imports with `\` in their
+  paths, or a folder's name in another case (`Library` for `library`), are built from a copy with
+  the paths fixed, and errors and the debugger point at the real files. Vol 1's Kick Assembler
+  chapters build byte-for-byte identical to the book's `.prg` files, and all of Vol 2's build.
 * **Several programs** in one project, sharing its files and built together onto one disk image
   ([several programs](docs/dialect.md#several-programs-in-one-project)).
 * **Build events** run before and after a build (to crunch with exomizer, say), as in CBM prg
@@ -326,6 +330,11 @@ Assembler. Or run `tools/install-kickassembler.sh`, which downloads the latest K
 Kick Assembler 5 builds get source-level debugging
 ([Kick Assembler projects](docs/debugger.md#kick-assembler-projects)).
 
+The book's sources were written on Windows, and some imports say `..\..\Content\X.bin` or
+`../../Library` where the folder is `library`. Linux can't open those, so when a build needs it,
+Linux64Studio builds from a copy in the output folder's `.kick-src` with each path as the file is
+really called. The book's files aren't changed, and errors and the debugger show the originals.
+
 The `Chapters/Content` folder appears in the project's file list, because the code imports from
 it. Open `BeachBarSprites*.spd` in the sprite editor, or `BeachBarScreens.ctm` in the CharPad
 editor (it has Characters and Map pages). When you save, the `.bin` files the chapters import are
@@ -342,7 +351,7 @@ save.
 
 ```sh
 unzip c64edition-main.zip -d tests/book       # the book downloads (optional): Vol 1 sources
-unzip c64editionvol2-main.zip -d tests/book   # and Vol 2's SpritePad/CharPad files
+unzip c64editionvol2-main.zip -d tests/book   # and Vol 2's chapters (built with Kick Assembler)
 .venv/bin/python -m pytest
 ```
 
