@@ -4,12 +4,23 @@ The sprite, character set and screen editors read and write CBM prg Studio's `.s
 and `.sdd` files, SpritePad `.spd` and CharPad `.ctm` projects. The file formats are described
 in [dialect.md](dialect.md#graphics-files).
 
+The sprite editor, the character set editor and the screen designer, with the graphics of a
+Calvin & Hobbes game:
+
+![The sprite editor](img/graphics-sprite-editor.png)
+
+![The character set editor](img/graphics-charset-editor.png)
+
+![The screen designer](img/graphics-screen-designer.png)
+
 ## Sprite Morph
 
 The **Morph…** button in the sprite editor's toolbar (the shuffle icon) makes the frames that
 turn one sprite into another, as CBM prg Studio's Sprite Morph Tool does. As its help says, it's
 more like a dissolve: the pixels that differ between the two sprites switch from the first
 sprite's value to the second's, a few more on each frame.
+
+![Sprite Morph](img/graphics-morph.png)
 
 * **Start sprite** and **End sprite**: the start is the sprite you're editing, and the end is
   the one after it, to begin with.
@@ -37,6 +48,8 @@ function's frames switch the right number of pixels, that only differing pixels 
 orders, and multicolour.
 
 ## Sprite Explosion Generator
+
+![The Explosion Generator](img/graphics-explosion.png)
 
 The **Explosion Generator…** button in the sprite editor's toolbar (the storm icon) makes the
 frames of an explosion, as CBM prg Studio's tool does. Choose a type:
@@ -87,6 +100,8 @@ sprite sheet from another editor, a screenshot, a drawing. The image is shown wi
 cells it will be cut into (blue for those imported), and the sprites below it, before anything
 is added.
 
+![Importing sprites from an image](img/graphics-import-image.png)
+
 * **Layout:** pixels to skip at the left and top, the gap between sprites (a sheet's grid lines
   or spacing), and *image pixels per pixel* for an image saved zoomed in (2 if each sprite pixel
   is 2×2). Take all the sprites that fit or a number of them, row by row or column by column, and
@@ -110,6 +125,8 @@ The **Scratch Pad…** button in the sprite editor's toolbar (the grid icon) ope
 sprite scratch pad: a grid for putting sprites side by side, to see a graphic made of several of
 them, or on top of each other, to see layers.
 
+![The sprite scratch pad](img/graphics-sprite-scratchpad.png)
+
 * Click a sprite on the right, then click cells to put it there (as often as you like), or drag
   a sprite onto a cell.
 * Right click (or Esc) to select instead: click a cell to list its sprites, the last drawn on
@@ -129,6 +146,8 @@ The **Import from Listing…** button in the character and sprite editors' toolb
 characters or sprites out of a source file, as CBM prg Studio's Import → From Listing does: the
 BASIC DATA or the assembler byte lines of a program that defines its own graphics.
 
+![Importing sprites from a listing](img/graphics-import-listing.png)
+
 * **Source**: any open source file (the one you last worked on comes first), or a file from disk.
 * **Start at**: each place with data, a BASIC line number or an assembler label, with how many
   bytes and characters follow. **Find Character Data** picks the first with a whole character.
@@ -146,6 +165,8 @@ when the data is padded to 64 (as `.spr` exports and SpritePad's are). One Ctrl+
 character import.
 
 ## Import characters or sprites from memory or a file
+
+![Importing sprites from a file](img/graphics-import-memory.png)
 
 The **Import from Memory or a File…** button (the drive icon) in the character and sprite editors
 is CBM prg Studio's Import → From Memory and From File. It reads them from:
@@ -168,6 +189,8 @@ or at a gap in the build's.
 The **Scratch Pad…** button in the character editor's toolbar (the grid icon) opens CBM prg
 Studio's character scratch pad: a grid for designing graphics made of several characters. It
 shows the characters as they're drawn in the editor.
+
+![The character scratch pad](img/graphics-char-scratchpad.png)
 
 * Paint the character selected in the editor with the left button; the right button clears
   cells. Characters can also be dragged in from the editor's character set, or put on in order
@@ -193,6 +216,8 @@ empty cells of the pad leave the screen as it is.
 The **Animation…** button in the character editor's toolbar (the play icon) opens CBM prg Studio's
 animation preview: it plays a run of characters as an animation.
 
+![The character animation preview](img/graphics-char-animation.png)
+
 * Give the first and last characters: type them, press **Selected** to use the editor's
   character, or drop a character from the editor's set onto the box. The last can be before the
   first, to play backwards.
@@ -208,6 +233,8 @@ animation preview: it plays a run of characters as an animation.
 A path is a line of points on a screen that describes how something moves round it (an enemy
 along a platform, say), turned into data for the code to follow, as in CBM prg Studio. Each
 screen has one, saved in the `.sdd` file.
+
+![A path on a screen](img/graphics-screen-path.png)
 
 * With the **path** tool (the pin icon), click to add a point at the end, drag a point to move
   it, and right-click one to delete it or add a point after it (halfway to the next). The first
@@ -235,6 +262,8 @@ The **digitiser** button in the screen editor's toolbar (the target icon, next t
 gives the sprite coordinates of points on the screen, as CBM prg Studio's Digitiser does. Use it
 to plan where sprites go: start positions, paths, and where things are on a level.
 
+![The digitiser](img/graphics-digitiser.png)
+
 Move the mouse over the screen to see the coordinates, and click to add them to **Points**. While
 the digitiser is on, clicking doesn't draw. **Clear** empties the list, and **Copy All** copies
 it. The coordinates are worked out like this:
@@ -258,6 +287,10 @@ Calculator's sprite coordinates.
 
 A CharPad project (`.ctm`) that uses tiles opens with a **Map** page for editing the tile map.
 
+![A CharPad project's Map page](img/graphics-charpad-map.png)
+
+![Its Characters page](img/graphics-charpad-chars.png)
+
 * **Draw** paints the chosen tile. Right-click paints tile 0, and Ctrl+click picks up the tile
   under the pointer. **Rectangle** fills an area, and **Pick** chooses the tile under the
   pointer. Ctrl+Z and Ctrl+Shift+Z undo and redo every change, tile edits included.
@@ -271,6 +304,8 @@ A CharPad project (`.ctm`) that uses tiles opens with a **Map** page for editing
   byte, which games use for collision. Name the materials (solid, platform, ladder and so on)
   in the list below the characters. The names show here and on the Characters page, which has a
   **Material** control for each character beside its colour.
+
+![The map with its materials shown](img/graphics-charpad-materials.png)
 
 The room size and material names are kept in the Linux64Studio project (`charpad_views`).
 

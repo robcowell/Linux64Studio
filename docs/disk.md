@@ -33,6 +33,8 @@ Disk images open in a directory view, the way `LOAD"$",8` shows it. You can add 
 drag them in), extract them, delete them, change the disk name and ID, list a program as BASIC
 (double-click it), and run the disk in VICE. Ctrl+S saves the image.
 
+![A disk image open in the IDE](img/disk-directory.png)
+
 ## Command line
 
 ```sh

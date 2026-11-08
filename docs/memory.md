@@ -2,6 +2,8 @@
 
 **Debugger → Memory Viewer** shows where everything is in the C64's 64K.
 
+![The Memory Viewer](img/memory-viewer.png)
+
 ## The map
 
 The square on the left is all of memory: one pixel per byte, 256 bytes (a page) per row,
@@ -104,6 +106,8 @@ Studio's help.
 **Tools → Memory Manager** plans what the VIC-II sees, which is the part of C64 memory
 that most often goes wrong: a character set that won't show, or sprites that come out as garbage.
 
+![The Memory Manager](img/memory-manager.png)
+
 ## Choosing a layout
 
 * **VIC-II bank**: the 16K the VIC-II reads from (`$DD00` bits 0-1).
@@ -144,6 +148,8 @@ These were checked against VICE: reading chapter 17 gives bank 0, screen `$0400`
 describes (`tests/test_vicmem.py`, with `L64S_VICE_TESTS=1`).
 
 # Screen Calculator
+
+![The Screen Calculator](img/memory-screen-calculator.png)
 
 **Tools → Screen Calculator** works out where a character cell is in memory, as CBM prg Studio's
 tool does. Click a cell on the 40×25 screen, or type its row (0-24) and column (0-39). The

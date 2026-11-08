@@ -3,6 +3,8 @@
 `.bas` files are Commodore 64 BASIC V2 source. Build them like any other project file:
 Ctrl+F5 builds the project and runs it, F5 builds and runs just the current file.
 
+![A BASIC program in the editor](img/basic-editor.png)
+
 ## Source format
 
 ```
@@ -285,6 +287,8 @@ For example, `10 sys 49152` in `main.bas` with `*=$c000` code in `code.asm`.
 **Tools → Screen Code Builder** builds the strings that are awkward to type: colour
 changes, cursor moves, reverse video, and the graphics on the Commodore and SHIFT keys.
 
+![The Screen Code Builder](img/basic-screen-code-builder.png)
+
 * Type text, or use one of the three tabs, as in CBM prg Studio:
   * **Virtual Keyboard**: a C64 keyboard to click. Each key types what it would on a C64 (the
     KERNAL's own decode tables): its face shows the Commodore and SHIFT graphics, and on 1–8 the
@@ -327,6 +331,8 @@ Machine Code. Machine Code snippets are assembler; all the others are BASIC. Sea
 description, code or type. Double-click a snippet, or press **Insert into Editor**, to insert it
 into the last source file you used. **Copy** puts it on the clipboard.
 
+![Code Snippets](img/basic-snippets.png)
+
 BASIC snippets are written without line numbers. They're numbered from **Start line** in steps
 of **Step**; **After the program** starts after the last line of the BASIC file you're inserting
 into. Snippets can use labels: start a line with `!1` to `!9`, and write `!n` after GOTO,
@@ -359,6 +365,8 @@ a bitmap, and the raster interrupt.
 
 ## SYS() call generator
 
+![The SYS() call generator](img/basic-sys-call.png)
+
 **Tools → SYS() Call Generator** writes the one-line BASIC program that starts a machine code
 program when you RUN it, as `byte` lines for the top of an assembler source. This is the same
 thing the book's chapters start with (`10 SYS (2064)`). It has three styles, as in CBM prg Studio:
@@ -387,6 +395,8 @@ that the machine code ran. They also LIST the obfuscated line and check the scre
 the message.
 
 ## String Formatter
+
+![The String Formatter](img/basic-string-formatter.png)
 
 **Tools → String Formatter** splits a long string into lines of a set length, as in CBM prg Studio.
 Type or paste the text into **Source**; the character count is how long it is on the C64 (a
@@ -421,6 +431,8 @@ BASIC program PRINTs the string, and the PETSCII text is printed with CHROUT, an
 shows the message exactly.
 
 ## Statistics
+
+![BASIC statistics](img/basic-statistics.png)
 
 **Tools → BASIC → Statistics** breaks down the BASIC file you're editing, as CBM prg Studio's tool
 does. At the top: how many lines it has, where it sits in memory, its size, and how much of

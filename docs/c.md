@@ -187,6 +187,8 @@ debugger does, not the next instruction:
 
 ## In the editor
 
+![C source in the editor](img/c-editor.png)
+
 `.c` and `.h` files have C syntax highlighting, and the editor knows the program's C:
 
 * **Auto-complete** offers the parameters and locals of the function you're in, then the program's

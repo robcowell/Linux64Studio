@@ -4,6 +4,8 @@ In **Project Properties → Cartridge**, switch on *Write a cartridge* and pick 
 whole-project build then writes a `.crt` next to the `.prg`. With *Run with the cartridge
 plugged in*, Ctrl+F5 and debugging start VICE with the cartridge attached (`-cartcrt`).
 
+![A cartridge open in the IDE](img/cartridge-view.png)
+
 **New → Project → Cartridge, 8K** makes a project with a working 8K cartridge to start from.
 
 ## Types

@@ -3,6 +3,8 @@
 **Tools → Binary Import/Export**, or **Import as Source** when you open a `.bin` from
 the sidebar.
 
+![Binary Import/Export](img/binary-tool.png)
+
 ## Import
 
 Choose a file. A `.prg` says where it loads. For other files, give a **Load address**
@@ -55,6 +57,8 @@ BASIC loader in VICE and checks that it `POKE`s the right bytes into memory.
 Where Binary Import turns a whole file into source in one go, the Disassembler is for working
 through a program and improving the result as you go.
 
+![The Disassembler](img/binary-disassembler.png)
+
 ## Sources
 
 * **File**: any `.prg`, or another file with a load address (`C000` by default).
@@ -105,6 +109,8 @@ choose where x starts and ends (both are included) and its step (a whole number)
 shows the values with the origin at the top left and y growing downwards, like screen
 coordinates, as CBM prg Studio's preview does. The source underneath updates as you type.
 
+![The Data Generator](img/binary-data-generator.png)
+
 The function can use `x`, `+ - * / ^` (power), brackets, `pi`, `sin cos tan atn` (in radians),
 `exp log sqr abs int sgn min max`. Names are case-insensitive, so the BASIC way of writing it,
 `INT(100+99*SIN(X/20))`, works. The list button has some examples. It must use x.
@@ -136,6 +142,8 @@ prg Studio: instruction counts, addressing modes and estimated cycle times. Choo
 analyse: **the project** (its build list), **the current file**, or **the selected lines**. Or
 right-click in the editor and choose **Analyse…**, which analyses the selected lines if there
 are any, and otherwise the whole file.
+
+![The Source Analyser](img/binary-analyser.png)
 
 For CBM prg Studio syntax the code is assembled first, in memory and with any unsaved changes.
 So the addressing modes are the real ones: zero page or absolute, once every label's value is

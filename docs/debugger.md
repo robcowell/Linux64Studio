@@ -29,6 +29,8 @@ Studio's Breakpoints window does: in open files and closed ones, each with its f
 line's text and, after a build, the address it stops at. A breakpoint on a comment or label line
 stops at the first instruction after it.
 
+![The Breakpoints list](img/debugger-breakpoints.png)
+
 * The tick switches a breakpoint on or off. One that's off stays where it is (a hollow circle in the
   margin, its line greyed) but doesn't stop the program, so it's easy to bring back. **All On** and
   **All Off** switch every one.
@@ -161,6 +163,8 @@ above works the same: breakpoints and their conditions, stepping by line or inst
 editing registers and memory, Skip Instruction and memory before debugging. There's no VICE window:
 the Debugger tab has a **Screen** beside **Memory**, which draws the screen from memory, and it's
 redrawn while the program runs.
+
+![Debugging on the simulator, with the game's title screen](img/debugger-simulator.png)
 
 What's simulated is the 6510 (from [py65](https://github.com/mnaberez/py65)) and the C64's memory.
 The memory has the real BASIC, KERNAL and character ROMs, from VICE's install, banked in and out by
@@ -298,6 +302,8 @@ into the simulator as its RAM, registers and processor port, with the I/O area a
 
 ## Profiler
 
+![The profiler's routines](tutorials/img/9-profiler-routines.png)
+
 **Debugger → Profile in VICE** builds the project, runs it in VICE, and measures where the 6510's
 time goes, while the program runs at its real speed. Play the game as it's measured: what you're
 doing is what's measured. The **Profiler** tab fills as it goes:
@@ -385,6 +391,8 @@ A transcript is a script of commands that sets up the machine, runs the program'
 checks what they did: a repeatable test. CBM prg Studio's debugger has them for its own 6510
 simulator. Linux64Studio runs them in VICE, so a routine that touches the VIC-II, SID or CIAs can be
 tested too. Its commands work here as they're written there.
+
+![A transcript's results](tutorials/img/4-transcripts-results.png)
 
 **File → New → Transcript (tests)…** makes a `.transcript` file with the commands listed at its top.
 **Debugger → Run Transcript** (or right-click in it → **Run Transcript**) builds the project and

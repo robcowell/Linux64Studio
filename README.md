@@ -3,6 +3,8 @@
 A Commodore 64 development environment for Linux (GTK4/libadwaita), modelled on CBM prg Studio.
 It was built so the *Retro Game Dev C64 Edition* books by Derek Morris can be followed on Linux.
 
+![Linux64Studio with a Kick Assembler project open](docs/img/ide-main.png)
+
 New to it? Start with the [tutorials](docs/tutorials/README.md): fifteen short ones, from a first BASIC
 program to sprites, testing, C, screens, music, disks, the profiler, debugging without VICE, raster
 interrupts, scrolling, the joystick, sound effects and Kick Assembler.
@@ -127,6 +129,10 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
 * **CharPad tile maps** can be painted and their tiles edited, with a room grid and a materials
   view. **Import CharPad Binaries** turns a game's char/attribute/tile/map files into an editable
   project that writes them back ([CharPad tile maps](docs/graphics.md#charpad-tile-maps)).
+
+![The sprite editor](docs/img/graphics-sprite-editor.png)
+
+![A CharPad map](docs/img/graphics-charpad-map.png)
 
 ### BASIC V2
 

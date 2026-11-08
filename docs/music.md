@@ -10,6 +10,8 @@ runs their command-line tools (`gt2reloc`, `ins2snd2`) and opens their editors (
 
 ## SID files (.sid)
 
+![A SID file's page](img/music-sid.png)
+
 Opening a `.sid` shows its header: name, author, memory range, init and play addresses, tunes,
 PAL/NTSC and SID model. You can play any tune in `vsid`, or extract the music as `.bin` (to
 `incbin` at the load address) or `.prg`. The page also shows the code to include and play it:
@@ -32,6 +34,8 @@ In Kick Assembler projects (Retro Game Dev Vol 2) it shows the book's way instea
 Opening a `.sng` shows the song, with **Edit in SidMonkey** and **Edit in GoatTracker** (the
 song opens in that program; save there) and **Play** (packed with your settings, then played
 in `vsid`).
+
+![A GoatTracker song's page](img/music-song.png)
 
 Switch on **Pack on every build** and every build first runs `gt2reloc`, so the code can
 include the result. The settings are kept in the project:
@@ -106,6 +110,8 @@ the file on the build list. Use it from C with `extern const unsigned char gun[]
 ## SID Designer
 
 **Tools → Music → SID Designer** opens CBM prg Studio's SID tool, in two tabs.
+
+![The SID Designer](img/music-sid-designer.png)
 
 **Voices & Filter**: each of the three voices has a note and octave (shown as Hz and as the
 frequency register value), waveforms (triangle, sawtooth, pulse, noise), ring modulation, sync,
