@@ -29,6 +29,12 @@ def fitted(normal: float, total: int, factor: float, most: float = 0.4) -> int:
     return round(min(normal * factor, max(normal, total * most)))
 
 
+def restored(size: int, total: int) -> int:
+    """A collapsed panel's size when it comes back: the size it had, unless the window has shrunk so
+    much since that the editor beside it would have less than a fifth of the ``total`` space."""
+    return min(size, round(total * 0.8))
+
+
 class Panel:
     """A panel that follows the text size. It remembers its size at normal text, so zooming in and
     back puts it where it was even if its limit was reached on the way; dragging it starts afresh."""

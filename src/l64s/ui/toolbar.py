@@ -59,8 +59,12 @@ def _light_dark_button() -> Gtk.Button:
 # What goes when the window is narrow (see MainWindow: Adw breakpoints): the tools first, then the
 # debugger and editing buttons, then the ones at the right. Files and building always stay.
 GROUP_NAMES = ("files", "edit", "build", "debug", "tools")
-NARROW_STAGES = ((1300, ("tools",)), (1100, ("tools", "debug", "edit")), (720, ("tools", "debug", "edit", "right")))
-RIGHT = (("Light or Dark Mode", "app.toggle-dark"), ("Preferences", "app.preferences"),
+NARROW_STAGES = ((1430, ("tools",)), (1275, ("tools", "debug", "edit")), (850, ("tools", "debug", "edit", "right")))
+# the toggles for the window's panels: pressed in while the panel is open
+PANELS = (("l64s-panel-left-symbolic", "File Tree", "Ctrl+B", "win.file-tree"),
+          ("l64s-panel-bottom-symbolic", "Bottom Panel", "Ctrl+J", "win.bottom-panel"),
+          ("l64s-panel-right-symbolic", "Project Information", "Ctrl+Alt+B", "win.project-info"))
+RIGHT = tuple((label, action) for _icon, label, _keys, action in PANELS) + (("Light or Dark Mode", "app.toggle-dark"), ("Preferences", "app.preferences"),
          ("Keyboard Shortcuts", "app.shortcuts"))
 
 
@@ -107,6 +111,10 @@ class Toolbar(Gtk.Box):
                                        tooltip_text="More (the buttons that don't fit)")
         self.append(self.overflow)
         right = Gtk.Box(spacing=2)
+        for icon, label, keys, action in PANELS:
+            right.append(Gtk.ToggleButton(icon_name=icon, tooltip_text=f"{label} ({keys})", action_name=action,
+                                          focus_on_click=False))
+        right.append(_sep())
         right.append(_light_dark_button())
         right.append(Gtk.Button(icon_name="preferences-system-symbolic", tooltip_text="Preferences (Ctrl+,)",
                                 action_name="app.preferences", focus_on_click=False))

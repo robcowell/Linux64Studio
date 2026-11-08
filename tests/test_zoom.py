@@ -4,6 +4,19 @@ from l64s import zoom
 from l64s.settings import Settings
 
 
+def test_a_collapsed_panel_comes_back_at_its_size():
+    assert zoom.restored(300, 1280) == 300
+
+
+def test_a_collapsed_panel_leaves_the_editor_room_if_the_window_shrank():
+    assert zoom.restored(700, 800) == 640
+
+
+def test_the_panels_are_open_by_default():
+    settings = Settings()
+    assert settings.show_file_tree and settings.show_project_info and settings.show_bottom_panel
+
+
 def test_larger_and_smaller_walk_the_steps():
     assert zoom.larger(100) == 110
     assert zoom.smaller(100) == 90

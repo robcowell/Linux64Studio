@@ -67,6 +67,8 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
   ([per project](docs/dialect.md#each-projects-tabs-and-folders)).
 * Right-click a tab to **Close Others**, **Close to the Right** or **Reveal File** in the file
   manager ([tab menu](docs/dialect.md#tab-menu)).
+* **Collapse the file tree, bottom panel or Project Information** to give the editors the room, and bring them back
+  at the same size: Ctrl+B, Ctrl+J, Ctrl+Alt+B or the toolbar ([collapsing](docs/dialect.md#collapsing-the-panels)).
 * **Light or dark mode** from a toolbar button or Window → Appearance, or follow the system.
 * **Text zoom** for big screens: Ctrl+Shift+plus and Ctrl+Shift+minus size all the IDE's text, with its icons and
   panels, from 75% to 300% ([text size](docs/dialect.md#text-size)).

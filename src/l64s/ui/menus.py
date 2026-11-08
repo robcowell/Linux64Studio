@@ -122,7 +122,9 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
                 [("Create a _Repository for the Project", "win.git-init")])
     appearance = _menu([("Follow _System", "app.appearance::system"), ("_Light", "app.appearance::light"),
                         ("_Dark", "app.appearance::dark")])
-    window = _menu([("Project _Information", "win.project-info"), ("_Appearance", appearance)],
+    window = _menu([("File _Tree", "win.file-tree"), ("Project _Information", "win.project-info"),
+                    ("_Bottom Panel", "win.bottom-panel")],
+                   [("_Appearance", appearance)],
                    [("_Larger Text", "app.zoom-in"), ("S_maller Text", "app.zoom-out"),
                     ("_Normal Text Size", "app.zoom-normal")],
                    [("_Close Tab", "win.close-tab"), ("Close _All Tabs", "win.tab-close-all")])

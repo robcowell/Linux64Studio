@@ -408,6 +408,22 @@ then the editing and debugger buttons, then the ones at the right, and their com
 window title and the Project Information panel step aside too (the panel comes back when the window
 is wider). The window can be as narrow as 560 pixels, half a laptop screen.
 
+### Collapsing the panels
+
+The file tree, the bottom panel and Project Information each collapse to give the editors their
+space, and come back at the size they had, as VS Code's sidebars do. Use the three panel buttons at
+the right of the toolbar, the arrow in each panel's corner, the **Window** menu, or the keys:
+
+| Key | Panel |
+|---|---|
+| **Ctrl+B** | File tree |
+| **Ctrl+J** | Bottom panel |
+| **Ctrl+Alt+B** | Project Information |
+
+Which panels are open is kept for next time. A collapsed bottom panel opens by itself when it has
+something you need: a failed build, the debugger, Find in Files, a transcript or a user tool's
+output. A build that succeeds leaves it collapsed.
+
 **Light and dark**: the toolbar's moon (or sun) button switches between light and dark mode, and
 **Window → Appearance** chooses Follow System, Light or Dark (as Preferences → Editor → Appearance
 does). The editor's syntax colours follow, and the choice is kept for next time.
@@ -437,7 +453,8 @@ grouped by the file they're in (the number beside a file is how many it has):
 Double-click an item to go to it. The lists follow what you type (they update when you pause) and
 each build; the refresh button, or Refresh on the right-click menu, updates them at once. The
 right-click menu can also open or close every file. Files you open stay open when it refreshes.
-Close the panel with its × or **Window → Project Information**, which brings it back.
+Collapse the panel with the arrow in its corner, **Ctrl+Alt+B** or **Window → Project Information**,
+which brings it back ([collapsing the panels](#collapsing-the-panels)).
 
 ## Status bar
 

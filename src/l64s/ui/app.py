@@ -45,6 +45,9 @@ ACCELS = {
     "win.goto-definition": ["F12"],
     "win.keyword-help": ["F1"],
     "win.go-back": ["<Alt>Left"],
+    "win.file-tree": ["<Control>b"],
+    "win.project-info": ["<Control><Alt>b"],
+    "win.bottom-panel": ["<Control>j"],
     "app.preferences": ["<Control>comma"],
     "app.quit": ["<Control>q"],
     "app.zoom-in": ["<Control><Shift>plus", "<Control><Shift>KP_Add"],
@@ -69,6 +72,8 @@ SHORTCUT_GROUPS = [
                    ("<Shift>F8", "Skip an instruction (without running it)"),
                    ("<Control>F10", "Step over one instruction (in C)"),
                    ("<Control>F11", "Step into one instruction (in C)")]),
+    ("Panels", [("<Control>b", "File tree"), ("<Control><Alt>b", "Project Information"),
+                ("<Control>j", "Bottom panel")]),
     ("Text size", [("<Control><Shift>plus", "Larger text"), ("<Control><Shift>minus", "Smaller text"),
                    ("<Control>0", "Normal size")]),
 ]

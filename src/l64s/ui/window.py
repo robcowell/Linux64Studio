@@ -18,6 +18,7 @@ from .toolbar import build_toolbar  # noqa: E402
 from .projinfo_panel import ProjectInfoPanel  # noqa: E402
 from .statusbar import StatusBar  # noqa: E402
 from . import textzoom  # noqa: E402
+from .collapsible import CollapsiblePane  # noqa: E402
 from ..zoom import Panel, fitted  # noqa: E402
 from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
@@ -68,6 +69,9 @@ def _file_icon(path: Path) -> str:
     return "application-x-executable-symbolic"
 
 
+# the window's collapsible panels: action name -> the setting that keeps whether it's open
+PANEL_SETTINGS = {"file-tree": "show_file_tree", "project-info": "show_project_info",
+                  "bottom-panel": "show_bottom_panel"}
 SOURCE_EXTS = {".asm", ".s", ".a", ".inc", ".txt", ".bas", ".pbas", ".lst", ".tkn", ".c", ".h", ".cfg"}
 
 
@@ -89,14 +93,9 @@ class MainWindow(Adw.ApplicationWindow):
     # ================================================================== UI construction
     def text_zoom_applied(self, old: float, new: float, percent: int):
         """The text has gone from ``old`` to ``new`` times normal: the panels around the editors follow."""
-        side, info, bottom = self._side_paned, self._info_paned, self._bottom_paned
         if new != old:
-            side.set_position(self._panels["side"].resized(side.get_position(), side.get_width(), old, new))
-            if self.settings.show_project_info:       # (a narrow window can have it hidden for now)
-                width = info.get_width()
-                info.set_position(width - self._panels["info"].resized(width - info.get_position(), width, old, new))
-            height = bottom.get_height()
-            bottom.set_position(height - self._panels["bottom"].resized(height - bottom.get_position(), height, old, new))
+            for pane in self._panes.values():
+                pane.zoomed(old, new)
         if self._zoom_toast is not None:              # one at a time: toasts queue, and this one's soon stale
             self._zoom_toast.dismiss()
         self._zoom_toast = Adw.Toast(title=f"Text size {percent}%", timeout=2, priority=Adw.ToastPriority.HIGH)
@@ -116,7 +115,8 @@ class MainWindow(Adw.ApplicationWindow):
             bp.add_setter(self.toolbar.overflow, "menu-model", self.toolbar.overflow_menu(hidden))
             if "right" in hidden:     # the narrowest: the title (the file's path) and Project Information go too
                 bp.add_setter(self.title_widget, "visible", False)
-                bp.add_setter(self.projinfo, "visible", False)
+                bp.connect("apply", lambda *_: self._project_info_steps_aside(True))
+                bp.connect("unapply", lambda *_: self._project_info_steps_aside(False))
             self.add_breakpoint(bp)
 
     def _build_ui(self):
@@ -178,7 +178,13 @@ class MainWindow(Adw.ApplicationWindow):
         self._sidebar = side
         self.sidebar_title = Gtk.Label(label="No project", xalign=0, margin_start=10, margin_top=8, margin_bottom=4,
                                        ellipsize=Pango.EllipsizeMode.END, css_classes=["heading"])
-        side.append(self.sidebar_title)
+        self.sidebar_title.set_hexpand(True)
+        side_head = Gtk.Box()
+        side_head.append(self.sidebar_title)
+        side_head.append(Gtk.Button(icon_name="pan-start-symbolic", tooltip_text="Collapse (Ctrl+B)",
+                                    action_name="win.file-tree", css_classes=["flat"], focus_on_click=False,
+                                    valign=Gtk.Align.CENTER, margin_top=4, margin_end=4))
+        side.append(side_head)
         self._file_tree: Gtk.TreeListModel | None = None
         self._tree_project: str | None = None        # whose folders _populate_files last showed
         self._build_order: dict[Path, int] = {}
@@ -210,11 +216,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.projinfo = ProjectInfoPanel(self._project_info, self._open_source_line,
                                          lambda: self.lookup_action("project-info").change_state(
                                              GLib.Variant.new_boolean(False)))
-        self.projinfo.set_visible(self.settings.show_project_info)
         info_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, start_child=right, end_child=self.projinfo,
                                resize_end_child=False, shrink_end_child=False, shrink_start_child=False)
-        self._info_paned, self._bottom_paned = info_paned, right
-        self._panels = {"side": Panel(), "info": Panel(), "bottom": Panel(most=0.6)}
         self._zoom_toast: Adw.Toast | None = None
         outer.set_end_child(info_paned)
 
@@ -250,7 +253,9 @@ class MainWindow(Adw.ApplicationWindow):
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.bottom_stack = Adw.ViewStack()
         switcher = Adw.ViewSwitcher(stack=self.bottom_stack, policy=Adw.ViewSwitcherPolicy.WIDE)
-        sw_bar = Gtk.CenterBox(start_widget=switcher)
+        sw_bar = Gtk.CenterBox(start_widget=switcher, end_widget=Gtk.Button(
+            icon_name="go-bottom-symbolic", tooltip_text="Collapse (Ctrl+J)", action_name="win.bottom-panel",
+            css_classes=["flat"], focus_on_click=False, valign=Gtk.Align.CENTER, margin_start=6, margin_end=4))
         bottom.append(sw_bar)
         # output page
         out = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -296,8 +301,15 @@ class MainWindow(Adw.ApplicationWindow):
         bottom.set_vexpand(True)
         right.set_end_child(bottom)
         height = self.settings.window_height
-        right.set_position(height - fitted(height * 0.38, height, textzoom.factor(), most=0.6))
+        bottom_size = fitted(height * 0.38, height, textzoom.factor(), most=0.6)
+        right.set_position(height - bottom_size)
         self._pc_editor: SourceEditor | None = None
+        self._panes = {"file-tree": CollapsiblePane(outer, side, Panel(), size=int(textzoom.px(240))),
+                       "project-info": CollapsiblePane(info_paned, self.projinfo, Panel(), at_end=True),
+                       "bottom-panel": CollapsiblePane(right, bottom, Panel(most=0.6), at_end=True, size=bottom_size)}
+        for name, setting in PANEL_SETTINGS.items():
+            if not getattr(self.settings, setting):
+                self._panes[name].collapse()
 
         self._install_actions()
         self._refresh_recent()
@@ -322,10 +334,10 @@ class MainWindow(Adw.ApplicationWindow):
         add("replace", lambda *_: self.find_in_file(replace=True))
         add("find-next", lambda *_: self._find_step(True))
         add("find-previous", lambda *_: self._find_step(False))
-        info = Gio.SimpleAction.new_stateful("project-info", None,
-                                             GLib.Variant.new_boolean(self.settings.show_project_info))
-        info.connect("change-state", self._show_project_info)
-        self.add_action(info)
+        for name, setting in PANEL_SETTINGS.items():
+            panel = Gio.SimpleAction.new_stateful(name, None, GLib.Variant.new_boolean(getattr(self.settings, setting)))
+            panel.connect("change-state", self._panel_toggled, name)
+            self.add_action(panel)
         # F10 is Step Over (as in CBM prg Studio), but GTK windows bind F10 to opening the menu bar,
         # and that binding runs before application shortcuts. Catch it first, in the capture phase.
         f10 = Gtk.ShortcutController(propagation_phase=Gtk.PropagationPhase.CAPTURE)
@@ -1421,6 +1433,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_tasks()
         self._set_log(res.log)
         self._show_diagnostics(res)
+        if not res.ok:
+            self._reveal_bottom("output")        # (a build that works leaves a collapsed panel alone)
         if self.settings.pbasic_preview:
             for src, text in res.basic_preview:
                 self._show_basic_preview(src, text, select=False)
@@ -1562,7 +1576,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._pending_snapshot = None
             session.connect("connected", lambda s, p=pending: s.cmd(s.restore_snapshot, p))
         session.connect("ended", lambda *_: setattr(self, "debug", None))
-        self.bottom_stack.set_visible_child_name("debugger")
+        self._reveal_bottom("debugger")
         try:
             session.start(sorted(self._all_breakpoint_addresses(session)))
         except FileNotFoundError as e:
@@ -1683,7 +1697,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         resolver = resolver_for(res, self._build_symbols(res))
         ed.clear_errors()
-        self.bottom_stack.set_visible_child_name("output")
+        self._reveal_bottom("output")
         memory = self._debug_memory()
         def worker(m):
             return Runner(m, commands, res.prg.read_bytes(), resolver.symbol_table(),
@@ -2279,15 +2293,42 @@ class MainWindow(Adw.ApplicationWindow):
         from ..profiler import build_symbols
         return build_symbols(res)
 
-    # ------------------------------------------------------------------ Project Information panel
-    def _show_project_info(self, action, value):
+    # ------------------------------------------------------------------ collapsing the panels
+    def _panel_toggled(self, action, value, name: str):
+        """Window → File Tree, Project Information or Bottom Panel, their shortcuts and buttons."""
         action.set_state(value)
-        on = value.get_boolean()
-        self.projinfo.set_visible(on)
-        self.settings.show_project_info = on
-        self.settings.save()
+        on, pane = value.get_boolean(), self._panes[name]
         if on:
+            pane.restore()
+        else:
+            focus = self.get_focus()
+            ed = self.current_editor()
+            if focus is not None and focus.is_ancestor(pane.child) and getattr(ed, "view", None) is not None:
+                ed.view.grab_focus()                 # (focus can't stay in a panel that's gone)
+            pane.collapse()
+        setattr(self.settings, PANEL_SETTINGS[name], on)
+        self.settings.save()
+        if on and name == "project-info":
             self.projinfo.refresh()
+
+    def _reveal_bottom(self, page: str):
+        """Bring a page of the bottom panel to the front, opening the panel if it's collapsed."""
+        self.bottom_stack.set_visible_child_name(page)
+        self.lookup_action("bottom-panel").change_state(GLib.Variant.new_boolean(True))
+
+    def _project_info_steps_aside(self, aside: bool):
+        """A very narrow window has no room for Project Information: it comes back when the window is
+        wider, if it was wanted. While narrow, the toggles still show it on request."""
+        pane, action = self._panes["project-info"], self.lookup_action("project-info")
+        if aside and pane.open:
+            pane.collapse()
+            action.set_state(GLib.Variant.new_boolean(False))
+        elif not aside and self.settings.show_project_info and not pane.open:
+            pane.restore()
+            action.set_state(GLib.Variant.new_boolean(True))
+            self.projinfo.refresh()
+
+    # ------------------------------------------------------------------ Project Information panel
 
     def _project_info(self):
         """What the Project Information panel shows: the project's labels, variables and macros."""
@@ -2543,7 +2584,7 @@ class MainWindow(Adw.ApplicationWindow):
         """Ctrl+Shift+F: the Find Results tab, searching for the selection or the word at the cursor."""
         ed = self.current_editor()
         text = ed.selected_or_word() if isinstance(ed, SourceEditor) else ""
-        self.bottom_stack.set_visible_child_name("find")
+        self._reveal_bottom("find")
         self.find_panel.start(text)
 
     def find_in_file(self, replace: bool):
@@ -3435,7 +3476,7 @@ class MainWindow(Adw.ApplicationWindow):
             except ToolError as e:
                 self.toast(str(e))
             return
-        self.bottom_stack.set_visible_child_name("output")
+        self._reveal_bottom("output")
         self._set_log(f"Running {tool.name}…")
 
         def work():

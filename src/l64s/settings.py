@@ -31,7 +31,9 @@ class Settings:
     font: str = "Monospace 11"
     tab_width: int = 8
     insert_spaces: bool = True
-    show_project_info: bool = True   # the Project Information panel on the right
+    show_file_tree: bool = True      # the project's files on the left (Ctrl+B)
+    show_project_info: bool = True   # the Project Information panel on the right (Ctrl+Alt+B)
+    show_bottom_panel: bool = True   # Build Output, Debugger, Tasks and so on (Ctrl+J)
     word_wrap: bool = False       # source editors wrap long lines (the status bar switches it)
     dark_mode: str = "system"     # system | light | dark
     text_zoom: int = 100          # percent, all the IDE's text (Ctrl+Shift+plus and minus; zoom.py)

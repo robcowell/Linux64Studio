@@ -115,7 +115,7 @@ class ProjectInfoPanel(Gtk.Box):
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Refresh", css_classes=["flat"])
         refresh.connect("clicked", lambda *_: self.refresh())
         head.append(refresh)
-        close = Gtk.Button(icon_name="window-close-symbolic", tooltip_text="Close (Window → Project Information)",
+        close = Gtk.Button(icon_name="pan-end-symbolic", tooltip_text="Collapse (Ctrl+Alt+B)",
                            css_classes=["flat"])
         close.connect("clicked", lambda *_: on_close())
         head.append(close)
