@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from ..analyser import MODE_NAMES, AnalyseError, Report, analyse, to_html, to_text  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 SCOPES = [("project", "The project (its build list)"), ("file", "The current file"),
@@ -43,10 +44,10 @@ class BarChart(Gtk.DrawingArea):
         total = sum(v for _, v in self.items) or 1
         top = max(v for _, v in self.items) or 1
         cr.select_font_face("Sans")
-        cr.set_font_size(11)
+        cr.set_font_size(textzoom.px(11))
         label_w = max(cr.text_extents(k).x_advance for k, _ in self.items) + 16
-        row = min(28, (height - 10) / len(self.items))
-        bar_w = max(10, width - label_w - 150)
+        row = min(textzoom.px(28), (height - 10) / len(self.items))
+        bar_w = max(10, width - label_w - textzoom.px(150))
         for i, (k, v) in enumerate(self.items):
             y = 6 + i * row
             cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.85)

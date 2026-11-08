@@ -19,6 +19,7 @@ from ..sid.designer import (ATTACK_MS, DECAY_MS, EXTENSION, NOTE_NAMES, WAVEFORM
                             note_name, register_hz, semitone_note)
 from ..sid.live import LiveError, LiveSid  # noqa: E402
 from ..sid.midi import MidiInput, MidiUnavailable, MidiVoices, describe, input_names, note_label, pick_device  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 KEY_LABELS = {"Tab": "Tab", "bracketleft": "[", "bracketright": "]", "Return": "Ret", "minus": "-", "equal": "=",
@@ -38,7 +39,8 @@ class Piano(Gtk.DrawingArea):
     HEIGHT = 120
 
     def __init__(self):
-        super().__init__(content_width=14 * self.WHITE_W + 1, content_height=self.HEIGHT, halign=Gtk.Align.START)
+        super().__init__(halign=Gtk.Align.START)
+        self.text_zoom_changed()
         self.down: int | None = None
         self.set_draw_func(self._draw)
         click = Gtk.GestureClick()
@@ -48,6 +50,10 @@ class Piano(Gtk.DrawingArea):
         self._labels = {WHITE_SEMITONES[i]: KEY_LABELS.get(k, k.upper()) for i, k in enumerate(WHITE_KEYS)}
         self._labels.update({s: KEY_LABELS.get(k, k) for k, s in BLACK_KEYS.items()})
 
+    def text_zoom_changed(self):                # the keys are drawn to scale, for their labels
+        self.set_content_width(int(textzoom.px(14 * self.WHITE_W + 1)))
+        self.set_content_height(int(textzoom.px(self.HEIGHT)))
+
     def _black_keys(self):
         bw = self.WHITE_W * 0.6
         for w in range(13):
@@ -56,6 +62,7 @@ class Piano(Gtk.DrawingArea):
             yield WHITE_SEMITONES[w] + 1, (w + 1) * self.WHITE_W - bw / 2, bw
 
     def _hit(self, x: float, y: float) -> int | None:
+        x, y = x / textzoom.factor(), y / textzoom.factor()
         if y < self.HEIGHT * 0.6:
             for semi, bx, bw in self._black_keys():
                 if bx <= x < bx + bw:
@@ -81,6 +88,7 @@ class Piano(Gtk.DrawingArea):
             self.emit("note-off")
 
     def _draw(self, _w, cr, _width, _height):
+        cr.scale(textzoom.factor(), textzoom.factor())
         h = self.HEIGHT
         cr.select_font_face("Sans")
         cr.set_font_size(10)

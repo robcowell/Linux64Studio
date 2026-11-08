@@ -17,6 +17,8 @@ from .menus import build_menubar  # noqa: E402
 from .toolbar import build_toolbar  # noqa: E402
 from .projinfo_panel import ProjectInfoPanel  # noqa: E402
 from .statusbar import StatusBar  # noqa: E402
+from . import textzoom  # noqa: E402
+from ..zoom import Panel, fitted  # noqa: E402
 from ..statusbar import EditorState, fields as status_fields  # noqa: E402
 from ..session import OpenFile, ProjectState, Session, load_project_state, save_project_state  # noqa: E402
 from ..project.filetree import Node, build_tree  # noqa: E402
@@ -85,13 +87,29 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_title()
 
     # ================================================================== UI construction
+    def text_zoom_applied(self, old: float, new: float, percent: int):
+        """The text has gone from ``old`` to ``new`` times normal: the panels around the editors follow."""
+        side, info, bottom = self._side_paned, self._info_paned, self._bottom_paned
+        if new != old:
+            side.set_position(self._panels["side"].resized(side.get_position(), side.get_width(), old, new))
+            if self.settings.show_project_info:       # (a narrow window can have it hidden for now)
+                width = info.get_width()
+                info.set_position(width - self._panels["info"].resized(width - info.get_position(), width, old, new))
+            height = bottom.get_height()
+            bottom.set_position(height - self._panels["bottom"].resized(height - bottom.get_position(), height, old, new))
+        if self._zoom_toast is not None:              # one at a time: toasts queue, and this one's soon stale
+            self._zoom_toast.dismiss()
+        self._zoom_toast = Adw.Toast(title=f"Text size {percent}%", timeout=2, priority=Adw.ToastPriority.HIGH)
+        self.toasts.add_toast(self._zoom_toast)
+
     def _add_breakpoints(self):
         # On a narrow window, groups of toolbar buttons give way to a ⋯ menu (so the window can be as
         # narrow as half a laptop screen): with breakpoints, the window's size request is its minimum.
         from .toolbar import NARROW_STAGES
         self.set_size_request(560, 400)
         for width, hidden in NARROW_STAGES:             # widest first: the narrowest that matches wins
-            bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"max-width: {width}px"))
+            # (in sp, which grow with the text: bigger menus and toolbar icons need the room sooner)
+            bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(f"max-width: {width}sp"))
             for name in hidden:
                 bp.add_setter(self.toolbar.groups[name], "visible", False)
             bp.add_setter(self.toolbar.overflow, "visible", True)
@@ -148,7 +166,8 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             container = None
 
-        outer = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, position=240, vexpand=True)
+        outer = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, position=int(textzoom.px(240)), vexpand=True)
+        self._side_paned = outer
         if container:
             container.append(outer)
         else:
@@ -194,6 +213,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.projinfo.set_visible(self.settings.show_project_info)
         info_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, start_child=right, end_child=self.projinfo,
                                resize_end_child=False, shrink_end_child=False, shrink_start_child=False)
+        self._info_paned, self._bottom_paned = info_paned, right
+        self._panels = {"side": Panel(), "info": Panel(), "bottom": Panel(most=0.6)}
+        self._zoom_toast: Adw.Toast | None = None
         outer.set_end_child(info_paned)
 
         tabs_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -223,6 +245,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.tab_bar = tab_bar
         right.set_start_child(tabs_box)
         right.set_resize_start_child(True)
+        right.set_resize_end_child(False)               # the editors take any change of height
 
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.bottom_stack = Adw.ViewStack()
@@ -272,7 +295,8 @@ class MainWindow(Adw.ApplicationWindow):
         bottom.append(self.bottom_stack)
         bottom.set_vexpand(True)
         right.set_end_child(bottom)
-        right.set_position(int(self.settings.window_height * 0.62))
+        height = self.settings.window_height
+        right.set_position(height - fitted(height * 0.38, height, textzoom.factor(), most=0.6))
         self._pc_editor: SourceEditor | None = None
 
         self._install_actions()

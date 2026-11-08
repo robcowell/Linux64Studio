@@ -68,6 +68,8 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
 * Right-click a tab to **Close Others**, **Close to the Right** or **Reveal File** in the file
   manager ([tab menu](docs/dialect.md#tab-menu)).
 * **Light or dark mode** from a toolbar button or Window → Appearance, or follow the system.
+* **Text zoom** for big screens: Ctrl+Shift+plus and Ctrl+Shift+minus size all the IDE's text, with its icons and
+  panels, from 75% to 300% ([text size](docs/dialect.md#text-size)).
 
 ### Editor
 

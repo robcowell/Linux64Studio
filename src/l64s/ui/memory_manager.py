@@ -11,6 +11,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 from ..emu.values import ValueError_, parse_address, parse_number  # noqa: E402
 from ..vicmem import Layout, check, setup_code  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 AREA_COLOURS = {"Screen": (0.38, 0.63, 0.92), "Sprite pointers": (0.95, 0.85, 0.3), "Character set": (0.36, 0.78, 0.45),
@@ -29,8 +30,8 @@ class BankView(Gtk.DrawingArea):
         self.connect("query-tooltip", self._tooltip)
 
     def _geometry(self):
-        size = max(1, min(self.get_width() - 70, self.get_height()))
-        return size / 128, 64, (self.get_height() - size) / 2
+        size = max(1, min(self.get_width() - int(textzoom.px(70)), self.get_height()))
+        return size / 128, int(textzoom.px(64)), (self.get_height() - size) / 2
 
     def _draw(self, _w, cr, width, height):
         scale, ox, oy = self._geometry()
@@ -77,7 +78,7 @@ class BankView(Gtk.DrawingArea):
             cr.fill()
         # address scale every 2K
         cr.set_source_rgba(0.6, 0.6, 0.6, 1)
-        cr.set_font_size(max(9, scale * 4))
+        cr.set_font_size(max(textzoom.px(9), scale * 4))
         for k in range(0, 0x4001, 0x800):
             y = oy + k / 128 * scale
             cr.move_to(4, y + 4)

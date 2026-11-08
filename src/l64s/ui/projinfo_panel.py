@@ -8,6 +8,7 @@ from collections.abc import Callable
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from ..projinfo import TABS, Group, Item
+from . import textzoom
 
 
 class _Row(GObject.Object):
@@ -102,9 +103,12 @@ class _Tab:
 
 
 class ProjectInfoPanel(Gtk.Box):
+    def text_zoom_changed(self):
+        self.set_size_request(int(textzoom.px(250)), -1)
+
     def __init__(self, collect: Callable[[], dict[str, list[Group]] | None],
                  go_to: Callable[[str, int], None], on_close: Callable[[], None]):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, width_request=250)
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, width_request=int(textzoom.px(250)))
         self._collect, self._go_to_cb = collect, go_to
         head = Gtk.Box(spacing=4, margin_start=10, margin_end=4, margin_top=6, margin_bottom=2)
         head.append(Gtk.Label(label="Project Information", xalign=0, hexpand=True, css_classes=["heading"]))

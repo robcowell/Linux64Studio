@@ -14,6 +14,7 @@ from gi.repository import Gdk, GObject, Gtk  # noqa: E402
 from ..screencalc import (COLOUR_BASE, COLUMNS, ROWS, SCREEN_BASE, locate, results, screen_address,  # noqa: E402
                           sprite_cell)
 from ..vicmem import Layout  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 from .widgets import ColourButton  # noqa: E402
 
@@ -48,8 +49,8 @@ class ScreenGrid(Gtk.DrawingArea):
     CW, CH, MARGIN = 13, 10, 22
 
     def __init__(self):
-        super().__init__(content_width=self.MARGIN + COLUMNS * self.CW + 2,
-                         content_height=self.MARGIN + ROWS * self.CH + 2, halign=Gtk.Align.START)
+        super().__init__(halign=Gtk.Align.START)
+        self.text_zoom_changed()
         self.row, self.col = 0, 0
         self.hover: tuple[int, int] | None = None
         self.base = SCREEN_BASE
@@ -64,7 +65,12 @@ class ScreenGrid(Gtk.DrawingArea):
         self.set_has_tooltip(True)
         self.connect("query-tooltip", self._tooltip)
 
+    def text_zoom_changed(self):                # the whole grid is drawn to scale, for its rulers
+        self.set_content_width(int(textzoom.px(self.MARGIN + COLUMNS * self.CW + 2)))
+        self.set_content_height(int(textzoom.px(self.MARGIN + ROWS * self.CH + 2)))
+
     def _cell(self, x, y):
+        x, y = x / textzoom.factor(), y / textzoom.factor()
         c, r = int((x - self.MARGIN) // self.CW), int((y - self.MARGIN) // self.CH)
         return (r, c) if 0 <= r < ROWS and 0 <= c < COLUMNS and x >= self.MARGIN and y >= self.MARGIN else None
 
@@ -95,6 +101,7 @@ class ScreenGrid(Gtk.DrawingArea):
         self.queue_draw()
 
     def _draw(self, _w, cr, _width, _height):
+        cr.scale(textzoom.factor(), textzoom.factor())
         m, cw, ch = self.MARGIN, self.CW, self.CH
         fg = self.get_color()
         # the screen

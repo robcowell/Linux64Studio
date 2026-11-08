@@ -10,8 +10,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from .. import __version__  # noqa: E402
+from .. import __version__, zoom  # noqa: E402
 from ..settings import Settings  # noqa: E402
+from . import textzoom  # noqa: E402
 
 APP_ID = "io.github.linux64studio.Linux64Studio"
 
@@ -46,7 +47,12 @@ ACCELS = {
     "win.go-back": ["<Alt>Left"],
     "app.preferences": ["<Control>comma"],
     "app.quit": ["<Control>q"],
+    "app.zoom-in": ["<Control><Shift>plus", "<Control><Shift>KP_Add"],
+    # (minus first, for the menu to show; with Shift held the key arrives as underscore)
+    "app.zoom-out": ["<Control><Shift>minus", "<Control><Shift>underscore", "<Control><Shift>KP_Subtract"],
+    "app.zoom-normal": ["<Control>0", "<Control>KP_0"],
 }
+ZOOM_ACTIONS = ("app.zoom-in", "app.zoom-out", "app.zoom-normal")
 
 SHORTCUT_GROUPS = [
     ("Files", [("<Control>o", "Open project"), ("<Control>s", "Save"), ("<Control><Shift>s", "Save all"),
@@ -63,6 +69,8 @@ SHORTCUT_GROUPS = [
                    ("<Shift>F8", "Skip an instruction (without running it)"),
                    ("<Control>F10", "Step over one instruction (in C)"),
                    ("<Control>F11", "Step into one instruction (in C)")]),
+    ("Text size", [("<Control><Shift>plus", "Larger text"), ("<Control><Shift>minus", "Smaller text"),
+                   ("<Control>0", "Normal size")]),
 ]
 
 
@@ -89,12 +97,45 @@ class Application(Adw.Application):
         for name, cb in (("preferences", self._preferences), ("about", self._about),
                          ("toggle-dark", lambda *_: self.set_appearance(
                              "light" if Adw.StyleManager.get_default().get_dark() else "dark")),
-                         ("shortcuts", self._shortcuts), ("quit", lambda *_: self.window and self.window.close())):
+                         ("shortcuts", self._shortcuts), ("quit", lambda *_: self.window and self.window.close()),
+                         ("zoom-in", lambda *_: self.set_text_zoom(zoom.larger(self.settings.text_zoom))),
+                         ("zoom-out", lambda *_: self.set_text_zoom(zoom.smaller(self.settings.text_zoom))),
+                         ("zoom-normal", lambda *_: self.set_text_zoom(zoom.NORMAL))):
             a = Gio.SimpleAction.new(name, None)
             a.connect("activate", cb)
             self.add_action(a)
         for action, accels in ACCELS.items():
             self.set_accels_for_action(action, accels)
+        self.settings.text_zoom = zoom.valid(self.settings.text_zoom)
+        textzoom.apply(self.settings.text_zoom)
+        # the scratch pads and dialogs aren't the application's windows, so its shortcuts don't reach them
+        self._zoom_keys_for = Gtk.Window.get_toplevels()
+        self._zoom_keys_for.connect("items-changed", self._add_zoom_keys)
+
+    def _add_zoom_keys(self, toplevels, position, _removed, added):
+        for i in range(position, position + added):
+            window = toplevels.get_item(i)
+            if window.get_application() is not None:
+                continue
+            keys = Gtk.ShortcutController(scope=Gtk.ShortcutScope.LOCAL)
+            for action in ZOOM_ACTIONS:
+                keys.add_shortcut(Gtk.Shortcut.new(
+                    Gtk.ShortcutTrigger.parse_string("|".join(ACCELS[action])),
+                    Gtk.CallbackAction.new(self._zoom_key, action.removeprefix("app."))))
+            window.add_controller(keys)
+
+    def _zoom_key(self, _widget, _args, name):
+        self.activate_action(name, None)
+        return True
+
+    def set_text_zoom(self, percent: int):
+        """Make all the IDE's text ``percent`` of its normal size, and keep that in the preferences."""
+        old = textzoom.factor()
+        self.settings.text_zoom = percent
+        self.settings.save()
+        textzoom.apply(percent)
+        if self.window:
+            self.window.text_zoom_applied(old, textzoom.factor(), percent)
 
     def _ensure_window(self):
         if not self.window:

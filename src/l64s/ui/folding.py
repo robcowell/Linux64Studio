@@ -176,6 +176,9 @@ if GtkSource is not None:
             self.hidden_tag = hidden_tag
             self._digits = 0
 
+        def text_zoom_changed(self):
+            self._digits = 0                   # measure the numbers again
+
         def do_begin(self, lines):
             GtkSource.GutterRendererText.do_begin(self, lines)   # it makes the text layout
             digits = max(2, len(str(lines.get_buffer().get_line_count())))

@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from ..profiler import Profile, ProfileRun, Resolver, Row, ViceRun  # noqa: E402
 from ..routine_timing import CPU_IRQ, KERNAL_IRQ, Timer, Timing  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 ROWS = 80                 # rows shown in each list
@@ -63,7 +64,7 @@ class FrameChart(Gtk.DrawingArea):
         self.queue_draw()
 
     def _geometry(self, width, height):
-        left = 44
+        left = textzoom.px(44)
         n = len(self.lines) or 312
         return left, 6, max(10, width - left - 8), max(10, height - 12), n
 
@@ -85,7 +86,7 @@ class FrameChart(Gtk.DrawingArea):
                 cr.fill()
                 x += w * share
         cr.select_font_face("Sans")
-        cr.set_font_size(10)
+        cr.set_font_size(textzoom.px(10))
         for ln in range(0, n, 50):
             y = top + ln * per
             cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.6)
@@ -472,7 +473,7 @@ class Histogram(Gtk.DrawingArea):
         if not self.bins:
             return
         top = max(n for _a, _b, n in self.bins) or 1
-        base, left = height - 18, 4
+        base, left = height - textzoom.px(18), 4
         w = (width - 2 * left) / len(self.bins)
         cr.set_source_rgb(*COLOURS[0])
         for i, (_a, _b, n) in enumerate(self.bins):
@@ -481,7 +482,7 @@ class Histogram(Gtk.DrawingArea):
         cr.fill()
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.7)
         cr.select_font_face("Sans")
-        cr.set_font_size(10)
+        cr.set_font_size(textzoom.px(10))
         cr.move_to(left, height - 4)
         cr.show_text(f"{self.bins[0][0]:,} cycles")
         text = f"{self.bins[-1][1]:,}"
@@ -515,7 +516,7 @@ class CallFrame(Gtk.DrawingArea):
         fg = self.get_color()
         n = len(self.cover) or 312
         per = (height - 12) / n
-        left = 30
+        left = textzoom.px(30)
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.08)
         cr.rectangle(left, 6, width - left, n * per)
         cr.fill()
@@ -528,7 +529,7 @@ class CallFrame(Gtk.DrawingArea):
                 cr.rectangle(left, 6 + i * per, width - left, per + 0.6)
                 cr.fill()
         cr.select_font_face("Sans")
-        cr.set_font_size(10)
+        cr.set_font_size(textzoom.px(10))
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.6)
         for ln in range(0, n, 50):
             cr.move_to(2, 6 + ln * per + 4)

@@ -34,6 +34,7 @@ class Settings:
     show_project_info: bool = True   # the Project Information panel on the right
     word_wrap: bool = False       # source editors wrap long lines (the status bar switches it)
     dark_mode: str = "system"     # system | light | dark
+    text_zoom: int = 100          # percent, all the IDE's text (Ctrl+Shift+plus and minus; zoom.py)
     save_before_build: bool = True
     auto_complete: bool = True
     basic_code_style: str = "standard"

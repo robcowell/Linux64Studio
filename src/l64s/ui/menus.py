@@ -123,6 +123,8 @@ def build_menubar(recent: Gio.MenuModel, user_tools: Gio.MenuModel, programs: Gi
     appearance = _menu([("Follow _System", "app.appearance::system"), ("_Light", "app.appearance::light"),
                         ("_Dark", "app.appearance::dark")])
     window = _menu([("Project _Information", "win.project-info"), ("_Appearance", appearance)],
+                   [("_Larger Text", "app.zoom-in"), ("S_maller Text", "app.zoom-out"),
+                    ("_Normal Text Size", "app.zoom-normal")],
                    [("_Close Tab", "win.close-tab"), ("Close _All Tabs", "win.tab-close-all")])
     help_ = _menu([("_Tutorials", "win.tutorials"), ("_BASIC Keywords", "win.keyword-help"),
                    ("_Keyboard Shortcuts", "app.shortcuts")],

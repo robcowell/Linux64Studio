@@ -412,6 +412,16 @@ is wider). The window can be as narrow as 560 pixels, half a laptop screen.
 **Window → Appearance** chooses Follow System, Light or Dark (as Preferences → Editor → Appearance
 does). The editor's syntax colours follow, and the choice is kept for next time.
 
+### Text size
+
+**Ctrl+Shift+plus** and **Ctrl+Shift+minus** (on the main keys or the keypad) make all the IDE's
+text larger and smaller, from 75% to 300%, and **Ctrl+0** returns it to normal; they're also on
+the **Window** menu. It's for high-resolution screens, where everything can otherwise be tiny. The
+editors, menus, panels and dialogs all follow, as do the toolbar's icons and the labels drawn in the
+tools' diagrams. The file tree, Project Information and the bottom panel grow with the text, up to a
+share of the window that leaves the editors room; on a narrow window more of the toolbar moves into
+its ⋯ menu. The size is kept for next time. Pictures of C64 graphics keep their own zoom controls.
+
 ## Project Information
 
 The panel on the right, as in CBM prg Studio, lists the project's definitions in three tabs, each

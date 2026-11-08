@@ -95,6 +95,9 @@ if GtkSource is not None:
             self._sized = False
             self.connect("query-tooltip", self._tooltip)
 
+        def text_zoom_changed(self):
+            self._sized = False                # measure the column again
+
         def do_begin(self, lines):
             GtkSource.GutterRendererText.do_begin(self, lines)    # (it makes the text layout)
             if not self._sized:

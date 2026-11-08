@@ -8,6 +8,7 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk  # noqa: E402
 
 from ..datagen import DataGenError, Options, Table, generate, label_ok, source  # noqa: E402
+from . import textzoom  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 
 EXAMPLES = ["100+99*sin(x/20)", "128+127*sin(x*2*pi/256)", "int(x*x/256)", "160+100*cos(x*pi/64)",
@@ -35,32 +36,32 @@ class Graph(Gtk.DrawingArea):
         t = self.table
         if not t or not t.xs:
             return
-        m = 34
+        m, top = textzoom.px(34), textzoom.px(14)
         lo, hi = min(0.0, min(t.ys)), max(t.ys)
         if hi == lo:
             hi = lo + 1
         x0, x1 = t.xs[0], t.xs[-1]
-        w, h = width - 2 * m, height - 2 * 14
+        w, h = width - 2 * m, height - 2 * top
 
         def px(x):
             return m + (x - x0) / (x1 - x0 or 1) * w
 
         def py(y):
-            return 14 + (y - lo) / (hi - lo) * h        # downwards
+            return top + (y - lo) / (hi - lo) * h        # downwards
 
         # axes and labels
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.35)
         cr.set_line_width(1)
-        cr.move_to(m, 14)
-        cr.line_to(m, 14 + h)
+        cr.move_to(m, top)
+        cr.line_to(m, top + h)
         cr.move_to(m, py(0) + 0.5)
         cr.line_to(m + w, py(0) + 0.5)
         cr.stroke()
         cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.75)
         cr.select_font_face("Monospace")
-        cr.set_font_size(9)
-        for text, x, y in ((f"{lo:g}", 2, 18), (f"{hi:g}", 2, 14 + h), (str(x0), m, height - 2),
-                           (str(x1), m + w - 6 * len(str(x1)), height - 2)):
+        cr.set_font_size(textzoom.px(9))
+        for text, x, y in ((f"{lo:g}", 2, top + textzoom.px(4)), (f"{hi:g}", 2, top + h), (str(x0), m, height - 2),
+                           (str(x1), m + w - textzoom.px(6) * len(str(x1)), height - 2)):
             cr.move_to(x, y)
             cr.show_text(text)
         # the curve

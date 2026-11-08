@@ -86,6 +86,9 @@ class HexView(Gtk.DrawingArea):
         _ink, logical = layout.get_pixel_extents()
         return max(1, logical.width), max(1, logical.height) + 2
 
+    def text_zoom_changed(self):
+        self._fit_height()
+
     def _fit_height(self):
         cw, ch = self._metrics()
         self.set_content_height(ch * (ROWS + 1) + 6)
