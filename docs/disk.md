@@ -15,6 +15,11 @@ build (F7, Ctrl+F5) then writes the `.d64` after the `.prg`. Building just the c
 doesn't.
 
 * **Image file**: where to write it, relative to the project.
+* **Made by a post-build command**: for a disk that something else builds, such as a Makefile
+  calling `cc1541` for a fast loader's sector layout. Linux64Studio never writes the image file,
+  and uses it for Run and Debug as the [build events](dialect.md) leave it. The disk name, ID,
+  program and extra files settings don't apply. If the file isn't there after the commands have
+  run, the build fails.
 * **Disk name / ID**: the header that `LOAD"$",8` shows (16 and 2 characters).
 * **Program's name on the disk**: defaults to the `.prg`'s name, so `LOAD"GAME",8,1` works.
 * **More files on the disk**: other programs or data files, written after the program.

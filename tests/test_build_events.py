@@ -53,6 +53,22 @@ def test_build_runs_pre_and_post_and_puts_the_crunched_file_on_disk(tmp_path):
     assert d.read_file("t") == big
 
 
+def test_a_disk_made_after_the_build_is_run_and_not_written(tmp_path):
+    p = cbm_project(tmp_path, post_build=['sh -c "echo mine > made.d64"'], disk_image="made.d64",
+                    disk_from_post_build=True, run_from_disk=True)
+    res = build_project(p)
+    assert res.ok, res.log
+    assert (tmp_path / "made.d64").read_text() == "mine\n"
+    assert res.disk == (tmp_path / "made.d64").resolve()
+    assert res.run_target(p) == res.disk
+    assert "made by the post-build commands" in res.log
+
+
+def test_a_disk_the_post_build_commands_did_not_make_fails_the_build(tmp_path):
+    res = build_project(cbm_project(tmp_path, disk_image="made.d64", disk_from_post_build=True))
+    assert not res.ok and any("wasn't made" in str(d) for d in res.diagnostics)
+
+
 def test_post_build_only_after_a_good_build(tmp_path):
     p = cbm_project(tmp_path, post_build=["touch post.txt"])
     (tmp_path / "main.asm").write_text("*=$c000\n        lda nosuchlabel\n")
@@ -100,8 +116,9 @@ def test_kickass_uses_the_projects_jar_args_and_output_name(tmp_path):
 def test_new_fields_save_and_load(tmp_path):
     p = cbm_project(tmp_path, kickass_jar="KickAss.jar", assembler_args=["-define", "DEBUG"],
                     pre_build=["echo hi"], post_build=["exomizer sfx basic -n [prg] -o [prg].exo"],
-                    post_build_always=True, disk_program="t.prg.exo")
+                    post_build_always=True, disk_program="t.prg.exo", disk_from_post_build=True)
     p.save()
     q = load_project(p.path)
-    for f in ("kickass_jar", "assembler_args", "pre_build", "post_build", "post_build_always", "disk_program"):
+    for f in ("kickass_jar", "assembler_args", "pre_build", "post_build", "post_build_always", "disk_program",
+              "disk_from_post_build"):
         assert getattr(q, f) == getattr(p, f), f

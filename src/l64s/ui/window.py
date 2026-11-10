@@ -4105,11 +4105,20 @@ class MainWindow(Adw.ApplicationWindow):
         d_run = Adw.SwitchRow(title="Run from the disk image",
                               subtitle="Ctrl+F5 and debugging autostart the .d64 instead of the .prg",
                               active=p.run_from_disk)
-        for w in (d_on, d_kind, d_path, d_name, d_id, d_file, d_prog, d_run):
+        d_made = Adw.SwitchRow(title="Made by a post-build command",
+                               subtitle="The image file is used as that command leaves it, and never written here",
+                               active=p.disk_from_post_build)
+        for w in (d_on, d_made, d_kind, d_path, d_name, d_id, d_file, d_prog, d_run):
             dg.add(w)
         xg = Adw.PreferencesGroup(title="More files on the disk",
                                   description="Added after the program: other programs, data files (SEQ) and so on.")
         dpage.add(xg)
+
+        def made_changed(*_):
+            for w in (d_name, d_id, d_file, d_prog, xg):
+                w.set_sensitive(not d_made.get_active())
+        d_made.connect("notify::active", made_changed)
+        made_changed()
         extras = [dict(x) for x in p.disk_extra_files]
         xrows: list = []
 
@@ -4226,6 +4235,7 @@ class MainWindow(Adw.ApplicationWindow):
             p.disk_id = (d_id.get_text().strip() or "00")[:2]
             p.disk_file_name = d_file.get_text().strip()[:16]
             p.run_from_disk = d_run.get_active()
+            p.disk_from_post_build = d_made.get_active()
             p.disk_extra_files = extras
             p.disk_program = d_prog.get_text().strip()
             p.kickass_jar = k_jar.get_text().strip()

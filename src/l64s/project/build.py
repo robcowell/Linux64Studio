@@ -79,6 +79,11 @@ def write_disk_image(project: Project, prg: Path) -> tuple[Path | None, list[Dia
         format_for(dest)
     except DiskError as e:
         return None, [Diagnostic("error", f"Disk image: {e}", None)], ""
+    if project.disk_from_post_build:
+        if not dest.is_file():
+            return None, [Diagnostic("error", f"Disk image: {project.disk_image} wasn't made "
+                                              f"(a post-build command should write it)", None)], ""
+        return dest, [], f"Using {dest}, made by the post-build commands"
     program = prg
     if project.disk_program:
         program = (project.directory / expand_presets(project.disk_program, project, prg)).resolve()

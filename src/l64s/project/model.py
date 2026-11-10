@@ -56,6 +56,8 @@ class Project:
     # More files for the disk: [{"file": relative path, "name": name on disk, "type": prg/seq/usr}]
     disk_extra_files: list[dict] = field(default_factory=list)
     run_from_disk: bool = False      # autostart the .d64 instead of the .prg
+    # disk_image is made by a post-build command (a Makefile, cc1541): it's used, never written
+    disk_from_post_build: bool = False
     # Cartridge output: "" = off, else a type from l64s.cart.crt.CART_TYPES (normal8, ocean, ...)
     cart_type: str = ""
     cart_file: str = ""              # default: <executable>.crt

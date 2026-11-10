@@ -29,7 +29,8 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
 * **Build events** run before and after a build (to crunch with exomizer, say), as in CBM prg
   Studio ([projects](docs/dialect.md#projects)).
 * **Disk images**: a project can write a `.d64` (1541), `.d71` (1571) or `.d81` (1581) on every
-  build, with the program first and any extra files after it, and run or debug from the disk.
+  build, with the program first and any extra files after it, and run or debug from the disk. A
+  disk that a post-build command makes (a Makefile's, say) can be run and debugged the same way.
   Disk images open in a directory view where you can add, extract and delete files, and files are
   laid out exactly as the real drive lays them out ([disk images](docs/disk.md)).
 * **Cartridges**: a project can write a `.crt` on every build: normal 8K/16K, Ultimax, and the
