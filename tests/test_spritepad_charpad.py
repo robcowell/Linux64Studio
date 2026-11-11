@@ -40,9 +40,75 @@ def test_spd_rejects_other_files(tmp_path):
     (tmp_path / "x.spd").write_bytes(b"NOPE" + bytes(100))
     with pytest.raises(SpritePadError):
         load_spd(tmp_path / "x.spd")
-    (tmp_path / "y.spd").write_bytes(b"SPD\x03" + bytes(100))
-    with pytest.raises(SpritePadError, match="version 3"):
+    (tmp_path / "y.spd").write_bytes(b"SPD\x06" + bytes(100))
+    with pytest.raises(SpritePadError, match="version 6"):
         load_spd(tmp_path / "y.spd")
+    (tmp_path / "z.spd").write_bytes(b"SPD\x05\x00\x02\x00" + bytes(13) + bytes(64))   # 2 sprites, 1 there
+    with pytest.raises(SpritePadError, match="truncated"):
+        load_spd(tmp_path / "z.spd")
+
+
+def _block(first: int, attr: int) -> bytes:
+    return bytes([first]) + bytes(62) + bytes([attr])
+
+
+def test_spd_headerless_18(tmp_path):
+    """SpritePad 1.8 writes no header: 3 colours, then 64 bytes a sprite."""
+    raw = bytes([6, 14, 11]) + _block(0xF0, 0x9C) + _block(0x0F, 0x0B)
+    (tmp_path / "a.spd").write_bytes(raw)
+    ss = load_spd(tmp_path / "a.spd")
+    assert (ss.background, ss.mcolour1, ss.mcolour2) == (6, 14, 11)
+    assert ss.sprites[0].multi and ss.sprites[0].colour == 12 and ss.sprites[0].attr_extra == 0x10
+    assert not ss.sprites[1].multi and ss.sprites[1].rows[0] == 0x0F0000
+    ss.sprites[1].colour = 3
+    save_spd(ss, tmp_path / "a.spd")                       # stays in 1.8's format
+    assert (tmp_path / "a.spd").read_bytes() == raw[:-1] + b"\x03"
+
+
+def test_spd_v5_keeps_tiles_and_animations(tmp_path):
+    header = bytearray(b"SPD\x05\x07") + (2).to_bytes(2, "little") + (1).to_bytes(2, "little")
+    header += bytes([0, 0, 1, 1, 11, 1, 0]) + (1).to_bytes(2, "little", signed=True) + bytes(2)
+    tail = bytes([0, 0, 0x10, 7]) + b"tile\0" + bytes([0, 0, 1, 0, 3, 0x10]) + bytes(6)
+    raw = bytes(header) + _block(0xAA, 0xE5) + _block(0x55, 0x01) + tail
+    (tmp_path / "v5.spd").write_bytes(raw)
+    ss = load_spd(tmp_path / "v5.spd")
+    assert ss.spd_version == 5 and (ss.background, ss.mcolour1, ss.mcolour2) == (11, 1, 0)
+    s = ss.sprites[0]
+    assert s.multi and s.colour == 5 and s.expand_x and s.expand_y
+    save_spd(ss, tmp_path / "out.spd")
+    assert (tmp_path / "out.spd").read_bytes() == raw
+    s.expand_y = False                                     # bits 5-6 are expand X/Y in V5
+    ss.sprites.append(Sprite(colour=2))
+    ss.background = 6
+    save_spd(ss, tmp_path / "out.spd")
+    out = (tmp_path / "out.spd").read_bytes()
+    assert out[5:7] == (3).to_bytes(2, "little") and out[13] == 6
+    assert out[20 + 63] == 0xA5 and out[-len(tail):] == tail and len(out) == len(raw) + 64
+
+
+@pytest.mark.parametrize("version,hsize", [(2, 16), (3, 16), (4, 20)])
+def test_spd_v2_to_v4(tmp_path, version, hsize):
+    header = bytearray(b"SPD") + bytes([version, 0]) + (1).to_bytes(2, "little") + bytes(6)
+    header += bytes([2, 3, 4]) + bytes(hsize - 16)
+    raw = bytes(header) + _block(0x81, 0x85)
+    (tmp_path / "a.spd").write_bytes(raw)
+    ss = load_spd(tmp_path / "a.spd")
+    assert ss.spd_version == version and (ss.background, ss.mcolour1, ss.mcolour2) == (2, 3, 4)
+    assert ss.sprites[0].rows[0] == 0x810000 and ss.sprites[0].colour == 5
+    save_spd(ss, tmp_path / "b.spd")
+    assert (tmp_path / "b.spd").read_bytes() == raw
+
+
+SUPERFLY = Path.home() / "code" / "Superfly64" / "sprites"
+
+
+@pytest.mark.skipif(not SUPERFLY.is_dir(), reason="Superfly64's SpritePad 1.8 sprites not found")
+def test_spd_superfly_roundtrip(tmp_path):
+    for spd in sorted(SUPERFLY.glob("*.spd")):
+        ss = load_spd(spd)
+        assert ss.spd_version == 0
+        save_spd(ss, tmp_path / spd.name)
+        assert (tmp_path / spd.name).read_bytes() == spd.read_bytes(), spd.name
 
 
 def _charpad(tiles=False, method=COLOUR_PER_CHAR) -> CharPadProject:

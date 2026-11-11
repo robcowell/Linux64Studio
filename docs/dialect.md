@@ -371,7 +371,7 @@ so a path with spaces stays one argument; quote an argument that has spaces of i
 | `.spt` sprites | XML, one `<data>` per row as a 24-bit integer | `sprites.bin` = 64 bytes per sprite **verified** |
 | `.cst` characters | XML, `<charcode>` + 8 `<data>` bytes | characters that aren't listed are the **C64 ROM** ones **verified**; colours are hex `CL` (C = colour, L = luminance) **verified** |
 | `.sdd` screens | XML, `<RowData>` of 7-digit hex cells | char = bits 20–27, colour = bits 12–19 |
-| `.spd` SpritePad v1 | binary: `SPD`, version, counts, 3 colours, 64 bytes per sprite, 4 per animation | the 64th byte is the attribute (bit 7 multicolour, low nibble colour) and is part of SpritePad's `.bin` exports **verified** (Vol 2) |
+| `.spd` SpritePad 1.8, V1–V5 | binary: 1.8 is 3 colours then 64 bytes per sprite; V1 adds `SPD`, version, counts first and 4 bytes per animation last; V2–V5 have a 16 or 20 byte header (word counts, tile size, overlay distances) and tiles and animations after the sprites, kept verbatim | the 64th byte is the attribute (bit 7 multicolour, bit 4 overlay, low nibble colour; V5 bits 5–6 expand X/Y) and is part of SpritePad's `.bin` exports **verified** (Vol 2); files are saved in the format they were loaded from |
 | `.ctm` CharPad v5 | binary, as in CharPad's own format notes | charset, colour and map exports match the book's `.bin` files; all 213 `.ctm` files in the download re-save byte-identical **verified** (Vol 2) |
 
 ## Continue where you left off

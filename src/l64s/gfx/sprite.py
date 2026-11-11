@@ -96,6 +96,11 @@ class SpriteSet:
     # where CBM prg Studio's exports put 0.
     attribute_bytes: bool = False
     animations: bytes = b""  # SpritePad animation table, kept verbatim
+    # The .spd format the set came from (spritepad.py: 0 is SpritePad 1.8's headerless one), so saving
+    # keeps it; for SPD V2 to V5, spd_extra is the header and everything after the sprites (tiles,
+    # animations), written back unchanged.
+    spd_version: int = 1
+    spd_extra: bytes = b""
 
     def to_bin(self, pad_to_64: bool = True, attribute_bytes: bool | None = None) -> bytes:
         attrs = self.attribute_bytes if attribute_bytes is None else attribute_bytes

@@ -353,7 +353,9 @@ rewritten: `BeachBarSprites1.bin`, `BeachBarScreensCharset.bin`, `BeachBarScreen
 `BeachBarScreenTopLeft.bin` for the map. The sync button in the editor's toolbar shows these
 links and lets you change them.
 
-Supported: SpritePad format version 1 (SpritePad 2.0, as in the book) and CharPad CTM version 5
+Supported: SpritePad's headerless 1.8 format and SPD versions 1 to 5 (SpritePad 2.0, as in the
+book, up to every SpritePad Pro release; a file is saved back in its own format, with any tiles and
+animations kept intact) and CharPad CTM version 5
 (CharPad 2.0–2.3), with up to 256 characters. In CharPad projects that use tiles (the book's
 don't), you can edit the characters but the map is view-only. The tiles are kept intact when you
 save.
