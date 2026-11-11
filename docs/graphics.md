@@ -13,6 +13,16 @@ Calvin & Hobbes game:
 
 ![The screen designer](img/graphics-screen-designer.png)
 
+## Overlay next sprite
+
+Tick **Overlay next sprite** to draw the next sprite over the one you're editing, as a second
+hardware sprite would be on screen. The usual case is hires outlines over a multicolour fill:
+the fill in one sprite, the outline in the next. The editor, the preview, the animation and the
+sprite list then show the two together. You paint the sprite you're editing, under the overlay;
+select the next sprite to edit the overlay itself. The setting is SpritePad's (bit 4 of each
+sprite's 64th byte, as Spritemate's overlay is), so `.spd` files and their `.bin` exports keep
+it. CBM prg Studio's `.spt` files have no place for it, so it isn't saved in them.
+
 ## Sprite Morph
 
 The **Morph…** button in the sprite editor's toolbar (the shuffle icon) makes the frames that

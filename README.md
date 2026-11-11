@@ -118,6 +118,8 @@ interrupts, scrolling, the joystick, sound effects and Kick Assembler.
   * **Import from Image** cuts sprites out of a `.bmp`, `.png` or `.gif` sprite sheet or
     screenshot, hires or multicolour.
   * The **Scratch Pad** lays sprites out side by side and in layers.
+  * **Overlay next sprite** draws the next sprite over this one (hires outlines over a
+    multicolour fill), as SpritePad and Spritemate do.
 * The character set editor:
   * Its **Scratch Pad** builds graphics from several characters, which the screen designer can
     stamp.

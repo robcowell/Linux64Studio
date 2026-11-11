@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 WIDTH, HEIGHT = 24, 21
+OVERLAY = 0x10      # attribute bit: the next sprite is drawn over this one
 
 
 @dataclass
@@ -23,6 +24,28 @@ class Sprite:
     # SpritePad keeps an attribute byte in byte 63 of each sprite: bit 7 multicolour, bits 0-3 colour.
     # Any other bits (e.g. SpritePad's overlay flag) are kept here so files round-trip unchanged.
     attr_extra: int = 0
+
+    @property
+    def overlay(self) -> bool:
+        """SpritePad's "overlay next": the next sprite is drawn over this one (bit 4 of the attribute)."""
+        return bool(self.attr_extra & OVERLAY)
+
+    @overlay.setter
+    def overlay(self, on: bool) -> None:
+        self.attr_extra = (self.attr_extra | OVERLAY) if on else (self.attr_extra & ~OVERLAY)
+
+    def colours(self, bg: int, mc1: int, mc2: int) -> list[int | None]:
+        """24 x 21 palette indices, one per hires pixel, None where the sprite is transparent."""
+        out: list[int | None] = []
+        for r in self.rows:
+            if self.multi:
+                cols = (None, mc1, self.colour, mc2)
+                for x in range(12):
+                    c = cols[(r >> (22 - 2 * x)) & 3]
+                    out += (c, c)
+            else:
+                out += [self.colour if (r >> (23 - x)) & 1 else None for x in range(24)]
+        return out
 
     @property
     def attribute(self) -> int:
@@ -101,6 +124,24 @@ class SpriteSet:
     # animations), written back unchanged.
     spd_version: int = 1
     spd_extra: bytes = b""
+
+    def overlay_of(self, i: int) -> Sprite | None:
+        """The sprite drawn over sprite i: the next one, when i has "overlay next" set."""
+        if self.sprites[i].overlay and i + 1 < len(self.sprites):
+            return self.sprites[i + 1]
+        return None
+
+    def composite(self, i: int) -> list[int]:
+        """Sprite i as it looks on screen over the background, 24 x 21 palette indices, with the next
+        sprite drawn over it when i overlays it."""
+        cols = [self.background if c is None else c
+                for c in self.sprites[i].colours(self.background, self.mcolour1, self.mcolour2)]
+        top = self.overlay_of(i)
+        if top is not None:
+            for k, c in enumerate(top.colours(self.background, self.mcolour1, self.mcolour2)):
+                if c is not None:
+                    cols[k] = c
+        return cols
 
     def to_bin(self, pad_to_64: bool = True, attribute_bytes: bool | None = None) -> bytes:
         attrs = self.attribute_bytes if attribute_bytes is None else attribute_bytes

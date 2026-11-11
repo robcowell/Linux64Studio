@@ -12,8 +12,8 @@ from ..gfx.sprite import HEIGHT, Sprite, SpriteSet  # noqa: E402
 from ..gfx.spritepad import load_spd, save_spd  # noqa: E402
 from .editor import EditorPage  # noqa: E402
 from .exports import ExportLinks  # noqa: E402
-from .render import paint_scaled, render_sprite  # noqa: E402
-from .widgets import ColourButton, PixelCanvas  # noqa: E402
+from .render import Bitmap, paint_scaled  # noqa: E402
+from .widgets import ColourButton, PixelCanvas, set_rgb  # noqa: E402
 
 
 class SpriteEditor(EditorPage):
@@ -130,6 +130,7 @@ class SpriteEditor(EditorPage):
         self.canvas.connect("stroke-begin", lambda *_: self._push_undo())
         self.canvas.connect("hover", self._hover)
         self.canvas.colour_at = self._colour_at
+        self.canvas.extra_draw = self._draw_overlay
         frame = Gtk.Frame(child=self.canvas, margin_start=6, margin_end=6, margin_top=6, margin_bottom=6)
         centre.set_start_child(frame)
         centre.set_resize_end_child(False)
@@ -149,6 +150,11 @@ class SpriteEditor(EditorPage):
         row.append(self.expx)
         row.append(self.expy)
         side.append(row)
+        self.overlay = Gtk.CheckButton(label="Overlay next sprite", tooltip_text=(
+            "Draw the next sprite over this one, as a second hardware sprite on top: say hires outlines "
+            "over a multicolour fill. Saved in SpritePad files (attribute bit 4)."))
+        self.overlay.connect("toggled", self._overlay_toggled)
+        side.append(self.overlay)
 
         side.append(Gtk.Label(label="<b>Pen</b> (left draw, right erase)", use_markup=True, xalign=0))
         grid = Gtk.Grid(row_spacing=4, column_spacing=6)
@@ -211,9 +217,13 @@ class SpriteEditor(EditorPage):
     def _draw_thumb(self, _da, cr, w, h, i):
         if i >= len(self.data.sprites):
             return
-        s = self.data.sprites[i]
-        bm = render_sprite(s.rows, s.multi, s.colour, self.data.background, self.data.mcolour1, self.data.mcolour2)
-        paint_scaled(cr, bm.surface(), 0, 0, w / 24, h / 21)
+        paint_scaled(cr, self._bitmap(i).surface(), 0, 0, w / 24, h / 21)
+
+    def _bitmap(self, i: int) -> Bitmap:
+        """Sprite i as on screen, with the next sprite over it when it overlays it."""
+        bm = Bitmap(24, HEIGHT)
+        bm.pixels[:] = bytes(self.data.composite(i))
+        return bm
 
     def _row_selected(self, _lb, row):
         if row is not None and row.get_index() != self.index:
@@ -229,6 +239,8 @@ class SpriteEditor(EditorPage):
         self.multi.set_active(s.multi)
         self.expx.set_active(s.expand_x)
         self.expy.set_active(s.expand_y)
+        self.overlay.set_active(s.overlay)
+        self.overlay.set_sensitive(s.overlay or self.index + 1 < len(self.data.sprites))
         self.colour_buttons["background"].colour = self.data.background
         self.colour_buttons["mcolour1"].colour = self.data.mcolour1
         self.colour_buttons["mcolour2"].colour = self.data.mcolour2
@@ -288,6 +300,39 @@ class SpriteEditor(EditorPage):
         setattr(self.sprite, attr, value)
         self._changed()
 
+    def _overlay_toggled(self, btn):
+        if getattr(self, "_updating", False):
+            return
+        self._push_undo()
+        self.sprite.overlay = btn.get_active()
+        self._changed()
+
+    def _draw_overlay(self, cr, cw, ch, ox, oy):
+        """The next sprite over the one being edited, when it overlays it: as the C64 shows it."""
+        top = self.data.overlay_of(self.index)
+        if top is None:
+            return
+        pw = cw * self.canvas.cols / 24             # one hires pixel
+        cols = top.colours(self.data.background, self.data.mcolour1, self.data.mcolour2)
+        for y in range(HEIGHT):
+            for x in range(24):
+                c = cols[y * 24 + x]
+                if c is not None:
+                    set_rgb(cr, c)
+                    cr.rectangle(ox + x * pw, oy + y * ch, pw + 0.5, ch + 0.5)
+                    cr.fill()
+        # the grid again over the overlay, so cells stay readable
+        if self.canvas.grid and ch >= 6:
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.35)
+            cr.set_line_width(1)
+            for x in range(self.canvas.cols + 1):
+                cr.move_to(ox + x * cw + 0.5, oy)
+                cr.line_to(ox + x * cw + 0.5, oy + HEIGHT * ch)
+            for y in range(HEIGHT + 1):
+                cr.move_to(ox, oy + y * ch + 0.5)
+                cr.line_to(ox + self.canvas.cols * cw, oy + y * ch + 0.5)
+            cr.stroke()
+
     def _multi_toggled(self, btn):
         if getattr(self, "_updating", False):
             return
@@ -313,16 +358,16 @@ class SpriteEditor(EditorPage):
             child = self._pad_window.palette.get_child_at_index(self.index)
             if child:
                 child.get_child().queue_draw()
-        row = self.listbox.get_row_at_index(self.index)
-        if row:
-            box = row.get_child()
-            box.get_first_child().queue_draw()
+        for i in (self.index - 1, self.index):      # the sprite before may be overlaid by this one
+            row = self.listbox.get_row_at_index(i) if i >= 0 else None
+            if row:
+                row.get_child().get_first_child().queue_draw()
 
     def _draw_preview(self, _da, cr, w, h):
         idx = self._anim_frame if self._anim_source else self.index
         idx = min(idx, len(self.data.sprites) - 1)
         s = self.data.sprites[idx]
-        bm = render_sprite(s.rows, s.multi, s.colour, self.data.background, self.data.mcolour1, self.data.mcolour2)
+        bm = self._bitmap(idx)
         sx = (4 if s.expand_x else 2)
         sy = (4 if s.expand_y else 2)
         cr.set_source_rgb(0.2, 0.2, 0.2)

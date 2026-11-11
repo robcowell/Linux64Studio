@@ -86,6 +86,28 @@ def test_spd_v5_keeps_tiles_and_animations(tmp_path):
     assert out[20 + 63] == 0xA5 and out[-len(tail):] == tail and len(out) == len(raw) + 64
 
 
+def test_overlay_next_sprite(tmp_path):
+    """SpritePad's "overlay next": bit 4 of the attribute; the next sprite is drawn over this one."""
+    fill = Sprite(multi=True, colour=5)
+    for x in range(12):
+        fill.set(x, 0, 1)                    # row 0: multicolour 1 all along
+    outline = Sprite(colour=0)
+    outline.set(0, 0, 1)                     # one hires pixel of outline, top left
+    ss = SpriteSet([fill, outline], background=6, mcolour1=14, mcolour2=11)
+    assert ss.composite(0)[:3] == [14, 14, 14] and ss.composite(0)[24] == 6
+    fill.overlay = True
+    assert fill.attribute == 0x80 | 0x10 | 5
+    assert ss.composite(0)[:3] == [0, 14, 14]            # outline on top, transparent elsewhere
+    assert ss.composite(1)[:3] == [0, 6, 6]              # the overlay itself is drawn alone
+    outline.overlay = True                               # the last sprite has nothing to overlay
+    assert ss.overlay_of(1) is None
+    save_spd(ss, tmp_path / "o.spd")
+    back = load_spd(tmp_path / "o.spd")
+    assert back.sprites[0].overlay and back.composite(0) == ss.composite(0)
+    fill.overlay = False
+    assert fill.attribute == 0x85 and ss.composite(0)[0] == 14
+
+
 @pytest.mark.parametrize("version,hsize", [(2, 16), (3, 16), (4, 20)])
 def test_spd_v2_to_v4(tmp_path, version, hsize):
     header = bytearray(b"SPD") + bytes([version, 0]) + (1).to_bytes(2, "little") + bytes(6)
